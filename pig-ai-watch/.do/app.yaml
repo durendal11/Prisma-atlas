@@ -1,0 +1,80 @@
+# ════════════════════════════════════════════════════════════════
+#  PRISMA ATLAS — DigitalOcean App Platform Spec
+#  Deploy: doctl apps create --spec .do/app.yaml
+#  Docs:   https://docs.digitalocean.com/products/app-platform/reference/app-spec/
+# ════════════════════════════════════════════════════════════════
+
+name: prisma-atlas
+
+region: sgp  # Singapore — closest to PH farms.  Change as needed.
+
+# ── Managed PostgreSQL ─────────────────────────────────────────
+databases:
+  - engine: PG
+    name: db
+    num_nodes: 1
+    size: db-s-dev-database   # $0 during dev, upgrade later
+    version: "16"
+
+# ── Services ───────────────────────────────────────────────────
+services:
+  # ── FastAPI Backend ──────────────────────────────────────────
+  - name: backend
+    source_dir: pig-ai-watch/backend
+    dockerfile_path: Dockerfile
+    instance_count: 1
+    instance_size_slug: professional-xs   # 1 vCPU / 1 GB
+    http_port: 8000
+
+    envs:
+      - key: DATABASE_URL
+        scope: RUN_TIME
+        value: ${db.DATABASE_URL}
+      - key: DATABASE_URL_SYNC
+        scope: RUN_TIME
+        value: ${db.DATABASE_URL}  # App Platform injects asyncpg-compatible URL
+      - key: SECRET_KEY
+        scope: RUN_TIME
+        type: SECRET
+        value: REPLACE_ME_WITH_A_LONG_RANDOM_STRING
+      - key: EDGE_API_KEY
+        scope: RUN_TIME
+        type: SECRET
+        value: REPLACE_ME_WITH_EDGE_SECRET
+      - key: LOCAL_CAMERAS_ENABLED
+        scope: RUN_TIME
+        value: "false"
+      - key: DEBUG
+        scope: RUN_TIME
+        value: "false"
+      - key: CORS_ORIGINS
+        scope: RUN_TIME
+        value: '["https://${APP_DOMAIN}"]'
+
+    health_check:
+      http_path: /health
+      initial_delay_seconds: 30
+      period_seconds: 30
+
+    routes:
+      - path: /api
+      - path: /ws
+      - path: /health
+
+  # ── React Frontend (static site) ────────────────────────────
+static_sites:
+  - name: frontend
+    source_dir: pig-ai-watch/frontend
+    build_command: pnpm install --frozen-lockfile && pnpm run build
+    output_dir: dist
+    environment_slug: node-js
+
+    envs:
+      - key: VITE_API_URL
+        scope: BUILD_TIME
+        value: ""   # empty → use relative /api paths (same domain)
+
+    routes:
+      - path: /
+
+    catchall_document: index.html   # SPA routing

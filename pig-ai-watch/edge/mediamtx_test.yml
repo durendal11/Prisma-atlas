@@ -1,0 +1,57 @@
+# MediaMTX — RTSP test server for local development
+# Streams a video file (or webcam) as RTSP so you can test without a real IP camera.
+#
+# Usage:
+#   # with a video file:
+#   RTSP_SOURCE=/path/to/video.mp4 mediamtx pig-ai-watch/edge/mediamtx_test.yml
+#
+#   # with built-in Mac webcam (FaceTime HD):
+#   RTSP_SOURCE=avfoundation://0 mediamtx pig-ai-watch/edge/mediamtx_test.yml
+#
+# Then set in edge/.env:
+#   CAMERA_PEN_1=rtsp://localhost:8554/pen-1
+#
+# Or run cam_push.py:
+#   python cam_push.py --device rtsp://localhost:8554/pen-1
+
+api: no
+
+rtspAddress: :8554
+rtspTransports: [tcp]
+
+# Disable unused servers
+hlsAddress: :8888
+hlsAlwaysRemux: no
+webrtcAddress: :8889
+
+logLevel: info
+logDestinations: [stdout]
+
+paths:
+  # pen-1: loop any video file via ffmpeg
+  pen-1:
+    source: publisher
+    runOnInit: >-
+      ffmpeg
+      -re
+      -stream_loop -1
+      -i "${RTSP_SOURCE}"
+      -c:v libx264 -preset ultrafast -tune zerolatency
+      -c:a aac
+      -f rtsp
+      rtsp://localhost:8554/pen-1
+    runOnInitRestart: yes
+
+  # pen-2: loop same source as a second pen (for multi-pen testing)
+  pen-2:
+    source: publisher
+    runOnInit: >-
+      ffmpeg
+      -re
+      -stream_loop -1
+      -i "${RTSP_SOURCE}"
+      -c:v libx264 -preset ultrafast -tune zerolatency
+      -c:a aac
+      -f rtsp
+      rtsp://localhost:8554/pen-2
+    runOnInitRestart: yes

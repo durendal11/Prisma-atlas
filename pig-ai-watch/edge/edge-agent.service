@@ -1,0 +1,16 @@
+[Unit]
+Description=PRISMA ATLAS Edge Agent (Pig AI Watch)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/prisma-atlas/pig-ai-watch/edge
+ExecStart=/home/pi/prisma-atlas/.venv/bin/python agent.py
+Restart=always
+RestartSec=10
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

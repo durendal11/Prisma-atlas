@@ -1,0 +1,29 @@
+# MediaMTX Configuration for PrismaAtlas Camera Proxy
+# Proxies RTSP cameras to localhost — one connection to camera, many local readers.
+# Backend connects to rtsp://127.0.0.1:8554/pen_X instead of hitting camera directly.
+
+# API (for health checks / stream list)
+api: yes
+apiAddress: 127.0.0.1:9997
+
+# RTSP server settings
+rtspAddress: :8554
+rtspTransports: [tcp]
+
+# HLS for future mobile/browser access (no special app needed)
+hlsAddress: :8888
+hlsAlwaysRemux: yes
+
+# WebRTC for ultra-low-latency browser streaming (future)
+webrtcAddress: :8889
+
+# Paths — managed dynamically by the backend via MediaMTX REST API.
+# When you add a camera in the UI, the backend auto-registers it here.
+# No need to manually edit this file for camera paths.
+paths:
+  # Catch-all: allow any path name (backend creates pen_X paths dynamically)
+  all_others:
+
+# Logging
+logLevel: info
+logDestinations: [stdout]

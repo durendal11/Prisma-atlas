@@ -1,0 +1,12 @@
+node_modules/
+.venv/
+*.pt
+*.onnx
+.env
+.env.*
+__pycache__/
+build/
+dist/
+frontend-dist/
+node_modules/
+.DS_Store

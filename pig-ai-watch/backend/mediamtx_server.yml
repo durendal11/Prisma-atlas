@@ -1,0 +1,14 @@
+# MediaMTX Server Configuration (Receive only)
+# Accepts incoming streams from ffmpeg
+
+api: yes
+apiAddress: 127.0.0.1:9997
+
+rtspAddress: :8554
+
+# Logging
+logLevel: info
+logDestinations: [stdout]
+
+# Empty paths - streams will be published to MediaMTX
+paths: {}

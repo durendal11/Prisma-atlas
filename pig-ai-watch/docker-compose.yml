@@ -1,0 +1,95 @@
+version: '3.8'
+
+# ════════════════════════════════════════════════════════════════
+#  PRISMA ATLAS — Pig AI Watch  (Docker Compose)
+#  Run: docker compose up --build
+#  UI:  http://localhost:3000  |  API: http://localhost:8000
+# ════════════════════════════════════════════════════════════════
+
+services:
+  # ── PostgreSQL Database ────────────────────────────────────────
+  db:
+    image: postgres:15-alpine
+    container_name: pig-ai-watch-db
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-pig_ai_watch}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # ── FastAPI Backend ────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: pig-ai-watch-backend
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-pig_ai_watch}
+      - DATABASE_URL_SYNC=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-pig_ai_watch}
+      - SECRET_KEY=${SECRET_KEY:-change-me-in-production}
+      - DEBUG=${DEBUG:-false}
+      - CORS_ORIGINS=["http://localhost:3000","http://localhost:5173","http://127.0.0.1:3000"]
+      # Camera env vars are forwarded from .env automatically via env_file
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./backend/models:/app/models
+      - model_cache:/root/.cache    # cache downloaded YOLO weights
+    restart: unless-stopped
+
+  # ── React Frontend / Dashboard (nginx) ──────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ""   # empty → nginx proxies /api to backend
+    container_name: pig-ai-watch-frontend
+    ports:
+      - "${FRONTEND_PORT:-3000}:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  # ── Seed runner (one-shot) — runs migrations + seeds, then exits
+  seed:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: pig-ai-watch-seed
+    env_file:
+      - .env
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-pig_ai_watch}
+      - DATABASE_URL_SYNC=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-pig_ai_watch}
+    depends_on:
+      db:
+        condition: service_healthy
+    entrypoint: >
+      sh -c "
+        python -m alembic upgrade head &&
+        python seed_admin.py &&
+        python seed_pens.py &&
+        echo '✅ Database seeded successfully'
+      "
+    restart: "no"
+    profiles:
+      - seed          # Only runs when: docker compose --profile seed up seed
+
+volumes:
+  postgres_data:
+  model_cache:
