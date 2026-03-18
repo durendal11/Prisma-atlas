@@ -138,14 +138,6 @@ const CAMERA_BRANDS: CameraBrand[] = [
     notes: 'Generic ONVIF-compatible camera. RTSP path may vary — check manufacturer docs.',
   },
   {
-    name: 'Edge Node Stream',
-    logo: '☁️',
-    supportsRTSP: true,
-    rtspTemplate: 'rtsp://mediamtx:8554/{rtspPath}',
-    defaultPort: 8554,
-    notes: 'Receives video pushed over the internet from an Edge Worker on the farm network.',
-  },
-  {
     name: 'Other / Custom',
     logo: '🎥',
     supportsRTSP: true,
@@ -162,9 +154,6 @@ function generateId() {
 }
 
 function buildRtspUrl(config: CameraConfig): string {
-  if (config.brand === 'Other / Custom' && config.rtspUrl) {
-    return config.rtspUrl;
-  }
   const brand = CAMERA_BRANDS.find(b => b.name === config.brand);
   if (!brand || !brand.rtspTemplate) return config.rtspUrl;
 
@@ -172,8 +161,7 @@ function buildRtspUrl(config: CameraConfig): string {
     .replace('{username}', config.username || 'admin')
     .replace('{password}', config.password || 'password')
     .replace('{ip}', config.ipAddress || '192.168.1.100')
-    .replace('{port}', String(config.port || 554))
-    .replace('{rtspPath}', config.rtspPath || 'pen_1');
+    .replace('{port}', String(config.port || 554));
 }
 
 function createEmptyConfig(pen?: Pen): CameraConfig {
@@ -320,12 +308,11 @@ export default function CameraSetupPage() {
   const prevStep = () => setCurrentStep(s => Math.max(s - 1, 1));
 
   const canProceed = (): boolean => {
-    const isEdgeOrCustom = activeCamera.brand === 'Edge Node Stream' || activeCamera.brand === 'Other / Custom';
     switch (currentStep) {
       case 1: return activeCamera.brand !== '';
       case 2: return activeCamera.supportsRTSP;
-      case 3: return isEdgeOrCustom || (activeCamera.username !== '' && activeCamera.password !== '');
-      case 4: return isEdgeOrCustom || activeCamera.ipAddress !== '';
+      case 3: return activeCamera.username !== '' && activeCamera.password !== '';
+      case 4: return activeCamera.ipAddress !== '';
       case 5: return activeCamera.penId !== null;
       case 6: return true;
       default: return false;
@@ -337,9 +324,7 @@ export default function CameraSetupPage() {
     const rtspUrl = buildRtspUrl(activeCamera);
     updateCamera({ rtspUrl: rtspUrl });
 
-    // Validate if it's not custom/edge streams
-    const isEdgeOrCustom = activeCamera.brand === 'Edge Node Stream' || activeCamera.brand === 'Other / Custom';
-    if (!isEdgeOrCustom && (!activeCamera.ipAddress || !activeCamera.username || !activeCamera.password)) {
+    if (!activeCamera.ipAddress || !activeCamera.username || !activeCamera.password) {
       updateCamera({ connectionStatus: 'failed' });
       toast.error('Please fill in IP address, username, and password first.');
       return;
@@ -654,38 +639,7 @@ export default function CameraSetupPage() {
 
   // ─── Step 3: Camera Account Setup ─────────────────────────────────────────
 
-  const renderStep3 = () => {
-    if (activeCamera.brand === 'Edge Node Stream') {
-      return (
-        <div className="space-y-6 animate-fade-in">
-          <div>
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">
-              Edge Stream Path Setup
-            </h3>
-            <p className="text-sm text-gray-500 dark:text-slate-400">
-              Specify the stream path for your edge node stream (e.g. pen_1).
-            </p>
-          </div>
-          <div className="bg-white dark:bg-slate-800/50 rounded-xl border border-gray-200 dark:border-slate-700/50 p-5">
-            <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">
-              Stream Path <span className="text-red-500">*</span>
-            </label>
-            <input
-              type="text"
-              value={activeCamera.rtspPath}
-              onChange={e => updateCamera({ rtspPath: e.target.value })}
-              placeholder="pen_1"
-              className="w-full px-4 py-2.5 rounded-lg border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-slate-500 focus:ring-2 focus:ring-primary-500 transition-all"
-            />
-            <p className="text-xs text-gray-500 mt-2">
-              Make sure this matches the path your edge worker pushes to (e.g. rtsp://&lt;cloud-ip&gt;:8554/<strong>pen_1</strong>).
-            </p>
-          </div>
-        </div>
-      );
-    }
-    
-    return (
+  const renderStep3 = () => (
     <div className="space-y-6 animate-fade-in">
       <div>
         <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">
@@ -765,36 +719,10 @@ export default function CameraSetupPage() {
       </div>
     </div>
   );
-  };
 
   // ─── Step 4: Network / Static IP Setup ────────────────────────────────────
 
-  const renderStep4 = () => {
-    if (activeCamera.brand === 'Edge Node Stream') {
-      return (
-        <div className="space-y-6 animate-fade-in">
-          <div>
-            <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">
-              Network Configuration
-            </h3>
-            <p className="text-sm text-gray-500 dark:text-slate-400">
-              For an Edge Node Stream, static IP configurations are managed by the edge worker on your farm network. No IP setup is needed here.
-            </p>
-          </div>
-          <div className="bg-white dark:bg-slate-800/50 rounded-xl border border-blue-200 dark:border-blue-800/50 p-5 bg-blue-50 dark:bg-blue-900/20">
-            <div className="flex items-center gap-2 mb-2">
-              <Globe className="h-5 w-5 text-blue-500" />
-              <h4 className="font-medium text-blue-800 dark:text-blue-300">Cloud Proxy Ready</h4>
-            </div>
-            <p className="text-sm text-blue-700 dark:text-blue-400">
-              The camera stream will be directly received through the internal MediaMTX proxy running on this cloud server. Click next to continue.
-            </p>
-          </div>
-        </div>
-      );
-    }
-
-    return (
+  const renderStep4 = () => (
     <div className="space-y-6 animate-fade-in">
       <div>
         <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-1">
@@ -925,7 +853,6 @@ export default function CameraSetupPage() {
       )}
     </div>
   );
-  };
 
   // ─── Step 5: Connect to Pen ───────────────────────────────────────────────
 
