@@ -1,7 +1,11 @@
 from datetime import datetime, timedelta
 from typing import Optional
+import logging
+
+import bcrypt
 from jose import JWTError, jwt
 from passlib.context import CryptContext
+from passlib.exc import UnknownHashError
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -13,10 +17,26 @@ from app.models.user import User
 # Use argon2 for Python 3.13 compatibility (bcrypt has issues)
 pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
+logger = logging.getLogger(__name__)
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return pwd_context.verify(plain_password, hashed_password)
+    if not plain_password or not hashed_password:
+        return False
+
+    # Backward compatibility for legacy bcrypt hashes while keeping argon2 as default.
+    if hashed_password.startswith(("$2a$", "$2b$", "$2y$")):
+        try:
+            return bcrypt.checkpw(plain_password.encode("utf-8"), hashed_password.encode("utf-8"))
+        except Exception:
+            logger.exception("Failed to verify legacy bcrypt password hash")
+            return False
+
+    try:
+        return pwd_context.verify(plain_password, hashed_password)
+    except (UnknownHashError, ValueError, TypeError):
+        logger.warning("Unsupported or malformed password hash encountered during login")
+        return False
 
 
 def get_password_hash(password: str) -> str:
