@@ -59,6 +59,7 @@ Structure:
 4. Upcoming: sows due to farrow in next 48h
 5. Recommended tasks for today (max 3 bullets)
 
+Important: Do NOT use placeholders like [Farmer's Name]. Start directly, or use "Hello,".
 Ground recommendations in observable data only. Do not speculate.
 """
 
@@ -79,6 +80,7 @@ Structure:
 4. Upcoming: sows due to farrow in next 48h
 5. Recommended tasks (max 3 bullets)
 
+Important: Do NOT use placeholders like [Farmer's Name]. Start directly, or use "Hello,".
 Ground recommendations in observable data only. Do not speculate.
 """
 
@@ -94,6 +96,19 @@ Rules:
 
 Alert raw data:
 {alert_json}
+"""
+
+TASK_PUSH_PROMPT = """
+Convert these pen details and tasks into a concise push notification.
+Rules:
+- Title: max 50 chars, reference the pen and mention tasks/recommendations.
+- Body: max 100 chars, highlight unfinished tasks or recommended actions based on the data.
+- Tone: helpful and professional.
+- Do NOT use placeholders like [Farmer's Name].
+- Return ONLY valid JSON format.
+
+Pen/Task data:
+{task_json}
 """
 
 def _period_label(period_hours: int) -> str:
@@ -232,5 +247,43 @@ def generate_push_notification(alert_data: Dict[str, Any]) -> Dict[str, Any]:
             "error": str(e),
             "title": "System Alert",
             "body": "An event was detected, please check your dashboard.",
+            "sound": "default"
+        }
+
+def generate_task_push_notification(task_data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Generates push notification copy recommending tasks for a pen.
+    """
+    if not model:
+        return {
+            "title": "Task Reminder",
+            "body": "Check the dashboard for unfinished tasks.",
+            "sound": "default"
+        }
+
+    prompt = TASK_PUSH_PROMPT.replace("{task_json}", json.dumps(task_data))
+    try:
+        response = model.generate_content(
+            prompt,
+            generation_config=genai.types.GenerationConfig(
+                response_mime_type="application/json",
+                response_schema={
+                    "type": "object",
+                    "properties": {
+                        "title": {"type": "string"},
+                        "body": {"type": "string"},
+                        "sound": {"type": "string", "enum": ["default", "urgent"]}
+                    },
+                    "required": ["title", "body", "sound"]
+                }
+            )
+        )
+        return json.loads(response.text)
+    except Exception as e:
+        logger.error(f"Failed to generate task push notification text: {e}")
+        return {
+            "error": str(e),
+            "title": "Task Reminder",
+            "body": "You have upcoming or unfinished tasks pending.",
             "sound": "default"
         }

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Text, Boolean
+from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Text, Boolean, Time, JSON, UniqueConstraint
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.core.database import Base
@@ -339,3 +339,34 @@ class WorkflowRule(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
     task_template = relationship("TaskTemplate")
+
+
+class NotificationSubscription(Base):
+    __tablename__ = "notification_subscriptions"
+    __table_args__ = (
+        UniqueConstraint("user_id", "device_token", name="uq_notification_subscriptions_user_device"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    device_token = Column(Text, nullable=False)
+    platform = Column(String(20), default="electron", nullable=False)
+    pen_ids = Column(JSON, nullable=False, default=list)
+    quiet_start = Column(Time, nullable=True)
+    quiet_end = Column(Time, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())
+
+
+class NotificationLog(Base):
+    __tablename__ = "notification_log"
+
+    id = Column(Integer, primary_key=True, index=True)
+    pen_id = Column(Integer, nullable=True)
+    device_token = Column(Text, nullable=True)
+    alert_type = Column(String(50), nullable=True)
+    priority = Column(String(20), nullable=True)
+    push_title = Column(Text, nullable=True)
+    push_body = Column(Text, nullable=True)
+    sent_at = Column(DateTime(timezone=True), server_default=func.now())
+    delivered = Column(Boolean, default=False, nullable=False)

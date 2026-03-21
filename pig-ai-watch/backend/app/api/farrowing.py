@@ -650,11 +650,8 @@ async def get_pre_post_comparison(
         n = len(logs)
         return {
             "log_count": n,
-            "avg_health_score": round(sum(l.health_score or 0 for l in logs) / n, 1),
             "avg_crushing_risk": round(sum(l.crushing_risk or 0 for l in logs) / n, 3),
             "avg_piglet_count": round(sum(l.piglet_count or 0 for l in logs) / n, 1),
-            "nursing_pct": round(sum(1 for l in logs if l.is_nursing) / n * 100, 1),
-            "feeding_pct": round(sum(1 for l in logs if l.is_feeding) / n * 100, 1),
             "sleeping_pct": round(sum(1 for l in logs if l.is_sleeping) / n * 100, 1),
             "posture_distribution": _posture_distribution(logs),
             "movement_distribution": _movement_distribution(logs),
@@ -676,11 +673,8 @@ async def get_pre_post_comparison(
                 "timestamp": cursor.isoformat(),
                 "phase": phase,
                 "log_count": n,
-                "avg_health_score": round(sum(l.health_score or 0 for l in bucket_logs) / n, 1),
                 "avg_crushing_risk": round(sum(l.crushing_risk or 0 for l in bucket_logs) / n, 3),
                 "avg_piglet_count": round(sum(l.piglet_count or 0 for l in bucket_logs) / n, 1),
-                "nursing_pct": round(sum(1 for l in bucket_logs if l.is_nursing) / n * 100, 1),
-                "feeding_pct": round(sum(1 for l in bucket_logs if l.is_feeding) / n * 100, 1),
                 "sleeping_pct": round(sum(1 for l in bucket_logs if l.is_sleeping) / n * 100, 1),
             })
         else:
@@ -688,11 +682,8 @@ async def get_pre_post_comparison(
                 "timestamp": cursor.isoformat(),
                 "phase": phase,
                 "log_count": 0,
-                "avg_health_score": None,
                 "avg_crushing_risk": None,
                 "avg_piglet_count": None,
-                "nursing_pct": None,
-                "feeding_pct": None,
                 "sleeping_pct": None,
             })
 

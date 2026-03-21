@@ -3,6 +3,9 @@ import { useDetectionStore, useAlertStore, useSettingsStore } from '@/store';
 import type { DetectionWebSocket } from '@/types';
 import toast from 'react-hot-toast';
 import { createElement } from 'react';
+import { showNotification, type PushAlert } from '@/lib/notifications';
+
+const ALERT_DEDUPE_WINDOW_MS = 60_000;
 
 /* ── Rich alert popup for the upper-right corner ─────────────────── */
 function AlertPopup({ data, severity, t: toastInstance }: { data: any; severity: string; t: any }) {
@@ -47,8 +50,11 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
   const { penId = 'all', onDetection, onAlert } = options;
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<number>();
+  const flushRafRef = useRef<number | null>(null);
+  const incomingQueueRef = useRef<DetectionWebSocket[]>([]);
+  const seenAlertsRef = useRef<Map<string, number>>(new Map());
   const connectingRef = useRef(false);
-  const setDetection = useDetectionStore((state) => state.setDetection);
+  const setDetectionsBatch = useDetectionStore((state) => state.setDetectionsBatch);
   const addAlert = useAlertStore((state) => state.addAlert);
   const { notifications, soundEnabled } = useSettingsStore();
 
@@ -57,7 +63,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
   const onAlertRef = useRef(onAlert);
   const notificationsRef = useRef(notifications);
   const soundEnabledRef = useRef(soundEnabled);
-  const setDetectionRef = useRef(setDetection);
+  const setDetectionsBatchRef = useRef(setDetectionsBatch);
   const addAlertRef = useRef(addAlert);
 
   // Keep refs up to date without causing reconnection
@@ -65,8 +71,100 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
   useEffect(() => { onAlertRef.current = onAlert; }, [onAlert]);
   useEffect(() => { notificationsRef.current = notifications; }, [notifications]);
   useEffect(() => { soundEnabledRef.current = soundEnabled; }, [soundEnabled]);
-  useEffect(() => { setDetectionRef.current = setDetection; }, [setDetection]);
+  useEffect(() => { setDetectionsBatchRef.current = setDetectionsBatch; }, [setDetectionsBatch]);
   useEffect(() => { addAlertRef.current = addAlert; }, [addAlert]);
+
+  const getAlertKey = useCallback((alert: DetectionWebSocket) => {
+    const timestamp = alert.data?.timestamp || '';
+    const message = alert.data?.message || '';
+    return `${alert.pen_id}:${timestamp}:${message}`;
+  }, []);
+
+  const shouldNotifyAlert = useCallback((alert: DetectionWebSocket) => {
+    const now = Date.now();
+    const alertKey = getAlertKey(alert);
+
+    for (const [key, ts] of seenAlertsRef.current.entries()) {
+      if (now - ts > ALERT_DEDUPE_WINDOW_MS) {
+        seenAlertsRef.current.delete(key);
+      }
+    }
+
+    const lastSeen = seenAlertsRef.current.get(alertKey);
+    if (lastSeen && now - lastSeen < ALERT_DEDUPE_WINDOW_MS) {
+      return false;
+    }
+
+    seenAlertsRef.current.set(alertKey, now);
+    return true;
+  }, [getAlertKey]);
+
+  const flushQueue = useCallback(() => {
+    flushRafRef.current = null;
+    const queued = incomingQueueRef.current;
+    if (!queued.length) {
+      return;
+    }
+
+    const batch = queued.splice(0, queued.length);
+    const detections: DetectionWebSocket[] = [];
+
+    for (const message of batch) {
+      if (message.type === 'detection') {
+        detections.push(message);
+        onDetectionRef.current?.(message);
+        continue;
+      }
+
+      if (message.type === 'push_alert') {
+        showNotification({
+          pen_id: Number(message.pen_id),
+          priority: message.priority || 'ROUTINE',
+          push_title: message.push_title || 'Pig AI Alert',
+          push_body: message.push_body || 'New alert',
+          alert_type: message.alert_type || 'system',
+          timestamp: message.timestamp,
+        } as PushAlert).catch(() => {});
+        onAlertRef.current?.(message);
+        continue;
+      }
+
+      if (message.type !== 'alert') {
+        continue;
+      }
+
+      if (notificationsRef.current && shouldNotifyAlert(message)) {
+        const severity = message.data.severity || 'medium';
+
+        toast.custom(
+          (t) => createElement(AlertPopup, { data: message.data, severity, t }),
+          { duration: severity === 'critical' ? 8000 : 5000 },
+        );
+
+        if (soundEnabledRef.current && severity === 'critical') {
+          const audio = new Audio('/alert-sound.mp3');
+          audio.play().catch(() => {});
+        }
+      }
+
+      onAlertRef.current?.(message);
+    }
+
+    if (detections.length) {
+      setDetectionsBatchRef.current(detections);
+    }
+
+    if (incomingQueueRef.current.length && flushRafRef.current === null) {
+      flushRafRef.current = window.requestAnimationFrame(flushQueue);
+    }
+  }, [shouldNotifyAlert]);
+
+  const queueIncomingMessage = useCallback((message: DetectionWebSocket) => {
+    incomingQueueRef.current.push(message);
+    if (flushRafRef.current === null) {
+      flushRafRef.current = window.requestAnimationFrame(flushQueue);
+    }
+  }, [flushQueue]);
 
   const connect = useCallback(() => {
     // Prevent duplicate connections
@@ -96,29 +194,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
     wsRef.current.onmessage = (event) => {
       try {
         const data: DetectionWebSocket = JSON.parse(event.data);
-
-        if (data.type === 'detection') {
-          setDetectionRef.current(data.pen_id, data);
-          onDetectionRef.current?.(data);
-        } else if (data.type === 'alert') {
-          // Show rich popup notification for alerts in upper-right corner
-          if (notificationsRef.current) {
-            const severity = data.data.severity || 'medium';
-
-            toast.custom(
-              (t) => createElement(AlertPopup, { data: data.data, severity, t }),
-              { duration: severity === 'critical' ? 8000 : 5000 }
-            );
-
-            // Play sound for critical alerts
-            if (soundEnabledRef.current && severity === 'critical') {
-              const audio = new Audio('/alert-sound.mp3');
-              audio.play().catch(() => {});
-            }
-          }
-
-          onAlertRef.current?.(data);
-        }
+        queueIncomingMessage(data);
       } catch (error) {
         console.error('Failed to parse WebSocket message:', error);
       }
@@ -134,7 +210,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
       console.error('WebSocket error:', error);
       connectingRef.current = false;
     };
-  }, [penId]); // Only reconnect when penId changes
+  }, [penId, queueIncomingMessage]); // Only reconnect when penId changes
 
   const sendMessage = useCallback((message: object) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -146,6 +222,11 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
     if (reconnectTimeoutRef.current) {
       clearTimeout(reconnectTimeoutRef.current);
     }
+    if (flushRafRef.current !== null) {
+      cancelAnimationFrame(flushRafRef.current);
+      flushRafRef.current = null;
+    }
+    incomingQueueRef.current = [];
     if (wsRef.current) {
       wsRef.current.onclose = null; // Prevent auto-reconnect on intentional close
       wsRef.current.close();

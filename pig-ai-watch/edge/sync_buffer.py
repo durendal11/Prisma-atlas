@@ -28,10 +28,15 @@ class SyncBuffer:
     # ── private helpers ──────────────────────────────────────────
 
     def _conn(self) -> sqlite3.Connection:
-        return sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path, timeout=3)
+        conn.execute("PRAGMA busy_timeout = 3000")
+        return conn
 
     def _init_db(self):
         with self._conn() as conn:
+            conn.execute("PRAGMA journal_mode = WAL")
+            conn.execute("PRAGMA synchronous = NORMAL")
+            conn.execute("PRAGMA wal_autocheckpoint = 100")
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS buffer (
                     id        INTEGER PRIMARY KEY AUTOINCREMENT,

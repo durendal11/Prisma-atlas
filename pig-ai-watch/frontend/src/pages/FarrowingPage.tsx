@@ -125,11 +125,8 @@ export default function FarrowingPage() {
       .map(p => ({
         time: new Date(p.timestamp).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit' }),
         phase: p.phase,
-        health: p.avg_health_score,
         risk: p.avg_crushing_risk != null ? +(p.avg_crushing_risk * 100).toFixed(1) : null,
         piglets: p.avg_piglet_count,
-        nursing: p.nursing_pct,
-        feeding: p.feeding_pct,
         sleeping: p.sleeping_pct,
         // Restlessness estimate: inverse of sleeping % clamped to 0-100
         restlessness: p.sleeping_pct != null ? Math.min(100, Math.max(0, Math.round(100 - (p.sleeping_pct ?? 0)))) : null,
@@ -524,8 +521,6 @@ export default function FarrowingPage() {
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
               {(() => {
                 const metrics = [
-                  { label: 'Health Score', pre: comparison.pre.avg_health_score, post: comparison.post.avg_health_score, suffix: '', better: 'higher' as const },
-                  { label: 'Nursing %', pre: comparison.pre.nursing_pct, post: comparison.post.nursing_pct, suffix: '%', better: 'higher' as const },
                   { label: 'Crushing Risk', pre: +(comparison.pre.avg_crushing_risk * 100).toFixed(1), post: +(comparison.post.avg_crushing_risk * 100).toFixed(1), suffix: '%', better: 'lower' as const },
                   { label: 'Piglet Count', pre: comparison.pre.avg_piglet_count, post: comparison.post.avg_piglet_count, suffix: '', better: 'higher' as const },
                 ];
@@ -558,8 +553,6 @@ export default function FarrowingPage() {
                 <ResponsiveContainer width="100%" height={200}>
                   <BarChart
                     data={[
-                      { name: 'Nursing', pre: comparison.pre.nursing_pct, post: comparison.post.nursing_pct },
-                      { name: 'Feeding', pre: comparison.pre.feeding_pct, post: comparison.post.feeding_pct },
                       { name: 'Sleeping', pre: comparison.pre.sleeping_pct, post: comparison.post.sleeping_pct },
                     ]}
                     layout="vertical"

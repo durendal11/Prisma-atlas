@@ -1,9 +1,10 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, useNavigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'react-hot-toast';
 import { Suspense, lazy, useEffect } from 'react';
 import { Layout, ProtectedRoute } from '@/components';
 import { useAuthStore } from '@/store';
+import { requestNotificationPermission } from '@/lib/notifications';
 
 // ── Lazy-loaded pages (code splitting) ──────────────────────────────────────
 const LandingPage = lazy(() => import('@/pages/LandingPage'));
@@ -66,11 +67,39 @@ function TokenHandler() {
   return null;
 }
 
+function NotificationBootstrap() {
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    requestNotificationPermission().catch(() => {});
+
+    const handler = (event: Event) => {
+      const customEvent = event as CustomEvent<{ penId?: number | string }>;
+      const penIdRaw = customEvent.detail?.penId;
+      if (penIdRaw === undefined || penIdRaw === null) {
+        return;
+      }
+      const penId = Number(penIdRaw);
+      if (!Number.isNaN(penId)) {
+        navigate(`/pen/${penId}`);
+      }
+    };
+
+    window.addEventListener('push-alert-open-pen', handler as EventListener);
+    return () => {
+      window.removeEventListener('push-alert-open-pen', handler as EventListener);
+    };
+  }, [navigate]);
+
+  return null;
+}
+
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <BrowserRouter>
         <TokenHandler />
+        <NotificationBootstrap />
         <Suspense fallback={<div className="flex items-center justify-center h-screen"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500" /></div>}>
         <Routes>
           <Route path="/welcome" element={<LandingPage />} />

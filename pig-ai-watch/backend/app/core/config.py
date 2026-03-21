@@ -103,5 +103,10 @@ class Settings(BaseSettings):
     EDGE_API_KEY: Optional[str] = None
     LOCAL_CAMERAS_ENABLED: bool = True  # False when cameras are on Pi edge device
 
+    # LLM + Push notification settings
+    ANTHROPIC_API_KEY: Optional[str] = None
+    FCM_PROJECT_ID: Optional[str] = None
+    FCM_SERVICE_ACCOUNT_JSON: Optional[str] = None
+
 
 settings = Settings()

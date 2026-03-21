@@ -90,6 +90,18 @@ services:
     profiles:
       - seed          # Only runs when: docker compose --profile seed up seed
 
+  # ── MediaMTX (RTSP Proxy) ──────────────────────────────────────
+  mediamtx:
+    image: bluenviron/mediamtx:1.9.3
+    container_name: pig-ai-watch-mediamtx
+    ports:
+      - "8554:8554"   # RTSP
+      - "8888:8888"   # HLS
+      - "8889:8889"   # WebRTC
+      - "8001:8000"   # API (mapped to 8001 to avoid FastAPI conflict)
+      - "9997:9997"   # Metrics
+    restart: unless-stopped
+
 volumes:
   postgres_data:
   model_cache:

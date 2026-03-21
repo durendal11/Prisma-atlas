@@ -122,9 +122,9 @@ export interface Detection {
 }
 
 export interface DetectionWebSocket {
-  type: 'detection' | 'alert';
-  pen_id: string;
-  data: {
+  type: 'detection' | 'alert' | 'push_alert';
+  pen_id: string | number;
+  data?: {
     piglet_count: number;
     posture: string;
     risk_level: number;
@@ -135,6 +135,11 @@ export interface DetectionWebSocket {
     severity?: string;
     message?: string;
   };
+  priority?: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'ROUTINE' | string;
+  alert_type?: string;
+  push_title?: string;
+  push_body?: string;
+  timestamp?: string;
 }
 
 // Pen interface
@@ -161,10 +166,8 @@ export interface PenStatus {
 // Dashboard stats
 export interface DashboardStats {
   total_sows: number;
-  lactating_sows: number;
   total_piglets: number;
   active_alerts: number;
-  critical_alerts: number;
   pens_monitored: number;
 }
 

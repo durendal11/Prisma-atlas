@@ -386,36 +386,43 @@ class ONNXDetector {
     const alerts: ProximityAlert[] = [];
     if (sows.length === 0 || piglets.length === 0) return alerts;
 
+    const inputSize = 640;
+
     sows.forEach((sow, sowIndex) => {
-      // Use edge-to-edge gap instead of center-to-center distance.
-      // This prevents false positives when the sow bbox is large —
-      // piglets visually far away won't be flagged just because
-      // center-to-center distance falls within a huge radius.
       const sowW = sow.bbox[2] - sow.bbox[0];
       const sowH = sow.bbox[3] - sow.bbox[1];
+      const sowWidthNorm = sowW / inputSize;
+      const sowHeightNorm = sowH / inputSize;
+      const halfDangerW = sowWidthNorm * 0.25;
+      const halfDangerH = sowHeightNorm * 0.25;
+      const halfWarningW = halfDangerW * 1.6;
+      const halfWarningH = halfDangerH * 1.6;
+
+      const sowXNorm = sow.centerX / inputSize;
+      const sowYNorm = sow.centerY / inputSize;
 
       piglets.forEach((piglet, pigletIndex) => {
-        const pigletW = piglet.bbox[2] - piglet.bbox[0];
-        const pigletH = piglet.bbox[3] - piglet.bbox[1];
-        const pigletSize = Math.max(pigletW, pigletH);
+        const pigletXNorm = piglet.centerX / inputSize;
+        const pigletYNorm = piglet.centerY / inputSize;
+        const dx = Math.abs(pigletXNorm - sowXNorm);
+        const dy = Math.abs(pigletYNorm - sowYNorm);
 
-        // Compute edge-to-edge gap (0 if overlapping, positive if separated)
-        const gapX = Math.max(0, Math.abs(sow.centerX - piglet.centerX) - (sowW + pigletW) / 2);
-        const gapY = Math.max(0, Math.abs(sow.centerY - piglet.centerY) - (sowH + pigletH) / 2);
-        const edgeGap = Math.sqrt(gapX * gapX + gapY * gapY);
+        const inDangerZone = dx <= halfDangerW && dy <= halfDangerH;
+        const inWarningZone = dx <= halfWarningW && dy <= halfWarningH;
 
-        // Tight proximity zones — only flag piglets genuinely close to the sow:
-        // HIGH RISK: overlapping or nearly touching (edge gap < 0.3 piglet-lengths)
-        // NEAR: close but not touching (edge gap < 1.0 piglet-length)
-        // SAFE: anything farther — no alert
-        const highRiskZone = pigletSize * 0.3;
-        const nearZone = pigletSize * 1.0;
+        if (inDangerZone || inWarningZone) {
+          let riskContribution = 0;
+          if (inDangerZone) {
+            riskContribution = 0.3;
+          } else {
+            const dxRatio = halfWarningW > 0 ? dx / halfWarningW : 1;
+            const dyRatio = halfWarningH > 0 ? dy / halfWarningH : 1;
+            const normalizedDist = Math.sqrt(dxRatio * dxRatio + dyRatio * dyRatio);
+            riskContribution = Math.max(0, 0.15 * (1 - normalizedDist));
+          }
 
-        if (edgeGap < nearZone) {
-          const riskContribution = edgeGap < highRiskZone
-            ? 0.3
-            : 0.15 * (1 - (edgeGap - highRiskZone) / (nearZone - highRiskZone));
-          alerts.push({ pigletIndex, sowIndex, distance: edgeGap, riskContribution });
+          const distance = Math.sqrt(dx * dx + dy * dy);
+          alerts.push({ pigletIndex, sowIndex, distance, riskContribution });
         }
       });
     });

@@ -324,7 +324,14 @@ export default function TestPenPage() {
       fpsHistoryRef.current = fpsHistoryRef.current.filter((t) => now - t < 1000);
       setFps(fpsHistoryRef.current.length);
       if (result.behaviorSummary) {
-        behaviorLogger.updateBehavior(result.behaviorSummary, result.totalPigCount, result.analytics.avgConfidence, result.analytics.detectionDensity, result.analytics.movementEstimate);
+        behaviorLogger.updateBehavior(
+          result.behaviorSummary,
+          result.totalPigCount,
+          result.analytics.avgConfidence,
+          result.analytics.detectionDensity,
+          result.analytics.movementEstimate,
+          result.detections,
+        );
       }
       // Feed simulation engine
       simulationEngine.processFrame(result, video.currentTime);
@@ -383,7 +390,14 @@ export default function TestPenPage() {
       setDetection(result);
       updateResult(result);
       if (result.behaviorSummary) {
-        behaviorLogger.updateBehavior(result.behaviorSummary, result.totalPigCount, result.analytics.avgConfidence, result.analytics.detectionDensity, result.analytics.movementEstimate);
+        behaviorLogger.updateBehavior(
+          result.behaviorSummary,
+          result.totalPigCount,
+          result.analytics.avgConfidence,
+          result.analytics.detectionDensity,
+          result.analytics.movementEstimate,
+          result.detections,
+        );
       }
       drawDetections(result.detections, result.inferenceTimeMs, result.proximityAlerts);
       setStatus('ready');

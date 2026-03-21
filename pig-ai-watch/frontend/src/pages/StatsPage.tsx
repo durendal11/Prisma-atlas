@@ -5,7 +5,6 @@ import {
   Baby,
   AlertTriangle,
   Monitor,
-  Heart,
   Activity,
   TrendingUp,
   ArrowLeft,
@@ -14,6 +13,7 @@ import {
 import { useDashboardStats, usePenStatus } from '@/hooks';
 import { behaviorLogger, HealthSummary, FarrowingLikelihood, FarrowingLikelihoodTrend } from '@/services/behaviorLogger';
 import { useApi } from '@/hooks/useApi';
+import { subscribePollingTask } from '@/utils/pollingScheduler';
 import clsx from 'clsx';
 
 interface CleaningScheduleItem {
@@ -34,6 +34,7 @@ export default function StatsPage() {
   const { data: penStatuses } = usePenStatus();
 
   const [healthSummary, setHealthSummary] = useState<HealthSummary | null>(null);
+  const [selectedPenId, setSelectedPenId] = useState<number | null>(null);
   const [farrowing, setFarrowing] = useState<FarrowingLikelihood | null>(null);
   const [farrowingTrend, setFarrowingTrend] = useState<FarrowingLikelihoodTrend | null>(null);
   const [cleaningSchedule, setCleaningSchedule] = useState<CleaningScheduleItem[]>([]);
@@ -57,14 +58,22 @@ export default function StatsPage() {
     };
     fetchHealthSummary();
     fetchCleaningSchedule();
-    const interval = setInterval(() => { fetchHealthSummary(); fetchCleaningSchedule(); }, 12000);
-    return () => clearInterval(interval);
-  }, []);
+    return subscribePollingTask('stats:health-cleaning', async () => {
+      await fetchHealthSummary();
+      await fetchCleaningSchedule();
+    }, 12000);
+  }, [api]);
+
+  useEffect(() => {
+    if (!selectedPenId && penStatuses && penStatuses.length > 0) {
+      setSelectedPenId(penStatuses[0].pen_id);
+    }
+  }, [penStatuses, selectedPenId]);
 
   useEffect(() => {
     const fetchExtras = async () => {
       try {
-        const penId = penStatuses?.[0]?.pen_id || 1;
+        const penId = selectedPenId || penStatuses?.[0]?.pen_id || 1;
         const [fl, trend] = await Promise.all([
           behaviorLogger.getFarrowingLikelihood(penId, 12),
           behaviorLogger.getFarrowingLikelihoodTrend(penId, 48, 2),
@@ -75,20 +84,17 @@ export default function StatsPage() {
         console.warn('Extras fetch failed', err);
       }
     };
-    fetchExtras();
-    const interval = setInterval(fetchExtras, 12000);
-    return () => clearInterval(interval);
-  }, [penStatuses]);
+    if (selectedPenId) {
+      fetchExtras();
+    }
+    if (!selectedPenId) {
+      return;
+    }
 
-  const avgHealthScore =
-    healthSummary?.pens && healthSummary.pens.length > 0
-      ? healthSummary.pens.reduce((sum, p) => sum + p.avg_health_score, 0) / healthSummary.pens.length
-      : null;
-
-  const avgNursingRate =
-    healthSummary?.pens && healthSummary.pens.length > 0
-      ? healthSummary.pens.reduce((sum, p) => sum + p.nursing_percentage, 0) / healthSummary.pens.length
-      : null;
+    return subscribePollingTask(`stats:farrowing:${selectedPenId}`, async () => {
+      await fetchExtras();
+    }, 12000);
+  }, [selectedPenId, penStatuses]);
 
   if (isLoading) {
     return (
@@ -100,13 +106,9 @@ export default function StatsPage() {
 
   const statCards = [
     { label: 'Total Sows', value: stats?.total_sows || 0, icon: <Users className="h-5 w-5" />, color: 'text-primary-600 dark:text-primary-400', bg: 'bg-primary-50 dark:bg-primary-900/20' },
-    { label: 'Lactating Sows', value: stats?.lactating_sows || 0, icon: <Users className="h-5 w-5" />, color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-50 dark:bg-blue-900/20' },
     { label: 'Total Piglets', value: stats?.total_piglets || 0, icon: <Baby className="h-5 w-5" />, color: 'text-orange-600 dark:text-orange-400', bg: 'bg-orange-50 dark:bg-orange-900/20' },
     { label: 'Active Alerts', value: stats?.active_alerts || 0, icon: <AlertTriangle className="h-5 w-5" />, color: (stats?.active_alerts || 0) > 0 ? 'text-red-600 dark:text-red-400' : 'text-gray-600 dark:text-gray-400', bg: (stats?.active_alerts || 0) > 0 ? 'bg-red-50 dark:bg-red-900/20' : 'bg-gray-50 dark:bg-gray-800/30' },
-    { label: 'Critical Alerts', value: stats?.critical_alerts || 0, icon: <AlertTriangle className="h-5 w-5" />, color: 'text-red-600 dark:text-red-400', bg: 'bg-red-50 dark:bg-red-900/20' },
     { label: 'Pens Monitored', value: stats?.pens_monitored || 0, icon: <Monitor className="h-5 w-5" />, color: 'text-gray-700 dark:text-slate-300', bg: 'bg-gray-50 dark:bg-slate-800/40' },
-    { label: 'Health Score', value: avgHealthScore !== null ? avgHealthScore.toFixed(0) : '-', icon: <Heart className="h-5 w-5" />, color: avgHealthScore !== null && avgHealthScore >= 70 ? 'text-green-600 dark:text-green-400' : 'text-orange-600 dark:text-orange-400', bg: avgHealthScore !== null && avgHealthScore >= 70 ? 'bg-green-50 dark:bg-green-900/20' : 'bg-orange-50 dark:bg-orange-900/20', subtitle: '24h average' },
-    { label: 'Nursing Rate', value: avgNursingRate !== null ? `${avgNursingRate.toFixed(0)}%` : '-', icon: <Activity className="h-5 w-5" />, color: 'text-blue-600 dark:text-blue-400', bg: 'bg-blue-50 dark:bg-blue-900/20', subtitle: '24h average' },
   ];
 
   return (
@@ -146,12 +148,24 @@ export default function StatsPage() {
               </div>
             </div>
             <p className={clsx('text-3xl font-bold', card.color)}>{card.value}</p>
-            {card.subtitle && <p className="text-[10px] text-gray-400 dark:text-slate-500 mt-0.5 uppercase tracking-wide">{card.subtitle}</p>}
           </div>
         ))}
       </div>
 
       {/* Farrowing Likelihood */}
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Farrowing Likelihood</h2>
+        <select
+          value={selectedPenId || ''}
+          onChange={(e) => setSelectedPenId(Number(e.target.value))}
+          className="px-3 py-1.5 bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 rounded-lg text-sm text-gray-900 dark:text-white focus:ring-2 focus:ring-indigo-500"
+        >
+          <option value="" disabled>Select Pen...</option>
+          {penStatuses?.map(pen => (
+            <option key={pen.pen_id} value={pen.pen_id}>{pen.pen_name}</option>
+          ))}
+        </select>
+      </div>
       {farrowing && (
         <div className={clsx(
           'rounded-2xl p-6 mb-6 border shadow-sm',

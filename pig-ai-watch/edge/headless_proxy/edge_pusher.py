@@ -29,7 +29,7 @@ def push_stream(local_url, pen_path):
         "-c:v", "libx264", # Transcode or copy. Using x264 ensures compatibility.
         "-preset", "ultrafast",
         "-tune", "zerolatency",
-        "-c:a", "aac",
+        "-an",
         "-f", "rtsp",
         "-rtsp_transport", "tcp",
         cloud_url

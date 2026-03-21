@@ -3,7 +3,10 @@ node_modules/
 *.pt
 *.onnx
 .env
-.env.*
+.env.local
+.env.development
+.env.test
+.env.production
 __pycache__/
 build/
 dist/

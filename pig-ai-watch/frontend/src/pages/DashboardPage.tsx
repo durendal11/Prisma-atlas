@@ -49,8 +49,8 @@ export default function DashboardPage() {
   }, [penStatuses]);
 
   useWebSocket({
-    onAlert: (alert) => {
-      toast.error(alert.data.message || 'New alert received!', { icon: '🚨' });
+    onAlert: () => {
+      // Alert notifications are handled in the shared WebSocket hook.
     },
   });
 
@@ -212,7 +212,7 @@ export default function DashboardPage() {
           </div>
           <div className="flex justify-center">
             <RiskGauge
-              value={penStatuses?.reduce((max, pen) => Math.max(max, pen.crushing_risk), 0) || 0}
+              value={penStatuses && penStatuses.length > 0 ? penStatuses.reduce((sum, pen) => sum + (pen.crushing_risk || 0), 0) / penStatuses.length : 0}
               size="lg"
             />
           </div>

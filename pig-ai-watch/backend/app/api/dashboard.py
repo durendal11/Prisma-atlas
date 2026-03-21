@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, and_
 
 from app.core.database import get_db
 from app.core.security import get_current_user
@@ -23,19 +23,9 @@ async def get_dashboard_stats(
     result = await db.execute(select(func.count(Sow.id)).where(Sow.is_archived == False))
     total_sows = result.scalar() or 0
     
-    # Lactating sows (was: nursing)
+    # Total piglets (sum of current_litter_size for all non-archived sows)
     result = await db.execute(
-        select(func.count(Sow.id)).where(
-            (Sow.status == "lactating") & (Sow.is_archived == False)
-        )
-    )
-    lactating_sows = result.scalar() or 0
-    
-    # Total piglets (sum of current_litter_size for lactating sows)
-    result = await db.execute(
-        select(func.sum(Sow.current_litter_size)).where(
-            (Sow.status == "lactating") & (Sow.is_archived == False)
-        )
+        select(func.sum(Sow.current_litter_size)).where(Sow.is_archived == False)
     )
     total_piglets = result.scalar() or 0
     
@@ -45,14 +35,6 @@ async def get_dashboard_stats(
     )
     active_alerts = result.scalar() or 0
     
-    # Critical alerts
-    result = await db.execute(
-        select(func.count(Alert.id)).where(
-            (Alert.is_resolved == False) & (Alert.severity == "critical")
-        )
-    )
-    critical_alerts = result.scalar() or 0
-    
     # Active pens
     result = await db.execute(
         select(func.count(Pen.id)).where(Pen.is_active == True)
@@ -61,10 +43,8 @@ async def get_dashboard_stats(
     
     return DashboardStats(
         total_sows=total_sows,
-        lactating_sows=lactating_sows,
         total_piglets=total_piglets,
         active_alerts=active_alerts,
-        critical_alerts=critical_alerts,
         pens_monitored=pens_monitored
     )
 
@@ -75,39 +55,67 @@ async def get_pen_status(
     current_user: User = Depends(get_current_user)
 ):
     """Get current status of all active pens."""
+    latest_detection_sq = (
+        select(
+            Detection.pen_id.label("pen_id"),
+            Detection.piglet_count.label("piglet_count"),
+            Detection.sow_posture.label("sow_posture"),
+            Detection.crushing_risk.label("crushing_risk"),
+            Detection.created_at.label("created_at"),
+            func.row_number().over(
+                partition_by=Detection.pen_id,
+                order_by=Detection.created_at.desc(),
+            ).label("rn"),
+        )
+    ).subquery()
+
+    active_sow_sq = (
+        select(
+            Sow.pen_id.label("pen_id"),
+            Sow.tag_id.label("tag_id"),
+            func.row_number().over(
+                partition_by=Sow.pen_id,
+                order_by=Sow.created_at.desc(),
+            ).label("rn"),
+        )
+        .where(Sow.is_archived == False)
+    ).subquery()
+
     result = await db.execute(
-        select(Pen).where(Pen.is_active == True)
+        select(
+            Pen.id,
+            Pen.name,
+            Pen.camera_source,
+            active_sow_sq.c.tag_id,
+            latest_detection_sq.c.piglet_count,
+            latest_detection_sq.c.sow_posture,
+            latest_detection_sq.c.crushing_risk,
+            latest_detection_sq.c.created_at,
+        )
+        .select_from(Pen)
+        .outerjoin(
+            active_sow_sq,
+            and_(active_sow_sq.c.pen_id == Pen.id, active_sow_sq.c.rn == 1),
+        )
+        .outerjoin(
+            latest_detection_sq,
+            and_(latest_detection_sq.c.pen_id == Pen.id, latest_detection_sq.c.rn == 1),
+        )
+        .where(Pen.is_active == True)
+        .order_by(Pen.id.asc())
     )
-    pens = result.scalars().all()
-    
-    pen_statuses = []
-    for pen in pens:
-        # Get the first sow in this pen (there may be multiple)
-        sow_result = await db.execute(
-            select(Sow).where(
-                (Sow.pen_id == pen.id) & (Sow.is_archived == False)
-            ).limit(1)
+
+    rows = result.all()
+    return [
+        PenStatus(
+            pen_id=row.id,
+            pen_name=row.name,
+            sow_tag=row.tag_id,
+            piglet_count=row.piglet_count if row.piglet_count is not None else 0,
+            sow_posture=row.sow_posture if row.sow_posture is not None else "unknown",
+            crushing_risk=row.crushing_risk if row.crushing_risk is not None else 0.0,
+            last_updated=row.created_at if row.created_at is not None else datetime.utcnow(),
+            is_streaming=row.camera_source is not None,
         )
-        sow = sow_result.scalar_one_or_none()
-        
-        # Get latest detection for this pen
-        detection_result = await db.execute(
-            select(Detection)
-            .where(Detection.pen_id == pen.id)
-            .order_by(Detection.created_at.desc())
-            .limit(1)
-        )
-        detection = detection_result.scalar_one_or_none()
-        
-        pen_statuses.append(PenStatus(
-            pen_id=pen.id,
-            pen_name=pen.name,
-            sow_tag=sow.tag_id if sow else None,
-            piglet_count=detection.piglet_count if detection else 0,
-            sow_posture=detection.sow_posture if detection else "unknown",
-            crushing_risk=detection.crushing_risk if detection else 0.0,
-            last_updated=detection.created_at if detection else datetime.utcnow(),
-            is_streaming=pen.camera_source is not None
-        ))
-    
-    return pen_statuses
+        for row in rows
+    ]

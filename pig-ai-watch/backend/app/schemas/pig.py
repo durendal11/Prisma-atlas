@@ -250,8 +250,6 @@ class BehaviorAnalytics(BaseModel):
     avg_piglet_count: float
     avg_crushing_risk: float
     avg_health_score: float
-    nursing_percentage: float
-    feeding_percentage: float
     sleeping_percentage: float
     posture_distribution: dict
     activity_distribution: dict
@@ -260,10 +258,8 @@ class BehaviorAnalytics(BaseModel):
 # Dashboard Stats
 class DashboardStats(BaseModel):
     total_sows: int
-    lactating_sows: int
     total_piglets: int
     active_alerts: int
-    critical_alerts: int
     pens_monitored: int
 
 

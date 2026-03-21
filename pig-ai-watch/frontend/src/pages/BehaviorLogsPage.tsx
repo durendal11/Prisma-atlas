@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import { 
   Activity, 
@@ -11,6 +11,7 @@ import {
   Filter
 } from 'lucide-react';
 import { behaviorLogger, BehaviorLogResponse } from '@/services/behaviorLogger';
+import { subscribePollingTask } from '@/utils/pollingScheduler';
 import clsx from 'clsx';
 
 export default function BehaviorLogsPage() {
@@ -21,7 +22,7 @@ export default function BehaviorLogsPage() {
   const [error, setError] = useState<string | null>(null);
   const [autoRefresh, setAutoRefresh] = useState(true);
 
-  const fetchLogs = async () => {
+  const fetchLogs = useCallback(async () => {
     try {
       setLoading(true);
       setError(null);
@@ -33,7 +34,7 @@ export default function BehaviorLogsPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [selectedPen, hours]);
 
   useEffect(() => {
     fetchLogs();
@@ -42,13 +43,9 @@ export default function BehaviorLogsPage() {
   // Auto-refresh every 12 seconds
   useEffect(() => {
     if (!autoRefresh) return;
-    
-    const interval = setInterval(() => {
-      fetchLogs();
-    }, 12000);
 
-    return () => clearInterval(interval);
-  }, [autoRefresh, selectedPen, hours]);
+    return subscribePollingTask(`behavior-logs:${selectedPen}:${hours}`, fetchLogs, 12000);
+  }, [autoRefresh, selectedPen, hours, fetchLogs]);
 
   const getPostureColor = (posture: string) => {
     switch (posture) {

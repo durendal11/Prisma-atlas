@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useApi } from '../hooks/useApi';
-import { confirmAction, showError } from '@/utils/alerts';
+import { confirmAction, showError, checkAndNotifyLLMTasks } from '@/utils/alerts';
 import {
   ClipboardDocumentListIcon,
   PlusIcon,
@@ -37,8 +37,8 @@ interface Task {
   assigned_to?: number;
   assigned_to_name?: string;
   due_date?: string;
-  checklist_items: ChecklistItem[];
-  checklist_progress: number; // percentage 0-100
+  checklist_items?: ChecklistItem[];
+  checklist_progress?: number; // percentage 0-100
   completion_notes?: string;
   sow_id?: number;
   pen_id?: number;
@@ -145,6 +145,9 @@ export default function TasksPage() {
     loadTemplates();
     loadPens();
     loadSows();
+
+    // Trigger LLM to generate an intelligent push notification regarding tasks
+    checkAndNotifyLLMTasks(api);
   }, [filter]);
 
   const loadTasks = async () => {
@@ -268,7 +271,7 @@ export default function TasksPage() {
       if (newTask.pen_id) taskData.pen_id = parseInt(newTask.pen_id);
       if (newTask.sow_id) taskData.sow_id = parseInt(newTask.sow_id);
       if (newTask.due_date) taskData.due_date = new Date(newTask.due_date).toISOString();
-      if (selectedTemplate) taskData.template_id = selectedTemplate.id;
+      if (selectedTemplate && selectedTemplate.id > 0) taskData.template_id = selectedTemplate.id;
 
       await api.post('/api/tasks/', taskData);
       
@@ -391,7 +394,7 @@ export default function TasksPage() {
         pen_id: task.pen_id,
         due_date: task.due_date,
         checklist_items: task.checklist_items,
-        notes: task.completion_notes,
+        completion_notes: task.completion_notes,
       });
       setRecentlyDeleted(null);
       setDeleteError(null);
@@ -471,9 +474,9 @@ export default function TasksPage() {
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
       filtered = filtered.filter(task => 
-        task.title.toLowerCase().includes(query) ||
-        task.description?.toLowerCase().includes(query) ||
-        task.category.toLowerCase().includes(query)
+        (task.title || '').toLowerCase().includes(query) ||
+        (task.description || '').toLowerCase().includes(query) ||
+        (task.category || '').toLowerCase().includes(query)
       );
     }
     
@@ -842,7 +845,7 @@ export default function TasksPage() {
                       <div className="space-y-2 max-h-[13rem] overflow-y-auto pr-1">
                         {task.checklist_items.map((item: ChecklistItem, index: number) => {
                           const progressArray = checklistUpdates[task.id] || 
-                            task.checklist_items.map((i: ChecklistItem) => i.completed);
+                            (task.checklist_items || []).map((i: ChecklistItem) => i.completed);
                           const isChecked = progressArray[index] || false;
                           return (
                             <label

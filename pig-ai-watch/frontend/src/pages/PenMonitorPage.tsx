@@ -242,8 +242,7 @@ export default function PenMonitorPage() {
   const { data: penStatuses } = usePenStatus();
   const penStatus = penStatuses?.find((p) => p.pen_id === numericPenId) ?? null;
   const { isPowerSaving, setPowerSaving } = usePowerSavingStore();
-  const latestDetections = useDetectionStore((s) => s.latestDetections);
-  const liveDetection = latestDetections[penId || ''] ?? null;
+  const liveDetection = useDetectionStore((s) => (penId ? s.latestDetections[penId] ?? null : null));
 
   // Recent alerts/events for this pen
   const { data: penAlerts } = useAlerts({ pen_id: numericPenId, limit: 20, is_resolved: false });
@@ -353,7 +352,8 @@ export default function PenMonitorPage() {
         result.detections.length,
         result.detections.reduce((s, d) => s + d.confidence, 0) / (result.detections.length || 1),
         result.detections.length / Math.max(1, (result.detections.filter(d => d.category === 'sow').length || 1)),
-        result.behaviorSummary.activityLevel || 'moderate'
+        result.behaviorSummary.activityLevel || 'moderate',
+        result.detections
       );
     }
   }, [liveMonitorActive]);

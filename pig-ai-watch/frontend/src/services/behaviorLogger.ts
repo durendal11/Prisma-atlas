@@ -55,8 +55,6 @@ export interface BehaviorAnalytics {
   avg_piglet_count: number;
   avg_crushing_risk: number;
   avg_health_score: number;
-  nursing_percentage: number;
-  feeding_percentage: number;
   sleeping_percentage: number;
   posture_distribution: Record<string, number>;
   activity_distribution: Record<string, number>;
@@ -66,11 +64,9 @@ export interface HealthSummary {
   period_hours: number;
   pens: Array<{
     pen_id: number;
-    avg_health_score: number;
     avg_crushing_risk: number;
+    avg_health_score: number;
     total_logs: number;
-    nursing_percentage: number;
-    feeding_percentage: number;
     needs_attention: boolean;
   }>;
   pens_needing_attention: number;
@@ -167,7 +163,18 @@ class BehaviorLogger {
     detectionCount: number,
     avgConfidence: number,
     detectionDensity: number,
-    movementLevel: string
+    movementLevel: string,
+    detections: Array<{
+      centerX: number;
+      centerY: number;
+      category: 'sow' | 'piglet' | 'unknown';
+      confidence: number;
+      bbox?: [number, number, number, number];
+      x1?: number;
+      y1?: number;
+      width?: number;
+      height?: number;
+    }>
   ): void {
     if (!this.isLogging) return;
 
@@ -175,7 +182,127 @@ class BehaviorLogger {
     const cleanlinessScore = Math.max(0, Math.min(1, 1 - detectionDensity / 5));
     const wetnessScore = movementLevel === 'stationary' ? 0.1 : 0.2;
 
-    this.pendingLog = {
+    this.pendingLog = this.buildPayload(
+      behaviorSummary,
+      detectionCount,
+      avgConfidence,
+      detectionDensity,
+      movementLevel,
+      cleanlinessScore,
+      wetnessScore,
+      detections,
+    );
+  }
+
+  private buildPayload(
+    behaviorSummary: BehaviorSummary,
+    detectionCount: number,
+    avgConfidence: number,
+    detectionDensity: number,
+    movementLevel: string,
+    cleanlinessScore: number,
+    wetnessScore: number,
+    detections: Array<{
+      centerX: number;
+      centerY: number;
+      category: 'sow' | 'piglet' | 'unknown';
+      confidence: number;
+      bbox?: [number, number, number, number];
+      x1?: number;
+      y1?: number;
+      width?: number;
+      height?: number;
+    }>
+  ): BehaviorLogPayload {
+    const round4 = (value: number) => Math.round(value * 10000) / 10000;
+    const inputSize = 640;
+
+    const sowDetections = detections.filter((d) => d.category === 'sow');
+    const pigletDetections = detections.filter((d) => d.category === 'piglet');
+
+    const primarySow = sowDetections.reduce<typeof sowDetections[number] | null>(
+      (best, current) => (!best || current.confidence > best.confidence ? current : best),
+      null,
+    );
+
+    const getSowBox = (d: NonNullable<typeof primarySow>) => {
+      if (
+        typeof d.x1 === 'number' &&
+        typeof d.y1 === 'number' &&
+        typeof d.width === 'number' &&
+        typeof d.height === 'number'
+      ) {
+        return {
+          x: d.x1,
+          y: d.y1,
+          w: d.width,
+          h: d.height,
+        };
+      }
+
+      const [x1, y1, x2, y2] = d.bbox ?? [d.centerX, d.centerY, d.centerX, d.centerY];
+      return {
+        x: x1,
+        y: y1,
+        w: x2 - x1,
+        h: y2 - y1,
+      };
+    };
+
+    const sowBox = primarySow ? getSowBox(primarySow) : null;
+    const sowCenterX = primarySow ? primarySow.centerX : null;
+    const sowCenterY = primarySow ? primarySow.centerY : null;
+
+    const pigletPositions = pigletDetections.map((piglet) => ({
+      x: round4(piglet.centerX / inputSize),
+      y: round4(piglet.centerY / inputSize),
+    }));
+
+    let spreadRadius = 0;
+    let pigletClusterDensity = 0;
+
+    if (primarySow && sowCenterX !== null && sowCenterY !== null && pigletDetections.length > 0) {
+      const sowXNorm = sowCenterX / inputSize;
+      const sowYNorm = sowCenterY / inputSize;
+
+      const meanDistance = pigletDetections.reduce((sum, piglet) => {
+        const dx = piglet.centerX / inputSize - sowXNorm;
+        const dy = piglet.centerY / inputSize - sowYNorm;
+        return sum + Math.sqrt(dx * dx + dy * dy);
+      }, 0) / pigletDetections.length;
+      spreadRadius = round4(meanDistance);
+
+      const sowWidthNorm = Math.max(0, (sowBox?.w ?? 0) / inputSize);
+      const sowHeightNorm = Math.max(0, (sowBox?.h ?? 0) / inputSize);
+      const halfDangerWidth = sowWidthNorm * 0.25;
+      const halfDangerHeight = sowHeightNorm * 0.25;
+
+      const pigletsInDangerZone = pigletDetections.filter((piglet) => {
+        const dx = Math.abs(piglet.centerX / inputSize - sowXNorm);
+        const dy = Math.abs(piglet.centerY / inputSize - sowYNorm);
+        return dx <= halfDangerWidth && dy <= halfDangerHeight;
+      }).length;
+
+      pigletClusterDensity = round4(pigletsInDangerZone / pigletDetections.length);
+    }
+
+    const detectionData = {
+      center_x: sowCenterX !== null ? round4(sowCenterX / inputSize) : null,
+      center_y: sowCenterY !== null ? round4(sowCenterY / inputSize) : null,
+      spread_radius: spreadRadius,
+      piglet_cluster_density: pigletClusterDensity,
+      sow_bbox: sowBox
+        ? {
+            x: round4(sowBox.x),
+            y: round4(sowBox.y),
+            w: round4(sowBox.w),
+            h: round4(sowBox.h),
+          }
+        : null,
+      piglet_positions: pigletPositions,
+    };
+
+    return {
       pen_id: this.penId,
       sow_id: this.sowId,
       piglet_count: behaviorSummary.pigletCount,
@@ -194,6 +321,7 @@ class BehaviorLogger {
       movement_level: movementLevel,
       cleanliness_score: cleanlinessScore,
       wetness_score: wetnessScore,
+      detection_data: JSON.stringify(detectionData),
       logged_at: new Date().toISOString(),
     };
   }
@@ -345,21 +473,15 @@ export interface PrePostTimelinePoint {
   timestamp: string;
   phase: 'pre' | 'during' | 'post';
   log_count: number;
-  avg_health_score: number | null;
   avg_crushing_risk: number | null;
   avg_piglet_count: number | null;
-  nursing_pct: number | null;
-  feeding_pct: number | null;
   sleeping_pct: number | null;
 }
 
 export interface PrePostPhaseSummary {
   log_count: number;
-  avg_health_score: number;
   avg_crushing_risk: number;
   avg_piglet_count: number;
-  nursing_pct: number;
-  feeding_pct: number;
   sleeping_pct: number;
   posture_distribution: Record<string, number>;
   movement_distribution: Record<string, number>;

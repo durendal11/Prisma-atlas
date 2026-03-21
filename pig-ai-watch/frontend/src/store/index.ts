@@ -172,6 +172,7 @@ export const useAlertStore = create<AlertState>((set) => ({
 interface DetectionState {
   latestDetections: Record<string, DetectionWebSocket>;
   setDetection: (penId: string, detection: DetectionWebSocket) => void;
+  setDetectionsBatch: (detections: DetectionWebSocket[]) => void;
   clearDetections: () => void;
 }
 
@@ -181,6 +182,19 @@ export const useDetectionStore = create<DetectionState>((set) => ({
     set((state) => ({
       latestDetections: { ...state.latestDetections, [penId]: detection },
     })),
+  setDetectionsBatch: (detections) =>
+    set((state) => {
+      if (!detections.length) {
+        return state;
+      }
+
+      const next = { ...state.latestDetections };
+      for (const detection of detections) {
+        next[detection.pen_id] = detection;
+      }
+
+      return { latestDetections: next };
+    }),
   clearDetections: () => set({ latestDetections: {} }),
 }));
 

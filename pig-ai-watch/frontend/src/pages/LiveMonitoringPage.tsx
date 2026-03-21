@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { RTSPVideoFeed, RiskGauge } from '@/components';
 import { usePenStatus } from '@/hooks';
@@ -22,7 +22,12 @@ export default function LiveMonitoringPage() {
   const [visiblePens, setVisiblePens] = useState<Set<string>>(new Set());
   const observerRef = useRef<IntersectionObserver | null>(null);
   const { data: penStatuses, refetch, isRefetching } = usePenStatus();
-  const latestDetections = useDetectionStore((state) => state.latestDetections);
+  const selectedPenDetection = useDetectionStore(
+    useCallback(
+      (state) => (selectedPen ? state.latestDetections[selectedPen] ?? null : null),
+      [selectedPen],
+    ),
+  );
   const navigate = useNavigate();
 
   // Add Pen modal
@@ -110,7 +115,7 @@ export default function LiveMonitoringPage() {
     '1x1': 'grid-cols-1',
   };
 
-  const activeDetection = selectedPen ? latestDetections[selectedPen] : null;
+  const activeDetection = selectedPenDetection;
 
   if (selectedPen) {
     const pen = penStatuses?.find(p => p.pen_id.toString() === selectedPen);

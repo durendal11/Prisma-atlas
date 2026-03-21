@@ -1,0 +1,15 @@
+
+> pig-ai-watch-frontend@1.0.0 prebuild
+> pnpm run sync:onnx-assets
+
+
+> pig-ai-watch-frontend@1.0.0 sync:onnx-assets /Users/arcelmacasling/prisma-atlas/pig-ai-watch/frontend
+> node ./scripts/sync-onnx-runtime-assets.mjs
+
+[sync-onnx] Copied 6 ONNX Runtime assets to public/
+
+> pig-ai-watch-frontend@1.0.0 build
+> tsc && vite build
+
+vite v5.4.21 building for production...
+transforming...

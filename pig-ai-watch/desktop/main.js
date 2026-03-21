@@ -20,6 +20,30 @@ let tray = null;
 let backendProcess = null;
 let isQuitting = false;
 
+// Optional IPC coalescer for high-frequency detection streams.
+// Use this if WebSocket handling is moved to the main process.
+let coalesceTimer = null;
+let coalesceBuffer = [];
+
+function queueDetectionIpcMessage(message) {
+    coalesceBuffer.push(message);
+    if (coalesceTimer !== null) {
+        return;
+    }
+
+    coalesceTimer = setTimeout(() => {
+        coalesceTimer = null;
+        if (!mainWindow || mainWindow.isDestroyed() || coalesceBuffer.length === 0) {
+            coalesceBuffer = [];
+            return;
+        }
+
+        const batch = coalesceBuffer;
+        coalesceBuffer = [];
+        mainWindow.webContents.send('ws-detections-batch', batch);
+    }, 16);
+}
+
 // Backend configuration
 const BACKEND_PORT = store.get('backendPort');
 const BACKEND_URL = `http://localhost:${BACKEND_PORT}`;
@@ -683,6 +707,11 @@ ipcMain.on('open-external', (event, url) => {
 ipcMain.on('show-notification', (event, { title, body }) => {
     const notification = new Notification({ title, body });
     notification.show();
+});
+
+// IPC entrypoint for optional main-process WebSocket mode.
+ipcMain.on('ws-detection-message', (event, message) => {
+    queueDetectionIpcMessage(message);
 });
 
 // App lifecycle

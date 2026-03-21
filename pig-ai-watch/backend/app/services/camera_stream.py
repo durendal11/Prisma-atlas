@@ -163,7 +163,16 @@ class FFmpegCapture:
 
 
 def _open_rtsp_capture(url: str):
-    return cv2.VideoCapture(url)
+    if SYSTEM_FFMPEG:
+        cap = FFmpegCapture(url, width=1280, height=720, fps=30)
+        if cap.open():
+            return cap
+    
+    # Fallback to OpenCV FFMPEG with TCP
+    os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = (
+        "rtsp_transport;tcp|timeout;10000000|analyzeduration;5000000|probesize;5000000"
+    )
+    return cv2.VideoCapture(url, cv2.CAP_FFMPEG)
 
 
 class CameraStream:

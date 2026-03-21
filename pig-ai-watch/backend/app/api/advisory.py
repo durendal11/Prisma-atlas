@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from typing import Dict, Any
-from app.services.llm_advisor import generate_pen_advisory, generate_daily_digest, generate_push_notification
+from app.services.llm_advisor import generate_pen_advisory, generate_daily_digest, generate_push_notification, generate_task_push_notification
 
 router = APIRouter()
 
@@ -36,6 +36,17 @@ async def get_push_notification_copy(payload: Dict[str, Any]):
     """
     try:
         push_data = generate_push_notification(payload)
+        return push_data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/task-push-notification", response_model=Dict[str, Any])
+async def get_task_push_notification(payload: Dict[str, Any]):
+    """
+    Format unfinished/recommended tasks into a brief push notification.
+    """
+    try:
+        push_data = generate_task_push_notification(payload)
         return push_data
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

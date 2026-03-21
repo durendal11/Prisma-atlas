@@ -40,7 +40,14 @@ export default function EventLogsPage() {
       const bs = result.behaviorSummary;
       const an = result.analytics;
       // Post behavior log
-      behaviorLogger.updateBehavior(bs, result.detections.length, an.avgConfidence, an.detectionDensity, an.movementEstimate);
+      behaviorLogger.updateBehavior(
+        bs,
+        result.detections.length,
+        an.avgConfidence,
+        an.detectionDensity,
+        an.movementEstimate,
+        result.detections,
+      );
       // Post events + alerts based on detection results
       reportDetection(result, 10);
     }, 12000);

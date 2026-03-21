@@ -6,20 +6,105 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_, Integer
 from sqlalchemy.orm import selectinload
 from datetime import datetime, timedelta
-from typing import List, Optional
+from typing import List, Optional, Any
 import json
 import logging
 
 from app.core.database import get_db
 from app.models.pig import BehaviorLog, Pen, Sow, Event, Alert
 from app.schemas.pig import BehaviorLogCreate, BehaviorLogResponse, BehaviorAnalytics
+from app.analyzers.nesting import NestingBehaviorAnalyzer
+from app.analyzers.birth import BirthEventDetector
+from app.analyzers.welfare import PigletWelfareMonitor
+from app.api.websocket import ws_manager
 
 logger = logging.getLogger(__name__)
 # NOTE: frontend calls /api/behavior/*; keep the router in the /api namespace.
 router = APIRouter(prefix="/api/behavior", tags=["behavior"])
 
+_nesting_analyzers: dict[int, NestingBehaviorAnalyzer] = {}
+_birth_detectors: dict[int, BirthEventDetector] = {}
+_welfare_monitors: dict[int, PigletWelfareMonitor] = {}
 
-@router.post("/log", response_model=BehaviorLogResponse)
+
+async def get_recent_logs(db: AsyncSession, pen_id: int, minutes: int = 30) -> list:
+    since = datetime.utcnow() - timedelta(minutes=minutes)
+    result = await db.execute(
+        select(BehaviorLog)
+        .where(
+            and_(
+                BehaviorLog.pen_id == pen_id,
+                BehaviorLog.logged_at >= since,
+                BehaviorLog.is_archived == False,
+            )
+        )
+        .order_by(BehaviorLog.logged_at.asc())
+    )
+    return result.scalars().all()
+
+
+async def fire_alert(db: AsyncSession, pen_id: int, event: dict[str, Any]):
+    severity_raw = str(event.get("severity", "medium"))
+    severity = severity_raw.lower()
+    priority = str(event.get("priority", severity_raw)).upper()
+    push_title = str(event.get("push_title") or event.get("type", "Alert").replace("_", " ").title())
+    push_body = str(event.get("push_body") or event.get("alert", ""))
+    alert_type = str(event.get("alert_type") or event.get("type", "system"))
+
+    # MEDIUM pushes can be suppressed, while CRITICAL/HIGH always pass.
+    suppress_until_minutes = int(event.get("suppress_until_minutes", 0) or 0)
+    medium_suppressed = False
+    if priority == "MEDIUM" and suppress_until_minutes > 0:
+        since = datetime.utcnow() - timedelta(minutes=suppress_until_minutes)
+        recent_result = await db.execute(
+            select(Alert.id)
+            .where(
+                and_(
+                    Alert.pen_id == pen_id,
+                    Alert.type == alert_type,
+                    Alert.created_at >= since,
+                )
+            )
+            .limit(1)
+        )
+        medium_suppressed = recent_result.scalar_one_or_none() is not None
+
+    alert = Alert(
+        type=alert_type,
+        severity=severity,
+        title=event.get("type", "Alert").replace("_", " ").title(),
+        message=event.get("alert", ""),
+        pen_id=pen_id,
+        detection_data=json.dumps(event),
+    )
+    db.add(alert)
+
+    if priority in ("CRITICAL", "HIGH") or (priority == "MEDIUM" and not medium_suppressed):
+        await ws_manager.broadcast(
+            {
+                "type": "push_alert",
+                "pen_id": pen_id,
+                "priority": priority,
+                "alert_type": alert_type,
+                "push_title": push_title,
+                "push_body": push_body,
+                "timestamp": datetime.utcnow().isoformat(),
+            },
+            f"pen_{pen_id}",
+        )
+
+
+def _parse_detection_data(raw: Optional[str]) -> dict[str, Any]:
+    if not raw:
+        return {}
+    try:
+        parsed = json.loads(raw)
+        return parsed if isinstance(parsed, dict) else {}
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return {}
+
+
+@router.post("/log")
 async def log_behavior(
     behavior: BehaviorLogCreate,
     db: AsyncSession = Depends(get_db)
@@ -34,6 +119,40 @@ async def log_behavior(
             sow = sow_result.scalar_one_or_none()
             if sow and sow.is_archived:
                 raise HTTPException(status_code=400, detail="Cannot log behavior for an archived sow")
+
+        raw_detection_data = behavior.detection_data
+        parsed_detection_data: dict[str, Any] = {}
+        if isinstance(raw_detection_data, str):
+            try:
+                parsed = json.loads(raw_detection_data)
+                if isinstance(parsed, dict):
+                    parsed_detection_data = parsed
+            except (TypeError, ValueError, json.JSONDecodeError):
+                parsed_detection_data = {}
+
+        recent_logs = await get_recent_logs(db, behavior.pen_id, minutes=30)
+
+        if behavior.pen_id not in _nesting_analyzers:
+            _nesting_analyzers[behavior.pen_id] = NestingBehaviorAnalyzer()
+        if behavior.pen_id not in _birth_detectors:
+            _birth_detectors[behavior.pen_id] = BirthEventDetector()
+        if behavior.pen_id not in _welfare_monitors:
+            _welfare_monitors[behavior.pen_id] = PigletWelfareMonitor()
+
+        nesting_result = _nesting_analyzers[behavior.pen_id].analyze(recent_logs, window_minutes=30)
+        now = datetime.utcnow()
+        birth_events = _birth_detectors[behavior.pen_id].process_log(behavior, now)
+        welfare_alerts = _welfare_monitors[behavior.pen_id].process_log(behavior, now)
+
+        enriched_detection_data = {
+            **parsed_detection_data,
+            "nesting_score": nesting_result.get("nesting_score", 0.0),
+            "nesting_phase": nesting_result.get("nesting_phase", "calm"),
+            "transitions_per_hour": nesting_result.get("transitions_per_hour", 0.0),
+            "motionless_piglet_flag": len(welfare_alerts) > 0,
+            "birth_count_session": _birth_detectors[behavior.pen_id].confirmed_count,
+        }
+        enriched_detection_data_json = json.dumps(enriched_detection_data)
 
         log_entry = BehaviorLog(
             pen_id=behavior.pen_id,
@@ -54,7 +173,7 @@ async def log_behavior(
             movement_level=behavior.movement_level,
             cleanliness_score=behavior.cleanliness_score,
             wetness_score=behavior.wetness_score,
-            detection_data=behavior.detection_data,
+            detection_data=enriched_detection_data_json,
             is_archived=False,
             logged_at=behavior.logged_at or datetime.utcnow(),
         )
@@ -87,13 +206,17 @@ async def log_behavior(
                 description=f"Pen wetness high ({behavior.wetness_score:.2f})"
             ))
 
+        for event in birth_events + welfare_alerts:
+            await fire_alert(db, behavior.pen_id, event)
+
         if events_to_add:
             db.add_all(events_to_add)
+        if events_to_add or birth_events or welfare_alerts:
             await db.commit()
         
         logger.info(f"Behavior logged for pen {behavior.pen_id}: {behavior.sow_posture}, risk={behavior.crushing_risk:.2f}")
         
-        return log_entry
+        return {"status": "ok", "nesting_phase": enriched_detection_data["nesting_phase"]}
     except Exception as e:
         logger.error(f"Failed to log behavior: {e}")
         await db.rollback()
@@ -242,39 +365,58 @@ async def get_farrowing_likelihood(
             posture_changes += 1
     hours_span = max((logs[-1].logged_at - logs[0].logged_at).total_seconds() / 3600, 0.1)
     changes_per_hour = posture_changes / hours_span
-    # >20 changes/hr = max score; normalize 0-30
-    posture_score = min(30, (changes_per_hour / 20) * 30)
+    # >20 changes/hr = max component value (1.0)
+    posture_component = min(changes_per_hour / 20, 1.0)
 
-    # ── Component 2: Restlessness / movement (0-20 points) ──
+    # ── Component 2: Restlessness / movement (0.0-1.0) ──
     movement_score_raw = sum(
         1.0 if l.movement_level in ("moderate", "high") else 0.5 if l.movement_level == "low" else 0
         for l in logs
     ) / len(logs)
-    movement_score = min(20, movement_score_raw * 20)
+    movement_component = min(max(movement_score_raw, 0.0), 1.0)
 
-    # ── Component 3: Lying time increase (0-20 points) ──
+    # ── Component 3: Lying time increase (0.0-1.0) ──
     lying_count = sum(1 for l in logs if l.sow_posture in ("sleeping", "sow-sleep", "sow-sleep-lactate", "lying"))
     lying_ratio = lying_count / len(logs)
-    # Pre-farrowing sows spend >60% lying; score rises above 50%
-    lying_score = min(20, max(0, (lying_ratio - 0.3) / 0.4) * 20)
+    # Pre-farrowing sows spend >60% lying; component rises above 30%
+    lying_component = min(max(0.0, (lying_ratio - 0.3) / 0.4), 1.0)
 
-    # ── Component 4: Feeding reduction (0-15 points) ──
+    # ── Component 4: Feeding reduction (0.0-1.0) ──
     feeding_count = sum(1 for l in logs if l.is_feeding)
     feeding_ratio = feeding_count / len(logs)
-    # Lower feeding = higher likelihood; if <5% feeding → max points
-    feeding_score = min(15, max(0, (1 - feeding_ratio / 0.15)) * 15) if feeding_ratio < 0.15 else 0
+    # Lower feeding = higher likelihood; if <15% feeding this component ramps up.
+    feeding_component = min(max(0.0, (1 - feeding_ratio / 0.15)), 1.0) if feeding_ratio < 0.15 else 0.0
 
-    # ── Component 5: Activity increase (0-15 points) ──
-    active_count = sum(1 for l in logs if l.activity_level in ("active", "feeding"))
-    activity_ratio = active_count / len(logs)
-    # Moderate activity (20-40%) = pre-farrowing restlessness
-    if 0.15 <= activity_ratio <= 0.45:
-        activity_score = min(15, (activity_ratio / 0.35) * 15)
-    else:
-        activity_score = max(0, 15 - abs(activity_ratio - 0.3) * 30)
+    # ── Component 5: Nesting score (0.0-1.0) from latest behavior_log detection_data ──
+    latest_log_result = await db.execute(
+        select(BehaviorLog)
+        .where(and_(BehaviorLog.pen_id == pen_id, BehaviorLog.is_archived == False, BehaviorLog.logged_at >= since))
+        .order_by(BehaviorLog.logged_at.desc())
+        .limit(2)
+    )
+    recent_two_logs = latest_log_result.scalars().all()
+    latest_log = recent_two_logs[0] if recent_two_logs else None
+    prev_log = recent_two_logs[1] if len(recent_two_logs) > 1 else None
+
+    latest_detection_data = _parse_detection_data(latest_log.detection_data if latest_log else None)
+    prev_detection_data = _parse_detection_data(prev_log.detection_data if prev_log else None)
+
+    nesting_score_component = float(latest_detection_data.get("nesting_score", 0.0) or 0.0)
+    nesting_score_component = min(max(nesting_score_component, 0.0), 1.0)
+    nesting_phase = str(latest_detection_data.get("nesting_phase", "calm") or "calm")
+    previous_nesting_phase = str(prev_detection_data.get("nesting_phase", "calm") or "calm")
+    transitions_per_hour_from_data = float(latest_detection_data.get("transitions_per_hour", 0.0) or 0.0)
 
     # ── Final composite score (0-100) ──
-    score = int(round(posture_score + movement_score + lying_score + feeding_score + activity_score))
+    score = int(round(
+        (
+            posture_component * 0.20
+            + movement_component * 0.20
+            + lying_component * 0.15
+            + feeding_component * 0.20
+            + nesting_score_component * 0.25
+        ) * 100
+    ))
     score = max(0, min(100, score))
 
     # Nursing presence decreases likelihood
@@ -295,8 +437,16 @@ async def get_farrowing_likelihood(
         likelihood = "Low"
         expected_window_hours = 24
 
+    likelihood_note = None
+    if nesting_phase == "active_nesting" and score >= 60:
+        likelihood = "High"
+        likelihood_note = "Active nesting behavior detected — farrowing likely within 12h"
+    elif nesting_phase == "early_nesting" and likelihood == "Low":
+        likelihood = "Moderate"
+
     # ── Alert generation: if score >= 70 (configurable threshold) ──
     alert_threshold = 70
+    alerts_to_add = []
     if score >= alert_threshold:
         # Check if we already have a recent farrowing likelihood alert for this pen
         recent_alert = await db.execute(
@@ -310,7 +460,7 @@ async def get_farrowing_likelihood(
         )
         if not recent_alert.scalar_one_or_none():
             from app.models.pig import Alert as AlertModel
-            new_alert = AlertModel(
+            alerts_to_add.append(AlertModel(
                 type="farrowing_likelihood",
                 severity="high" if score >= 85 else "medium",
                 title=f"High Farrowing Likelihood — Pen {pen_id}",
@@ -320,14 +470,70 @@ async def get_farrowing_likelihood(
                     f"Expected within ~{expected_window_hours} hours."
                 ),
                 pen_id=pen_id,
-            )
-            db.add(new_alert)
-            await db.commit()
+            ))
+
+    # ── Alert rule: nesting onset (cooldown 4h) ──
+    if (
+        previous_nesting_phase in ("calm", "mild_restlessness")
+        and nesting_phase in ("early_nesting", "active_nesting")
+    ):
+        recent_nesting_onset_alert = await db.execute(
+            select(Alert)
+            .where(and_(
+                Alert.pen_id == pen_id,
+                Alert.type == "nesting_onset",
+                Alert.is_resolved == False,
+                Alert.created_at >= datetime.utcnow() - timedelta(hours=4),
+            ))
+        )
+        if not recent_nesting_onset_alert.scalar_one_or_none():
+            from app.models.pig import Alert as AlertModel
+            alerts_to_add.append(AlertModel(
+                type="nesting_onset",
+                severity="medium",
+                title=f"Nesting Behavior Detected — Pen {pen_id}",
+                message=(
+                    f"Nesting behavior detected in Pen {pen_id}. "
+                    f"Farrowing may begin within 12-24 hours. "
+                    f"(Jensen 1993: nesting onset is primary pre-farrowing indicator)"
+                ),
+                pen_id=pen_id,
+            ))
+
+    # ── Alert rule: active nesting intensity (cooldown 2h) ──
+    if nesting_phase == "active_nesting" and transitions_per_hour_from_data > 12:
+        recent_active_nesting_alert = await db.execute(
+            select(Alert)
+            .where(and_(
+                Alert.pen_id == pen_id,
+                Alert.type == "active_nesting",
+                Alert.is_resolved == False,
+                Alert.created_at >= datetime.utcnow() - timedelta(hours=2),
+            ))
+        )
+        if not recent_active_nesting_alert.scalar_one_or_none():
+            from app.models.pig import Alert as AlertModel
+            alerts_to_add.append(AlertModel(
+                type="active_nesting",
+                severity="high",
+                title=f"Intense Nesting Activity — Pen {pen_id}",
+                message=(
+                    f"Intense nesting activity in Pen {pen_id}. "
+                    f"Farrowing expected within 12 hours. "
+                    f"Prepare farrowing supplies and increase monitoring frequency."
+                ),
+                pen_id=pen_id,
+            ))
+
+    if alerts_to_add:
+        db.add_all(alerts_to_add)
+        await db.commit()
 
     return {
         "pen_id": pen_id,
         "score": score,
         "likelihood": likelihood,
+        "note": likelihood_note,
         "expected_window_hours": expected_window_hours,
         "changes_per_hour": round(changes_per_hour, 2),
         "nursing_ratio": round(nursing_ratio, 2),
@@ -337,11 +543,11 @@ async def get_farrowing_likelihood(
         "restlessness_index": round(movement_score_raw, 2),
         "period_hours": hours,
         "components": {
-            "posture_switching": round(posture_score, 1),
-            "movement": round(movement_score, 1),
-            "lying_time": round(lying_score, 1),
-            "feeding_reduction": round(feeding_score, 1),
-            "activity_increase": round(activity_score, 1),
+            "posture_switching": round(posture_component * 100, 1),
+            "movement": round(movement_component * 100, 1),
+            "lying_time": round(lying_component * 100, 1),
+            "feeding_reduction": round(feeding_component * 100, 1),
+            "nesting_score": round(nesting_score_component * 100, 1),
         },
     }
 
@@ -442,11 +648,9 @@ async def get_health_summary(
     result = await db.execute(
         select(
             BehaviorLog.pen_id,
-            func.avg(BehaviorLog.health_score).label('avg_health'),
             func.avg(BehaviorLog.crushing_risk).label('avg_risk'),
-            func.count(BehaviorLog.id).label('log_count'),
-            func.sum(func.cast(BehaviorLog.is_nursing, Integer)).label('nursing_count'),
-            func.sum(func.cast(BehaviorLog.is_feeding, Integer)).label('feeding_count'),
+            func.avg(BehaviorLog.health_score).label('avg_health_score'),
+            func.count(BehaviorLog.id).label('log_count')
         )
         .where(and_(BehaviorLog.logged_at >= since, BehaviorLog.is_archived == False))
         .group_by(BehaviorLog.pen_id)
@@ -457,16 +661,14 @@ async def get_health_summary(
         log_count = row.log_count or 0
         summaries.append({
             'pen_id': row.pen_id,
-            'avg_health_score': round(row.avg_health or 0, 1),
             'avg_crushing_risk': round(row.avg_risk or 0, 3),
+            'avg_health_score': round(row.avg_health_score or 0, 1),
             'total_logs': log_count,
-            'nursing_percentage': round((row.nursing_count or 0) / log_count * 100, 1) if log_count > 0 else 0,
-            'feeding_percentage': round((row.feeding_count or 0) / log_count * 100, 1) if log_count > 0 else 0,
-            'needs_attention': (row.avg_health or 100) < 50 or (row.avg_risk or 0) > 0.6,
+            'needs_attention': (row.avg_risk or 0) > 0.6,
         })
     
-    # Sort by health score (lowest first - needs attention)
-    summaries.sort(key=lambda x: x['avg_health_score'])
+    # Sort by risk (highest first - needs attention)
+    summaries.sort(key=lambda x: x['avg_crushing_risk'], reverse=True)
     
     return {
         'period_hours': hours,

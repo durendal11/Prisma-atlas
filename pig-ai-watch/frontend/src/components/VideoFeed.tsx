@@ -196,7 +196,8 @@ export default function VideoFeed({
           result.totalPigCount,
           result.analytics.avgConfidence,
           result.analytics.detectionDensity,
-          result.analytics.movementEstimate
+          result.analytics.movementEstimate,
+          result.detections
         );
       }
 

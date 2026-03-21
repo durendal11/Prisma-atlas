@@ -25,6 +25,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     onNavigate: (callback) => {
         ipcRenderer.on('navigate', (event, path) => callback(path));
     },
+    onDetectionsBatch: (callback) => {
+        ipcRenderer.on('ws-detections-batch', (event, batch) => callback(batch));
+    },
     
     // Platform info
     platform: process.platform,

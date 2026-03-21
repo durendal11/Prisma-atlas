@@ -14,7 +14,7 @@ import json
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import FileResponse
@@ -82,7 +82,14 @@ class ModelVersion(BaseModel):
 @router.post("/detections", dependencies=[Depends(verify_edge_key)])
 async def push_detection(body: DetectionPush, db: AsyncSession = Depends(get_db)):
     """Receive a single detection from the edge device."""
-    await _store_detection(body, db)
+    detection, event, alert, message, pen_id = _build_detection_payload(body)
+    db.add(detection)
+    db.add(event)
+    if alert is not None:
+        db.add(alert)
+
+    await db.commit()
+    await _broadcast_detection(message, pen_id)
     return {"status": "ok"}
 
 
@@ -91,13 +98,28 @@ async def push_detection(body: DetectionPush, db: AsyncSession = Depends(get_db)
 @router.post("/detections/batch", dependencies=[Depends(verify_edge_key)])
 async def push_detection_batch(body: DetectionBatch, db: AsyncSession = Depends(get_db)):
     """Receive a batch of buffered detections (offline sync)."""
+    # Before: 1 transaction per detection in the loop.
+    # After: 1 transaction for the entire batch.
     stored = 0
+    pending_messages: List[Tuple[dict, str]] = []
+
     for det in body.detections:
         try:
-            await _store_detection(det, db)
+            detection, event, alert, message, pen_id = _build_detection_payload(det)
+            db.add(detection)
+            db.add(event)
+            if alert is not None:
+                db.add(alert)
+            pending_messages.append((message, pen_id))
             stored += 1
         except Exception as exc:
             logger.warning("Skipping duplicate/bad detection: %s", exc)
+
+    if stored:
+        await db.commit()
+        for message, pen_id in pending_messages:
+            await _broadcast_detection(message, pen_id)
+
     return {"status": "ok", "stored": stored, "total": len(body.detections)}
 
 
@@ -151,18 +173,19 @@ async def download_model():
 
 # ── Internal helpers ─────────────────────────────────────────────────────────
 
-async def _store_detection(det: DetectionPush, db: AsyncSession):
-    """Persist a detection and optionally create alerts + WebSocket broadcast."""
-
-    # Resolve pen_id string → integer (e.g. "pen_3" → 3)
+def _resolve_pen_id(pen_id: str) -> int:
+    """Resolve pen_id string to integer (e.g. pen_3 -> 3)."""
     try:
-        pen_id_int = int(det.pen_id.replace("pen_", ""))
+        return int(pen_id.replace("pen_", ""))
     except (ValueError, AttributeError):
-        pen_id_int = 1
+        return 1
 
+
+def _build_detection_payload(det: DetectionPush) -> Tuple[Detection, Event, Optional[Alert], dict, str]:
+    """Build ORM objects and websocket payload from a detection request."""
+    pen_id_int = _resolve_pen_id(det.pen_id)
     ts = datetime.fromisoformat(det.timestamp)
 
-    # ── Store as Detection row
     detection = Detection(
         pen_id=pen_id_int,
         piglet_count=det.piglet_count,
@@ -173,9 +196,7 @@ async def _store_detection(det: DetectionPush, db: AsyncSession):
         processing_time_ms=det.processing_time_ms,
         frame_timestamp=ts,
     )
-    db.add(detection)
 
-    # ── Store as Event
     event = Event(
         type="detection",
         category="ai_detection",
@@ -188,14 +209,14 @@ async def _store_detection(det: DetectionPush, db: AsyncSession):
             "source": "edge_device",
         }),
     )
-    db.add(event)
 
-    # ── Create Alert if risk exceeds threshold
+    alert: Optional[Alert] = None
     if det.crushing_risk >= settings.CRUSHING_RISK_THRESHOLD:
         severity = "critical" if det.crushing_risk >= 0.8 else "high"
         alert = Alert(
             type="crushing_risk",
             severity=severity,
+            title=f"Crushing Risk Detected - {det.pen_id}",
             message=f"Crushing risk {det.crushing_risk:.0%} in pen {det.pen_id} (posture: {det.sow_posture})",
             pen_id=pen_id_int,
             detection_data=json.dumps({
@@ -204,27 +225,29 @@ async def _store_detection(det: DetectionPush, db: AsyncSession):
                 "crushing_risk": det.crushing_risk,
             }),
         )
-        db.add(alert)
 
-    await db.commit()
+    ws_message = {
+        "type": "detection",
+        "pen_id": det.pen_id,
+        "data": {
+            "piglet_count": det.piglet_count,
+            "posture": det.sow_posture,
+            "risk_level": det.crushing_risk,
+            "bboxes": [b.model_dump() for b in det.bounding_boxes],
+            "timestamp": det.timestamp,
+            "processing_time_ms": det.processing_time_ms,
+            "source": "edge_device",
+        },
+    }
 
-    # ── WebSocket broadcast (fire-and-forget)
+    return detection, event, alert, ws_message, det.pen_id
+
+
+async def _broadcast_detection(message: dict, pen_id: str):
+    """Broadcast a detection message to websocket clients."""
     try:
         from app.api.websocket import ws_manager
 
-        message = {
-            "type": "detection",
-            "pen_id": det.pen_id,
-            "data": {
-                "piglet_count": det.piglet_count,
-                "posture": det.sow_posture,
-                "risk_level": det.crushing_risk,
-                "bboxes": [b.model_dump() for b in det.bounding_boxes],
-                "timestamp": det.timestamp,
-                "processing_time_ms": det.processing_time_ms,
-                "source": "edge_device",
-            },
-        }
-        await ws_manager.broadcast(message, det.pen_id)
+        await ws_manager.broadcast(message, pen_id)
     except Exception as exc:
         logger.debug("WebSocket broadcast skipped: %s", exc)
