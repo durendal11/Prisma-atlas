@@ -2,6 +2,7 @@ node_modules/
 .venv/
 *.pt
 *.onnx
+!pig-ai-watch/frontend/public/models/pig_detection.onnx
 .env
 .env.local
 .env.development
