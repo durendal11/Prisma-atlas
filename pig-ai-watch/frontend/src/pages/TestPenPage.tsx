@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { onnxDetector, Detection, DetectionResult, drawRiskHighlights } from '@/utils/onnxDetector';
 import type { ProximityAlert } from '@/utils/onnxDetector';
 import {
@@ -11,7 +12,7 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip,
   ResponsiveContainer,
 } from 'recharts';
-import { behaviorLogger } from '@/services/behaviorLogger';
+import { behaviorLogger, type BehaviorAnalytics, type FarrowingLikelihood } from '@/services/behaviorLogger';
 import { simulationEngine } from '@/services/simulationEngine';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useApi } from '@/hooks/useApi';
@@ -20,7 +21,7 @@ import { useSimulationStore, type SimulationEvent } from '@/store/simulationStor
 import { useFarrowingStore, type FarrowingSystemState } from '@/store/farrowingStore';
 import { CrushingRiskGauge } from '@/components';
 import { AIPenAdvisoryCard } from '@/components/AIPenAdvisoryCard';
-import type { Sow, FarrowingRecord, FarrowingStats, SowUpdate } from '@/types';
+import type { Sow, FarrowingRecord, FarrowingStats, SowUpdate, Alert, Pen } from '@/types';
 import {
   Upload,
   StopCircle,
@@ -77,6 +78,9 @@ const POSTURE_COLORS: Record<string, string> = {
 // ── Tab type ────────────────────────────────────────────────────────────────
 type Tab = 'overview' | 'detections' | 'behavior' | 'farrowing' | 'live-monitor';
 
+const TARGET_FPS = 10;
+const FRAME_INTERVAL = 1000 / TARGET_FPS;
+
 export default function TestPenPage() {
   const { t } = useTranslation();
   const api = useApi();
@@ -97,7 +101,16 @@ export default function TestPenPage() {
   const [modelLoaded, setModelLoaded] = useState(false);
   const [status, setStatus] = useState<'idle' | 'loading-model' | 'ready' | 'playing' | 'processing' | 'error'>('idle');
   const [error, setError] = useState<string | null>(null);
-  const [penId] = useState<number>(10);
+  const [searchParams] = useSearchParams();
+  const initialPenId = useMemo(() => {
+    const penParam = searchParams.get('pen');
+    const parsed = Number(penParam);
+    return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+  }, [searchParams]);
+  const [selectedPenId, setSelectedPenId] = useState<number | null>(initialPenId);
+  const penId = selectedPenId ?? 0;
+  const canUseMedia = selectedPenId !== null;
+  const lastProcessedFrameTimeRef = useRef(0);
   const [confidenceThreshold, setConfidenceThreshold] = useState<number>(0.25);
   const [activeTab, setActiveTab] = useState<Tab>('overview');
   // Video playback state (for custom controls — native controls removed to enforce crop)
@@ -134,6 +147,19 @@ export default function TestPenPage() {
   // Replay mode toggle
   const [liveMode, setLiveMode] = useState<'live' | 'replay'>('live');
   const navigate = useNavigate();
+
+  const [liveFarrowingLikelihood, setLiveFarrowingLikelihood] = useState<FarrowingLikelihood | null>(null);
+  const [liveBehaviorAnalytics, setLiveBehaviorAnalytics] = useState<BehaviorAnalytics | null>(null);
+  const [liveRecentAlerts, setLiveRecentAlerts] = useState<Alert[]>([]);
+
+  const { data: pens = [] } = useQuery({
+    queryKey: ['test-pen-pens'],
+    queryFn: async (): Promise<Pen[]> => {
+      const response = await api.get('/api/pens', { params: { is_active: true } });
+      return Array.isArray(response.data) ? response.data : [];
+    },
+    staleTime: 30_000,
+  });
 
   // Mini trend chart data — rolling restlessness + likelihood
   const [trendData, setTrendData] = useState<Array<{ time: string; restlessness: number; likelihood: number }>>([
@@ -292,12 +318,19 @@ export default function TestPenPage() {
   }, [fps]);
 
   // ── Detection loops ───────────────────────────────────────────────────────
-  const runDetection = useCallback(async () => {
+  const runDetection = useCallback(async (timestamp: number) => {
     const video = videoRef.current;
     if (!video || video.readyState < 2 || !onnxDetector.isReady()) {
       animationRef.current = requestAnimationFrame(runDetection);
       return;
     }
+
+    if (timestamp - lastProcessedFrameTimeRef.current < FRAME_INTERVAL) {
+      animationRef.current = requestAnimationFrame(runDetection);
+      return;
+    }
+    lastProcessedFrameTimeRef.current = timestamp;
+
     try {
       // Crop center portion of the video frame at 55% zoom — removes side pens from inference
       if (!cropCanvasRef.current) cropCanvasRef.current = document.createElement('canvas');
@@ -344,6 +377,7 @@ export default function TestPenPage() {
 
   const stopDetection = useCallback(() => {
     if (animationRef.current) { cancelAnimationFrame(animationRef.current); animationRef.current = null; }
+    lastProcessedFrameTimeRef.current = 0;
     behaviorLogger.stopLogging();
     if (useSimulationStore.getState().isSimulating) {
       simulationEngine.stop();
@@ -409,6 +443,11 @@ export default function TestPenPage() {
   }, [t, drawDetections, updateResult]);
 
   const handleFile = async (file: File) => {
+    if (!canUseMedia || !selectedPenId) {
+      toast.error('Select a pen before uploading media');
+      return;
+    }
+
     setError(null);
     const ok = await loadModel();
     if (!ok) return;
@@ -422,16 +461,16 @@ export default function TestPenPage() {
       setFileType('image');
       setStatus('ready');
       setRunning(true);
-      behaviorLogger.startLogging(penId);
+      behaviorLogger.startLogging(selectedPenId, sow?.id);
       // Detection fires via onLoad on the hidden img element
     } else if (isVideo) {
       setFileType('video');
       setStatus('ready');
       setRunning(true);
-      behaviorLogger.startLogging(penId);
+      behaviorLogger.startLogging(selectedPenId, sow?.id);
       // Start simulation engine with expected piglet count
       const expectedPiglets = sow?.current_litter_size || 9;
-      simulationEngine.start(expectedPiglets, sow?.id, penId);
+      simulationEngine.start(expectedPiglets, sow?.id, selectedPenId);
       requestAnimationFrame(() => {
         const video = videoRef.current;
         if (video) {
@@ -452,11 +491,18 @@ export default function TestPenPage() {
 
   // ── Farrowing data loading ────────────────────────────────────────────────
   const loadFarrowingData = useCallback(async () => {
+    if (!selectedPenId) {
+      setSow(null);
+      setFarrowingRecords([]);
+      setFarrowingStats(null);
+      return;
+    }
+
     setFarrowingLoading(true);
     try {
       // Fetch sow assigned to test pen
       try {
-        const sowRes = await api.get('/api/sows', { params: { pen_id: penId, limit: 1 } });
+        const sowRes = await api.get('/api/sows', { params: { pen_id: selectedPenId, limit: 1 } });
         if (sowRes.data && sowRes.data.length > 0) {
           setSow(sowRes.data[0]);
         }
@@ -464,7 +510,7 @@ export default function TestPenPage() {
 
       // Farrowing records for this pen
       try {
-        const frRes = await api.get('/api/farrowing/records', { params: { pen_id: penId, limit: 20 } });
+        const frRes = await api.get('/api/farrowing/records', { params: { pen_id: selectedPenId, limit: 20 } });
         setFarrowingRecords(Array.isArray(frRes.data) ? frRes.data : []);
       } catch { /* no records */ }
 
@@ -478,11 +524,57 @@ export default function TestPenPage() {
     } finally {
       setFarrowingLoading(false);
     }
-  }, [penId, api]);
+  }, [selectedPenId, api]);
 
   useEffect(() => {
     loadFarrowingData();
   }, [loadFarrowingData]);
+
+  useEffect(() => {
+    if (!selectedPenId) {
+      behaviorLogger.stopLogging();
+      return;
+    }
+    behaviorLogger.stopLogging();
+    behaviorLogger.startLogging(selectedPenId, sow?.id);
+    return () => behaviorLogger.stopLogging();
+  }, [selectedPenId, sow?.id]);
+
+  useEffect(() => {
+    if (!selectedPenId || !videoPlaying) {
+      return;
+    }
+
+    let isMounted = true;
+
+    const loadLivePanelData = async () => {
+      try {
+        const [likelihood, analytics, alertsResponse] = await Promise.all([
+          behaviorLogger.getFarrowingLikelihood(selectedPenId),
+          behaviorLogger.getAnalytics(selectedPenId),
+          api.get('/api/alerts', { params: { pen_id: selectedPenId, limit: 5 } }),
+        ]);
+
+        if (!isMounted) {
+          return;
+        }
+
+        setLiveFarrowingLikelihood(likelihood);
+        setLiveBehaviorAnalytics(analytics);
+        setLiveRecentAlerts(Array.isArray(alertsResponse.data) ? alertsResponse.data : []);
+      } catch (err) {
+        console.error('Failed to refresh Test Pen live analytics panel:', err);
+      }
+    };
+
+    loadLivePanelData();
+    const timer = setInterval(loadLivePanelData, 15000);
+
+    return () => {
+      isMounted = false;
+      clearInterval(timer);
+    };
+  }, [selectedPenId, videoPlaying, api]);
 
   // ── Farrowing handlers ────────────────────────────────────────────────────
   const handleRecordFarrowing = async () => {
@@ -681,7 +773,7 @@ export default function TestPenPage() {
             )}
           </h1>
           <p className="text-sm text-gray-500 dark:text-slate-400">
-            Upload images or videos to test AI detection • Virtual Pen #{penId}
+            Upload images or videos to test AI detection • {selectedPenId ? `Pen #${selectedPenId}` : 'Select a pen to begin'}
           </p>
         </div>
 
@@ -708,21 +800,57 @@ export default function TestPenPage() {
         )}
       </div>
 
+      <div className="bg-white dark:bg-slate-800/60 rounded-xl border border-gray-200 dark:border-slate-700 p-4">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+          <label htmlFor="test-pen-select" className="text-sm font-medium text-gray-700 dark:text-slate-300">
+            Assessment Pen
+          </label>
+          <select
+            id="test-pen-select"
+            value={selectedPenId ?? ''}
+            onChange={(e) => {
+              const next = Number(e.target.value);
+              setSelectedPenId(Number.isInteger(next) && next > 0 ? next : null);
+              stopDetection();
+            }}
+            className="w-full sm:w-72 rounded-lg border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-gray-900 dark:text-slate-100"
+          >
+            <option value="">Select pen...</option>
+            {pens.map((pen) => (
+              <option key={pen.id} value={pen.id}>
+                {pen.name} (#{pen.id})
+              </option>
+            ))}
+          </select>
+          {!canUseMedia && (
+            <span className="text-xs text-amber-600 dark:text-amber-400">
+              Choose a pen to enable upload and playback
+            </span>
+          )}
+        </div>
+      </div>
+
       {/* ── TOP: Video/Image + Quick Info grid ─────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         {/* Media area */}
         <div className="lg:col-span-2 space-y-0 rounded-2xl overflow-hidden border border-gray-200 dark:border-slate-700 bg-black">
           {/* Upload controls bar */}
           <div className="flex flex-wrap items-center gap-2 px-4 py-3 bg-gray-900 border-b border-gray-800">
-            <label className="flex items-center gap-2 px-3 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg cursor-pointer text-xs font-medium text-white transition-colors">
+            <label className={clsx(
+              'flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium text-white transition-colors',
+              canUseMedia ? 'bg-blue-600 hover:bg-blue-700 cursor-pointer' : 'bg-gray-500 cursor-not-allowed opacity-70'
+            )}>
               <Image className="h-3.5 w-3.5" />
               Image
-              <input type="file" accept="image/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }} />
+              <input type="file" accept="image/*" className="hidden" disabled={!canUseMedia} onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }} />
             </label>
-            <label className="flex items-center gap-2 px-3 py-2 bg-purple-600 hover:bg-purple-700 rounded-lg cursor-pointer text-xs font-medium text-white transition-colors">
+            <label className={clsx(
+              'flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium text-white transition-colors',
+              canUseMedia ? 'bg-purple-600 hover:bg-purple-700 cursor-pointer' : 'bg-gray-500 cursor-not-allowed opacity-70'
+            )}>
               <FileVideo className="h-3.5 w-3.5" />
               Video
-              <input type="file" accept="video/*" className="hidden" onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }} />
+              <input type="file" accept="video/*" className="hidden" disabled={!canUseMedia} onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }} />
             </label>
 
             {status !== 'idle' && (
@@ -779,7 +907,9 @@ export default function TestPenPage() {
             {!fileUrl && (
               <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-6">
                 <Upload className="h-14 w-14 text-gray-600 mb-3" />
-                <p className="text-gray-400 text-sm mb-1 font-medium">Upload an image or video to start</p>
+                <p className="text-gray-400 text-sm mb-1 font-medium">
+                  {canUseMedia ? 'Upload an image or video to start' : 'Select a pen before uploading media'}
+                </p>
                 <p className="text-gray-600 text-xs">The AI model will detect sows, piglets, posture, and crushing risk</p>
               </div>
             )}
@@ -802,6 +932,8 @@ export default function TestPenPage() {
                   max={videoDuration || 100}
                   step={0.1}
                   value={videoCurrentTime}
+                  title="Video progress"
+                  aria-label="Video progress"
                   onChange={(e) => {
                     const v = videoRef.current;
                     if (v) { v.currentTime = parseFloat(e.target.value); setVideoCurrentTime(parseFloat(e.target.value)); }
@@ -828,6 +960,49 @@ export default function TestPenPage() {
             )}
           </div>
         </div>
+
+        {selectedPenId && videoPlaying && (
+          <div className="lg:col-span-2 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800/60 p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Live Pen Analytics (Assessment)</h3>
+              <span className="text-xs text-gray-500 dark:text-slate-400">Refreshing every 15s</span>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div className="rounded-lg border border-gray-200 dark:border-slate-700 p-3 bg-gray-50 dark:bg-slate-900/40">
+                <p className="text-xs text-gray-500 dark:text-slate-400">Farrowing Likelihood</p>
+                <p className="text-xl font-bold text-gray-900 dark:text-white">
+                  {liveFarrowingLikelihood ? `${liveFarrowingLikelihood.score.toFixed(0)}%` : '--'}
+                </p>
+                <p className="text-xs text-gray-600 dark:text-slate-300">
+                  {liveFarrowingLikelihood?.likelihood ?? 'Waiting for behavior logs'}
+                </p>
+              </div>
+              <div className="rounded-lg border border-gray-200 dark:border-slate-700 p-3 bg-gray-50 dark:bg-slate-900/40">
+                <p className="text-xs text-gray-500 dark:text-slate-400">Health Score (Current Window)</p>
+                <p className="text-xl font-bold text-gray-900 dark:text-white">
+                  {liveBehaviorAnalytics ? liveBehaviorAnalytics.avg_health_score.toFixed(1) : '--'}
+                </p>
+                <p className="text-xs text-gray-600 dark:text-slate-300">
+                  {liveBehaviorAnalytics ? `${liveBehaviorAnalytics.total_logs} logs analyzed` : 'No analytics yet'}
+                </p>
+              </div>
+              <div className="rounded-lg border border-gray-200 dark:border-slate-700 p-3 bg-gray-50 dark:bg-slate-900/40">
+                <p className="text-xs text-gray-500 dark:text-slate-400">Recent Alerts</p>
+                <p className="text-xl font-bold text-gray-900 dark:text-white">{liveRecentAlerts.length}</p>
+                <div className="mt-1 space-y-1">
+                  {liveRecentAlerts.slice(0, 2).map((alert) => (
+                    <p key={alert.id} className="text-[11px] text-gray-600 dark:text-slate-300 truncate">
+                      {String(alert.severity || '').toUpperCase()}: {alert.title}
+                    </p>
+                  ))}
+                  {liveRecentAlerts.length === 0 && (
+                    <p className="text-[11px] text-gray-500 dark:text-slate-400">No recent alerts for this pen</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Quick Info Panel (right side) */}
         <div className="space-y-4">

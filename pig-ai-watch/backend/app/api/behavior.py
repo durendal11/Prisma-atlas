@@ -16,7 +16,9 @@ from app.schemas.pig import BehaviorLogCreate, BehaviorLogResponse, BehaviorAnal
 from app.analyzers.nesting import NestingBehaviorAnalyzer
 from app.analyzers.birth import BirthEventDetector
 from app.analyzers.welfare import PigletWelfareMonitor
+from app.analyzers.cluster import ClusterVisibilityAnalyzer
 from app.api.websocket import ws_manager
+from app.services.ai_summary import generate_alert_summary
 
 logger = logging.getLogger(__name__)
 # NOTE: frontend calls /api/behavior/*; keep the router in the /api namespace.
@@ -25,6 +27,31 @@ router = APIRouter(prefix="/api/behavior", tags=["behavior"])
 _nesting_analyzers: dict[int, NestingBehaviorAnalyzer] = {}
 _birth_detectors: dict[int, BirthEventDetector] = {}
 _welfare_monitors: dict[int, PigletWelfareMonitor] = {}
+_cluster_analyzers: dict[int, ClusterVisibilityAnalyzer] = {}
+_ai_last_called: dict[int, datetime] = {}
+AI_MIN_INTERVAL_SECONDS = 120
+
+
+def _ai_cooldown_active(pen_id: int) -> bool:
+    last = _ai_last_called.get(pen_id)
+    if not last:
+        return False
+    return (datetime.utcnow() - last).total_seconds() < AI_MIN_INTERVAL_SECONDS
+
+
+def _mark_ai_called(pen_id: int):
+    _ai_last_called[pen_id] = datetime.utcnow()
+
+
+AI_TRIGGER_TYPES = {
+    "cluster_visibility_gap",
+    "piglet_welfare_flag",
+    "dystocia_risk",
+    "birth_detected",
+    "nesting_onset",
+    "active_nesting",
+    "crushing_risk",
+}
 
 
 async def get_recent_logs(db: AsyncSession, pen_id: int, minutes: int = 30) -> list:
@@ -138,11 +165,17 @@ async def log_behavior(
             _birth_detectors[behavior.pen_id] = BirthEventDetector()
         if behavior.pen_id not in _welfare_monitors:
             _welfare_monitors[behavior.pen_id] = PigletWelfareMonitor()
+        if behavior.pen_id not in _cluster_analyzers:
+            _cluster_analyzers[behavior.pen_id] = ClusterVisibilityAnalyzer()
 
         nesting_result = _nesting_analyzers[behavior.pen_id].analyze(recent_logs, window_minutes=30)
         now = datetime.utcnow()
         birth_events = _birth_detectors[behavior.pen_id].process_log(behavior, now)
         welfare_alerts = _welfare_monitors[behavior.pen_id].process_log(behavior, now)
+        _cluster_analyzers[behavior.pen_id].update_confirmed_total(
+            _birth_detectors[behavior.pen_id].confirmed_count
+        )
+        cluster_alerts = _cluster_analyzers[behavior.pen_id].process_log(behavior, now)
 
         enriched_detection_data = {
             **parsed_detection_data,
@@ -206,12 +239,81 @@ async def log_behavior(
                 description=f"Pen wetness high ({behavior.wetness_score:.2f})"
             ))
 
-        for event in birth_events + welfare_alerts:
-            await fire_alert(db, behavior.pen_id, event)
+        crushing_alerts: list[dict[str, Any]] = []
+        if behavior.crushing_risk >= 0.7:
+            severity = "CRITICAL" if behavior.crushing_risk >= 0.8 else "HIGH"
+            crushing_alerts.append(
+                {
+                    "type": "crushing_risk",
+                    "pen_id": behavior.pen_id,
+                    "severity": severity,
+                    "priority": severity,
+                    "risk_level": round(float(behavior.crushing_risk), 3),
+                    "alert": (
+                        f"High crushing risk detected in Pen {behavior.pen_id} "
+                        f"(risk={behavior.crushing_risk:.2f}). Check sow and piglet spacing immediately."
+                    ),
+                    "push_title": f"Pen {behavior.pen_id} - Crushing risk",
+                    "push_body": (
+                        f"Risk score {behavior.crushing_risk:.2f}. "
+                        "Check pen immediately."
+                    ),
+                    # High/critical alerts should not be deduped by medium cooldown logic.
+                    "suppress_until_minutes": 0,
+                }
+            )
+
+        all_alerts = birth_events + welfare_alerts + cluster_alerts + crushing_alerts
+        pen_id = behavior.pen_id
+
+        should_summarize = any(
+            e.get("type") in AI_TRIGGER_TYPES or e.get("severity") in ("HIGH", "CRITICAL")
+            for e in all_alerts
+        )
+
+        ai_summary = None
+        if should_summarize and not _ai_cooldown_active(pen_id):
+            pen_data = {
+                "pen_id": pen_id,
+                "sow_name": str(behavior.sow_id or "Unknown"),
+                "lifecycle_stage": behavior.activity_level or "unknown",
+                "window_minutes": 30,
+                "log_count": len(recent_logs),
+                "dominant_posture": behavior.sow_posture,
+                "posture_pct": round((behavior.posture_confidence or 0) * 100, 1),
+                "transition_count": int(enriched_detection_data.get("transitions_per_hour", 0)),
+                "nursing_count": sum(1 for l in recent_logs if l.sow_posture == "nursing"),
+                "feeding_count": sum(1 for l in recent_logs if l.sow_posture == "feeding"),
+                "avg_risk": behavior.crushing_risk or 0.0,
+                "peak_risk": max(
+                    (l.crushing_risk for l in recent_logs if l.crushing_risk is not None),
+                    default=behavior.crushing_risk or 0.0,
+                ),
+                "danger_zone_count": behavior.piglet_count or 0,
+                "is_farrowing": enriched_detection_data.get("birth_count_session", 0) > 0,
+                "mins_since_piglet": None,
+                "nesting_score": enriched_detection_data.get("nesting_score", 0.0),
+                "nesting_phase": enriched_detection_data.get("nesting_phase", "calm"),
+                "motionless_piglet_flag": enriched_detection_data.get("motionless_piglet_flag", False),
+                "anomalies": [e["type"] for e in all_alerts],
+            }
+            try:
+                ai_summary = await generate_alert_summary(pen_data)
+                _mark_ai_called(pen_id)
+            except Exception:
+                ai_summary = None
+
+        for event in all_alerts:
+            if ai_summary and event.get("severity") in ("HIGH", "CRITICAL"):
+                event["push_title"] = ai_summary.get("push_title", event.get("push_title", ""))
+                event["push_body"] = ai_summary.get("push_body", event.get("push_body", ""))
+                event["ai_detail"] = ai_summary.get("detail", "")
+                event["ai_action"] = ai_summary.get("recommended_action", "")
+            await fire_alert(db, pen_id, event)
 
         if events_to_add:
             db.add_all(events_to_add)
-        if events_to_add or birth_events or welfare_alerts:
+        if events_to_add or birth_events or welfare_alerts or cluster_alerts:
             await db.commit()
         
         logger.info(f"Behavior logged for pen {behavior.pen_id}: {behavior.sow_posture}, risk={behavior.crushing_risk:.2f}")

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell, dialog, Menu, Tray, nativeImage } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, dialog, Menu, Tray, nativeImage, Notification } = require('electron');
 const path = require('path');
 const { spawn, execSync } = require('child_process');
 const Store = require('electron-store');
@@ -19,6 +19,7 @@ let splashWindow;
 let tray = null;
 let backendProcess = null;
 let isQuitting = false;
+let activeFrontendUrl = null;
 
 // Optional IPC coalescer for high-frequency detection streams.
 // Use this if WebSocket handling is moved to the main process.
@@ -46,7 +47,7 @@ function queueDetectionIpcMessage(message) {
 
 // Backend configuration
 const BACKEND_PORT = store.get('backendPort');
-const BACKEND_URL = `http://localhost:${BACKEND_PORT}`;
+const BACKEND_URL = `http://127.0.0.1:${BACKEND_PORT}`;
 
 // Check if running in development
 const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
@@ -155,10 +156,47 @@ function getPythonPath() {
 
 function getFrontendPath() {
     if (isDev) {
-        // Try multiple ports in case one is in use
+        // Primary dev target (Vite).
         return 'http://localhost:5174';
     }
     return path.join(__dirname, 'frontend-dist', 'index.html');
+}
+
+function getDevFrontendFallbackFile() {
+    return path.join(__dirname, 'frontend-dist', 'index.html');
+}
+
+const DEV_FRONTEND_CANDIDATES = [
+    'http://localhost:5174',
+    'http://localhost:5173',
+    'http://localhost:3000',
+];
+
+function withTrailingSlash(url) {
+    return url.endsWith('/') ? url : `${url}/`;
+}
+
+function isLikelyFrontendResponseStatus(status) {
+    // Accept common success/redirect statuses from dev servers and reverse proxies.
+    return status >= 200 && status < 400;
+}
+
+async function isFrontendReachable(url) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 1500);
+
+    try {
+        const response = await fetch(withTrailingSlash(url), {
+            method: 'GET',
+            signal: controller.signal,
+            cache: 'no-store',
+        });
+        return isLikelyFrontendResponseStatus(response.status);
+    } catch {
+        return false;
+    } finally {
+        clearTimeout(timeout);
+    }
 }
 
 function createSplashWindow() {
@@ -205,12 +243,136 @@ function createMainWindow() {
     // Create application menu
     createMenu();
 
+    function showFrontendModeBanner(modeLabel, detailText) {
+        if (!isDev || !mainWindow || mainWindow.isDestroyed()) {
+            return;
+        }
+
+        const safeMode = String(modeLabel || '').replace(/'/g, "\\'");
+        const safeDetail = String(detailText || '').replace(/'/g, "\\'");
+
+        const script = `(() => {
+            try {
+                const id = 'prisma-frontend-mode-banner';
+                let el = document.getElementById(id);
+                if (!el) {
+                    el = document.createElement('div');
+                    el.id = id;
+                    el.style.position = 'fixed';
+                    el.style.left = '12px';
+                    el.style.bottom = '12px';
+                    el.style.zIndex = '2147483647';
+                    el.style.padding = '8px 10px';
+                    el.style.borderRadius = '8px';
+                    el.style.fontFamily = "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace";
+                    el.style.fontSize = '12px';
+                    el.style.lineHeight = '1.3';
+                    el.style.color = '#fff';
+                    el.style.border = '1px solid rgba(255,255,255,0.25)';
+                    el.style.boxShadow = '0 8px 24px rgba(0,0,0,0.35)';
+                    el.style.maxWidth = '50vw';
+                    el.style.wordBreak = 'break-word';
+                    document.body.appendChild(el);
+                }
+
+                const mode = '${safeMode}';
+                const detail = '${safeDetail}';
+                const live = mode.toLowerCase() === 'live';
+                el.style.background = live ? 'rgba(24,120,63,0.92)' : 'rgba(140,88,0,0.92)';
+                el.textContent = 'Frontend: ' + mode + (detail ? ' | ' + detail : '');
+            } catch {
+                // no-op
+            }
+        })();`;
+
+        mainWindow.webContents.executeJavaScript(script).catch(() => {});
+    }
+
     // Load the app
     const frontendPath = getFrontendPath();
     if (isDev || frontendPath.startsWith('http')) {
-        mainWindow.loadURL(frontendPath);
         if (isDev) {
+            let selectedFrontendUrl = null;
+
+            mainWindow.webContents.on('did-finish-load', () => {
+                const loadedUrl = mainWindow.webContents.getURL();
+                if (!loadedUrl) {
+                    return;
+                }
+
+                if (!selectedFrontendUrl) {
+                    return;
+                }
+
+                if (!loadedUrl.startsWith(withTrailingSlash(selectedFrontendUrl))) {
+                    return;
+                }
+
+                // Avoid duplicate logs when the same URL emits multiple finish events.
+                if (activeFrontendUrl === loadedUrl) {
+                    return;
+                }
+
+                activeFrontendUrl = loadedUrl;
+                console.log(`Frontend connected: ${loadedUrl}`);
+                showFrontendModeBanner('Live', loadedUrl);
+
+                if (splashWindow && !splashWindow.isDestroyed()) {
+                    splashWindow.webContents.executeJavaScript(
+                        `document.getElementById('status').textContent = 'Frontend connected: ${loadedUrl}'`
+                    ).catch(() => {});
+                }
+
+                mainWindow.setTitle(`PRISMA ATLAS (dev: ${loadedUrl})`);
+            });
+
+            mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
+                if (errorCode === 0) {
+                    return;
+                }
+
+                if (selectedFrontendUrl && validatedURL && validatedURL.startsWith(withTrailingSlash(selectedFrontendUrl))) {
+                    console.error(`Failed to load selected frontend ${validatedURL}: ${errorDescription} (${errorCode})`);
+                }
+            });
+
+            (async () => {
+                for (let i = 0; i < DEV_FRONTEND_CANDIDATES.length; i += 1) {
+                    const url = DEV_FRONTEND_CANDIDATES[i];
+                    console.log(`Loading frontend from ${url}`);
+
+                    // Probe before loadURL to avoid Chromium error-page false positives.
+                    if (await isFrontendReachable(url)) {
+                        selectedFrontendUrl = url;
+                        await mainWindow.loadURL(url);
+                        return;
+                    }
+
+                    const next = DEV_FRONTEND_CANDIDATES[i + 1];
+                    if (next) {
+                        console.warn(`Frontend not reachable, trying ${next}...`);
+                    }
+                }
+
+                console.error('No reachable frontend URL found. Start Vite (5174/5173) or Docker frontend (3000).');
+
+                const fallbackFile = getDevFrontendFallbackFile();
+                if (fs.existsSync(fallbackFile)) {
+                    console.log(`Loading local fallback frontend from ${fallbackFile}`);
+                    await mainWindow.loadFile(fallbackFile);
+                    showFrontendModeBanner('Fallback', 'desktop/frontend-dist');
+                    mainWindow.setTitle('PRISMA ATLAS (dev: local fallback)');
+                    return;
+                }
+
+                console.error('Local fallback frontend-dist/index.html was not found.');
+            })().catch((err) => {
+                console.error('Failed while selecting frontend URL:', err);
+            });
+
             mainWindow.webContents.openDevTools();
+        } else {
+            mainWindow.loadURL(frontendPath);
         }
     } else {
         mainWindow.loadFile(frontendPath);

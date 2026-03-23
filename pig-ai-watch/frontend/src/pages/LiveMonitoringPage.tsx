@@ -168,7 +168,7 @@ export default function LiveMonitoringPage() {
             <div className="bg-white dark:bg-slate-800/50 rounded-xl border border-gray-100 dark:border-slate-700/50 p-5 hover:shadow-md dark:hover:shadow-dark-lg transition-all duration-300 hover:-translate-y-0.5">
               <h3 className="text-sm font-medium text-gray-500 dark:text-slate-400 mb-2">Piglet Count</h3>
               <p className="text-4xl font-bold text-gray-900 dark:text-white">
-                {activeDetection?.data.piglet_count || pen?.piglet_count || 0}
+                {activeDetection?.data?.piglet_count || pen?.piglet_count || 0}
               </p>
             </div>
 
@@ -176,7 +176,7 @@ export default function LiveMonitoringPage() {
             <div className="bg-white dark:bg-slate-800/50 rounded-xl border border-gray-100 dark:border-slate-700/50 p-5 hover:shadow-md dark:hover:shadow-dark-lg transition-all duration-300 hover:-translate-y-0.5">
               <h3 className="text-sm font-medium text-gray-500 dark:text-slate-400 mb-2">Sow Posture</h3>
               <p className="text-xl font-semibold text-gray-900 dark:text-white capitalize">
-                {(activeDetection?.data.posture || pen?.sow_posture || 'unknown').replace('_', ' ')}
+                {(activeDetection?.data?.posture || pen?.sow_posture || 'unknown').replace('_', ' ')}
               </p>
             </div>
 
@@ -185,7 +185,7 @@ export default function LiveMonitoringPage() {
               <h3 className="text-sm font-medium text-gray-500 dark:text-slate-400 mb-4">Crushing Risk</h3>
               <div className="flex justify-center">
                 <RiskGauge 
-                  value={activeDetection?.data.risk_level || pen?.crushing_risk || 0}
+                  value={activeDetection?.data?.risk_level || pen?.crushing_risk || 0}
                   size="lg"
                 />
               </div>
@@ -199,13 +199,13 @@ export default function LiveMonitoringPage() {
                   <div className="flex justify-between">
                     <span className="text-gray-500 dark:text-slate-400">Processing Time</span>
                     <span className="font-medium text-gray-900 dark:text-white">
-                      {activeDetection.data.processing_time_ms?.toFixed(1) || '-'} ms
+                      {activeDetection.data?.processing_time_ms?.toFixed(1) || '-'} ms
                     </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-gray-500 dark:text-slate-400">Objects Detected</span>
                     <span className="font-medium text-gray-900 dark:text-white">
-                      {activeDetection.data.bboxes?.length || 0}
+                      {activeDetection.data?.bboxes?.length || 0}
                     </span>
                   </div>
                 </div>

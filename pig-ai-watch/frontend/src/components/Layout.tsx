@@ -19,8 +19,10 @@ import {
 } from 'lucide-react';
 import { useState } from 'react';
 import { useAuthStore, useAlertStore } from '@/store';
+import { useAlertStats } from '@/hooks';
 import clsx from 'clsx';
 import TestPenPage from '@/pages/TestPenPage';
+import { useEffect } from 'react';
 
 const navigation = [
   { name: 'Dashboard', href: '/', icon: LayoutDashboard },
@@ -56,7 +58,15 @@ export default function Layout() {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, logout } = useAuthStore();
+  const { data: alertStats } = useAlertStats();
   const unreadCount = useAlertStore((state) => state.unreadCount);
+  const setUnreadCount = useAlertStore((state) => state.setUnreadCount);
+
+  useEffect(() => {
+    if (typeof alertStats?.unread_count === 'number') {
+      setUnreadCount(alertStats.unread_count);
+    }
+  }, [alertStats?.unread_count, setUnreadCount]);
 
   const handleLogout = () => {
     logout();

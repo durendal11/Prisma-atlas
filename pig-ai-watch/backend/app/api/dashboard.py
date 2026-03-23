@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_
+from datetime import datetime, timedelta
 
 from app.core.database import get_db
 from app.core.security import get_current_user
@@ -8,7 +9,6 @@ from app.models.user import User
 from app.models.pig import Sow, Alert, Pen, Detection
 from app.schemas.pig import DashboardStats, PenStatus
 from typing import List
-from datetime import datetime
 
 router = APIRouter(prefix="/api/dashboard", tags=["Dashboard"])
 
@@ -54,7 +54,10 @@ async def get_pen_status(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Get current status of all active pens."""
+    """Get current status of all active pens with recent detections (last 5 minutes)."""
+    # Calculate threshold for recent detections (5 minutes ago)
+    recent_threshold = datetime.utcnow() - timedelta(minutes=5)
+
     latest_detection_sq = (
         select(
             Detection.pen_id.label("pen_id"),
@@ -67,6 +70,7 @@ async def get_pen_status(
                 order_by=Detection.created_at.desc(),
             ).label("rn"),
         )
+        .where(Detection.created_at >= recent_threshold)  # Only recent detections
     ).subquery()
 
     active_sow_sq = (
@@ -97,7 +101,7 @@ async def get_pen_status(
             active_sow_sq,
             and_(active_sow_sq.c.pen_id == Pen.id, active_sow_sq.c.rn == 1),
         )
-        .outerjoin(
+        .join(  # Changed to inner join - only include pens with recent detections
             latest_detection_sq,
             and_(latest_detection_sq.c.pen_id == Pen.id, latest_detection_sq.c.rn == 1),
         )
@@ -111,11 +115,11 @@ async def get_pen_status(
             pen_id=row.id,
             pen_name=row.name,
             sow_tag=row.tag_id,
-            piglet_count=row.piglet_count if row.piglet_count is not None else 0,
-            sow_posture=row.sow_posture if row.sow_posture is not None else "unknown",
-            crushing_risk=row.crushing_risk if row.crushing_risk is not None else 0.0,
-            last_updated=row.created_at if row.created_at is not None else datetime.utcnow(),
-            is_streaming=row.camera_source is not None,
+            piglet_count=row.piglet_count,
+            sow_posture=row.sow_posture,
+            crushing_risk=row.crushing_risk,
+            last_updated=row.created_at,
+            is_streaming=True,  # If in this list, it has recent detections
         )
         for row in rows
     ]
