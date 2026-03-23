@@ -105,10 +105,10 @@ jobs:
           VITE_API_URL: ""   # empty → nginx proxy handles /api
 
   # ──────────────────────────────────────────────────────────────
-  #  JOB 3 — Build & push Docker images  (main branch only)
+  #  JOB 3A — Build & push backend image  (main branch only)
   # ──────────────────────────────────────────────────────────────
-  build-and-push:
-    name: Build & Push Docker Images
+  build-backend-push:
+    name: Build & Push Backend Image
     runs-on: ubuntu-latest
     needs: [test-backend, test-frontend]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
@@ -148,15 +148,6 @@ jobs:
             type=sha,prefix=sha-,format=short
             type=raw,value=latest
 
-      - name: Extract Git metadata — frontend
-        id: meta-frontend
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.FRONTEND_IMAGE }}
-          tags: |
-            type=sha,prefix=sha-,format=short
-            type=raw,value=latest
-
       - name: Build & push backend image
         uses: docker/build-push-action@v6
         with:
@@ -165,14 +156,51 @@ jobs:
           push: true
           tags: ${{ steps.meta-backend.outputs.tags }}
           labels: ${{ steps.meta-backend.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=min
+          provenance: false
 
-      - name: Reclaim disk space between image builds
+  # ──────────────────────────────────────────────────────────────
+  #  JOB 3B — Build & push frontend image  (main branch only)
+  # ──────────────────────────────────────────────────────────────
+  build-frontend-push:
+    name: Build & Push Frontend Image
+    runs-on: ubuntu-latest
+    needs: [test-backend, test-frontend]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Free disk space on runner
         run: |
-          docker buildx prune -af || true
-          docker system prune -af || true
+          echo "Disk usage before cleanup:"
           df -h
+          sudo rm -rf /usr/local/lib/android || true
+          sudo rm -rf /opt/ghc || true
+          sudo rm -rf /opt/hostedtoolcache/CodeQL || true
+          docker system prune -af || true
+          echo "Disk usage after cleanup:"
+          df -h
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Extract Git metadata — frontend
+        id: meta-frontend
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.FRONTEND_IMAGE }}
+          tags: |
+            type=sha,prefix=sha-,format=short
+            type=raw,value=latest
 
       - name: Build & push frontend image
         uses: docker/build-push-action@v6
@@ -184,8 +212,7 @@ jobs:
           labels: ${{ steps.meta-frontend.outputs.labels }}
           build-args: |
             VITE_API_URL=
-          cache-from: type=gha
-          cache-to: type=gha,mode=min
+          provenance: false
 
   # ──────────────────────────────────────────────────────────────
   #  JOB 4 — Deploy to DigitalOcean Droplet via SSH
@@ -193,7 +220,7 @@ jobs:
   deploy:
     name: Deploy to DigitalOcean Droplet
     runs-on: ubuntu-latest
-    needs: build-and-push
+    needs: [build-backend-push, build-frontend-push]
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     environment: production
     permissions:
