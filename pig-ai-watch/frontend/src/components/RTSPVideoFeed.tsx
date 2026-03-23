@@ -67,6 +67,7 @@ export const RTSPVideoFeed: React.FC<RTSPVideoFeedProps> = ({
   const overlayRef = useRef<HTMLCanvasElement>(null);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const animationRef = useRef<number | null>(null);
+  const isDetectingRef = useRef(false);
   const fpsHistoryRef = useRef<number[]>([]);
   const frameCountRef = useRef<number>(0); // Use ref for immediate frame counting
   
@@ -281,6 +282,8 @@ export const RTSPVideoFeed: React.FC<RTSPVideoFeedProps> = ({
       
       console.log(`📦 Loading ONNX model for Pen ${penId}...`);
       try {
+        // Lower input size for live streams to reduce client inference latency.
+        onnxDetector.setLiveStreamMode(true);
         await onnxDetector.loadModel('/models/pig_detection.onnx');
         onnxDetector.setConfidenceThreshold(confidenceThreshold);
         setModelLoaded(true);
@@ -291,7 +294,7 @@ export const RTSPVideoFeed: React.FC<RTSPVideoFeedProps> = ({
     };
 
     loadModel();
-  }, [useClientDetection, penId]);
+  }, [useClientDetection, penId, confidenceThreshold]);
 
   // Draw detections on canvas overlay (same as TestPenPage)
   const drawDetections = useCallback((detections: Detection[], inferenceTime: number, proximityAlerts?: ProximityAlert[]) => {
@@ -402,6 +405,11 @@ export const RTSPVideoFeed: React.FC<RTSPVideoFeedProps> = ({
       return;
     }
 
+    // Avoid overlapping inference calls; overlap causes stale frames and latency growth.
+    if (isDetectingRef.current) {
+      return;
+    }
+
     // Frame skipping for performance - only process every Nth frame
     frameCountRef.current += 1;
     
@@ -423,6 +431,7 @@ export const RTSPVideoFeed: React.FC<RTSPVideoFeedProps> = ({
     ctx.drawImage(img, 0, 0);
 
     // Run ONNX detection asynchronously - don't block animation loop
+    isDetectingRef.current = true;
     onnxDetector.detect(canvas2d)
       .then(result => {
         console.log(`🔍 Pen ${penId}: ${result.totalPigCount} objects (${result.pigletCount} piglets, ${result.sowCount} sows)`);
@@ -457,6 +466,9 @@ export const RTSPVideoFeed: React.FC<RTSPVideoFeedProps> = ({
       })
       .catch(err => {
         console.error(`❌ Detection error for Pen ${penId}:`, err);
+      })
+      .finally(() => {
+        isDetectingRef.current = false;
       });
   }, [useClientDetection, modelLoaded, penId, drawDetections, isPaused, detectionFrameSkip, connectionStatus, onDetectionResult, setDetection]);
 

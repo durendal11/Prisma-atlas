@@ -337,13 +337,13 @@ export default function PenMonitorPage() {
   const handleDetectionResult = useCallback((result: DetectionResult) => {
     setLatestDetection(result);
 
-    if (!liveMonitorActive) return;
+    if (liveMonitorActive) {
+      // Elapsed seconds since monitoring started (acts as "video time")
+      const elapsed = (Date.now() - monitorStartRef.current) / 1000;
 
-    // Elapsed seconds since monitoring started (acts as "video time")
-    const elapsed = (Date.now() - monitorStartRef.current) / 1000;
-
-    // Feed into simulation engine
-    simulationEngine.processFrame(result, elapsed);
+      // Feed into simulation engine
+      simulationEngine.processFrame(result, elapsed);
+    }
 
     // Feed into behavior logger
     if (result.behaviorSummary) {
@@ -357,6 +357,16 @@ export default function PenMonitorPage() {
       );
     }
   }, [liveMonitorActive]);
+
+  // Keep behavior logging running while camera is connected so AI welfare logs continue
+  // even when Live Monitor simulation is not explicitly started.
+  useEffect(() => {
+    if (!numericPenId || cameraConnectionStatus !== 'connected') return;
+    behaviorLogger.startLogging(numericPenId, sow?.id);
+    return () => {
+      behaviorLogger.stopLogging();
+    };
+  }, [numericPenId, cameraConnectionStatus, sow?.id]);
 
   // Start live monitoring
   const startLiveMonitoring = useCallback(() => {
@@ -611,14 +621,20 @@ export default function PenMonitorPage() {
     sow,
     farrowingRecords,
     penAlerts || [],
-    penStatus
-      ? { crushing_risk: penStatus.crushing_risk, piglet_count: penStatus.piglet_count, sow_posture: penStatus.sow_posture }
+    latestDetection
+      ? {
+          crushing_risk: latestDetection.crushingRisk,
+          piglet_count: latestDetection.pigletCount,
+          sow_posture: latestDetection.sowPosture,
+        }
       : liveDetection
       ? {
           crushing_risk: liveDetection.data?.risk_level ?? 0,
           piglet_count: liveDetection.data?.piglet_count ?? 0,
           sow_posture: liveDetection.data?.posture ?? 'unknown',
         }
+      : penStatus
+      ? { crushing_risk: penStatus.crushing_risk, piglet_count: penStatus.piglet_count, sow_posture: penStatus.sow_posture }
       : null
   );
 

@@ -60,6 +60,9 @@ class FFmpegCapture:
             cmd = [
                 SYSTEM_FFMPEG,
                 "-rtsp_transport", "tcp",
+                "-fflags", "nobuffer",
+                "-flags", "low_delay",
+                "-max_delay", "500000",
                 timeout_flag, "10000000",        # 10s socket timeout (microseconds)
                 "-analyzeduration", "5000000",
                 "-probesize", "5000000",
@@ -338,8 +341,8 @@ class CameraStream:
                 time.sleep(0.5)
                 continue
             try:
-                # Continuously pull frames to prevent buffer stall
-                self.read_frame(flush_buffer=False)
+                # For RTSP cameras always flush stale buffered frames to keep latency low.
+                self.read_frame(flush_buffer=self.is_network_camera)
                 time.sleep(0.01) # Small sleep to prevent CPU hogging
             except Exception as e:
                 logger.error(f"Error in background reader loop for {self.pen_id}: {e}")

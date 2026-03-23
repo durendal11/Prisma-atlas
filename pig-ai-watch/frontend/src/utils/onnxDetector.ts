@@ -237,14 +237,9 @@ class ONNXDetector {
     const inputTensor = await this.preprocess(imageData);
     const outputs = await this.session.run({ images: inputTensor });
     
-    console.log('Model output names:', this.session.outputNames);
-    console.log('Model output shapes:', Object.keys(outputs).map(k => `${k}: ${outputs[k].dims}`));
-    
     const output0 = outputs[this.session.outputNames[0]];
     const output1 = outputs[this.session.outputNames[1]];
     const rawDetections = await this.postprocess(output0, output1);
-    
-    console.log(`Raw detections before enrichment: ${rawDetections.length}`);
     
     const detections = this.enrichDetections(rawDetections);
     const inferenceTimeMs = performance.now() - startTime;
