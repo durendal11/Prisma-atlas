@@ -1,6 +1,6 @@
 """Add missing detections columns used by ORM
 
-Revision ID: 011_add_missing_detection_columns
+Revision ID: 011_missing_detection_cols
 Revises: 010_fix_task_schema
 Create Date: 2026-03-23
 
@@ -9,7 +9,7 @@ from alembic import op
 
 
 # revision identifiers, used by Alembic.
-revision = '011_add_missing_detection_columns'
+revision = '011_missing_detection_cols'
 down_revision = '010_fix_task_schema'
 branch_labels = None
 depends_on = None
