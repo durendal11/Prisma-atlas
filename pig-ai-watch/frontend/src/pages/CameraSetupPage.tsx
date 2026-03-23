@@ -55,7 +55,7 @@ interface CameraConfig {
   password: string;
   rtspPath: string;
   rtspUrl: string;
-  connectionStatus: 'untested' | 'testing' | 'connected' | 'failed';
+  connectionStatus: 'untested' | 'testing' | 'connected' | 'failed' | 'waiting';
   isStaticIP: boolean;
   subnetMask: string;
   gateway: string;
@@ -337,6 +337,47 @@ export default function CameraSetupPage() {
     const rtspUrl = buildRtspUrl(activeCamera);
     updateCamera({ rtspUrl: rtspUrl });
 
+    if (activeCamera.brand === 'Edge Node Stream') {
+      if (!activeCamera.rtspPath?.trim()) {
+        updateCamera({ connectionStatus: 'failed' });
+        toast.error('Please enter the edge stream path first (example: pen_1).');
+        return;
+      }
+
+      try {
+        toast.loading('Checking cloud stream path from MediaMTX...', { id: 'cam-test' });
+        const result = await pensApi.testCamera(rtspUrl);
+
+        if (result.success) {
+          updateCamera({ connectionStatus: 'connected' });
+          toast.success('Edge stream is live and reachable from cloud.', { id: 'cam-test' });
+          return;
+        }
+
+        const isWaitingPublisher =
+          result.details?.mode === 'edge_stream' &&
+          result.details?.error === 'stream_not_opened';
+
+        if (isWaitingPublisher) {
+          updateCamera({ connectionStatus: 'waiting' });
+          toast('Waiting for edge publisher on this path. Start your edge proxy and try again.', {
+            id: 'cam-test',
+            icon: '⏳',
+            duration: 7000,
+          });
+          return;
+        }
+
+        updateCamera({ connectionStatus: 'failed' });
+        toast.error(result.message, { id: 'cam-test', duration: 6000 });
+      } catch (error: any) {
+        updateCamera({ connectionStatus: 'failed' });
+        const errorMsg = error.response?.data?.message || error.message || 'Connection failed';
+        toast.error(errorMsg, { id: 'cam-test' });
+      }
+      return;
+    }
+
     // Validate if it's not custom/edge streams
     const isEdgeOrCustom = activeCamera.brand === 'Edge Node Stream' || activeCamera.brand === 'Other / Custom';
     if (!isEdgeOrCustom && (!activeCamera.ipAddress || !activeCamera.username || !activeCamera.password)) {
@@ -393,6 +434,8 @@ export default function CameraSetupPage() {
     setSavingCamera(true);
     try {
       const rtspUrl = buildRtspUrl(activeCamera);
+      const isEdgeStream = activeCamera.brand === 'Edge Node Stream';
+      const shouldKeepWaiting = isEdgeStream && activeCamera.connectionStatus === 'waiting';
       if (activeCamera.penId) {
         // Update existing pen's camera_source via PUT
         await pensApi.update(activeCamera.penId, {
@@ -405,8 +448,18 @@ export default function CameraSetupPage() {
           // Stream restart is best-effort; camera saved regardless
         }
       }
-      updateCamera({ rtspUrl, connectionStatus: 'connected' });
-      toast.success(`Camera saved for ${activeCamera.penName || 'pen'}! Stream is now active.`);
+      updateCamera({
+        rtspUrl,
+        connectionStatus: shouldKeepWaiting ? 'waiting' : 'connected',
+      });
+
+      if (shouldKeepWaiting) {
+        toast.success(
+          `Camera path saved for ${activeCamera.penName || 'pen'}. Waiting for edge publisher to go live.`,
+        );
+      } else {
+        toast.success(`Camera saved for ${activeCamera.penName || 'pen'}! Stream is now active.`);
+      }
       // Refresh pen list and go back to overview
       await fetchPens();
       setView('overview');
@@ -781,7 +834,7 @@ export default function CameraSetupPage() {
               For an Edge Node Stream, static IP configurations are managed by the edge worker on your farm network. No IP setup is needed here.
             </p>
           </div>
-          <div className="bg-white dark:bg-slate-800/50 rounded-xl border border-blue-200 dark:border-blue-800/50 p-5 bg-blue-50 dark:bg-blue-900/20">
+          <div className="rounded-xl border border-blue-200 dark:border-blue-800/50 p-5 bg-blue-50 dark:bg-blue-900/20">
             <div className="flex items-center gap-2 mb-2">
               <Globe className="h-5 w-5 text-blue-500" />
               <h4 className="font-medium text-blue-800 dark:text-blue-300">Cloud Proxy Ready</h4>
@@ -1099,6 +1152,11 @@ export default function CameraSetupPage() {
                   <Loader2 className="h-4 w-4 animate-spin" /> Testing...
                 </span>
               )}
+              {activeCamera.connectionStatus === 'waiting' && (
+                <span className="flex items-center gap-1.5 text-sm text-amber-600 dark:text-amber-400 font-medium">
+                  <AlertCircle className="h-4 w-4" /> Waiting for Edge Publisher
+                </span>
+              )}
             </div>
           </div>
 
@@ -1114,6 +1172,8 @@ export default function CameraSetupPage() {
           >
             {activeCamera.connectionStatus === 'testing' ? (
               <><Loader2 className="h-4 w-4 animate-spin" /> Testing Connection...</>
+            ) : activeCamera.connectionStatus === 'waiting' ? (
+              <><RefreshCw className="h-4 w-4" /> Re-check Stream</>
             ) : (
               <><Play className="h-4 w-4" /> Test Connection</>
             )}
@@ -1179,6 +1239,9 @@ export default function CameraSetupPage() {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             {connectedPens.map((pen) => {
               const parsed = pen.camera_source ? parseRtspUrl(pen.camera_source) : null;
+              const isEdgeStreamSource =
+                (pen.camera_source || '').startsWith('rtsp://mediamtx:8554/') ||
+                /\/pen_\d+$/.test(pen.camera_source || '');
               const isDisconnecting = disconnectingPen === pen.id;
 
               return (
@@ -1208,6 +1271,14 @@ export default function CameraSetupPage() {
                         );
                       }
                       if (status === 'offline') {
+                        if (isEdgeStreamSource) {
+                          return (
+                            <span className="flex items-center gap-1.5 text-xs font-medium text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/30 px-2.5 py-1 rounded-full border border-amber-200 dark:border-amber-800">
+                              <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+                              Waiting for Publisher
+                            </span>
+                          );
+                        }
                         return (
                           <span className="flex items-center gap-1.5 text-xs font-medium text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-900/30 px-2.5 py-1 rounded-full border border-red-200 dark:border-red-800">
                             <span className="h-1.5 w-1.5 rounded-full bg-red-500" />
@@ -1226,6 +1297,14 @@ export default function CameraSetupPage() {
                   </div>
 
                   {/* Camera Details */}
+                  {isEdgeStreamSource && cameraStatuses[pen.id] === 'offline' && (
+                    <div className="mb-4 rounded-lg border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 px-3 py-2">
+                      <p className="text-xs text-amber-800 dark:text-amber-300">
+                        Configured, waiting for edge publisher on this path.
+                      </p>
+                    </div>
+                  )}
+
                   <div className="grid grid-cols-2 gap-3 mb-4 text-sm">
                     {parsed && (
                       <>

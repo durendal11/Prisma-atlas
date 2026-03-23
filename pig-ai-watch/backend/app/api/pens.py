@@ -162,6 +162,10 @@ async def test_camera_connection(
         import socket
         import subprocess
         import re
+
+        # Edge Node Stream URLs point to cloud MediaMTX (rtsp://mediamtx:8554/pen_x)
+        # and fail for different reasons than direct camera RTSP URLs.
+        is_edge_stream = "mediamtx:8554" in (url or "") or re.search(r"/pen_\d+$", url or "") is not None
         
         # ── Step 1: Extract IP from RTSP URL ────────────────────────────
         ip_match = re.search(r'@([\d.]+)', url)
@@ -247,6 +251,16 @@ async def test_camera_connection(
             
             if not capture.isOpened():
                 logger.warning(f"Failed to open RTSP stream: {url}")
+                if is_edge_stream:
+                    return CameraTestResponse(
+                        success=False,
+                        message=(
+                            "Edge stream is not available yet. Ensure MediaMTX is running on the cloud "
+                            "and your edge proxy is actively publishing this exact path "
+                            "(example: rtsp://<cloud-ip>:8554/pen_1)."
+                        ),
+                        details={"error": "stream_not_opened", "step": "rtsp_test", "mode": "edge_stream"}
+                    )
                 return CameraTestResponse(
                     success=False,
                     message="RTSP stream could not be opened. Check username, password, and stream path (e.g. /stream1).",
