@@ -258,6 +258,14 @@ jobs:
 
             APP_DIR="${{ secrets.DROPLET_APP_DIR }}"
 
+            # Helper: read KEY=value from existing .env (if present)
+            existing_env() {
+              key="$1"
+              if [ -f .env ]; then
+                grep -E "^${key}=" .env | tail -n 1 | cut -d'=' -f2-
+              fi
+            }
+
             # ── ensure the app directory exists ───────────────────
             mkdir -p "$APP_DIR"
             cd "$APP_DIR"
@@ -266,20 +274,37 @@ jobs:
             echo '${{ steps.compose.outputs.content }}' | base64 -d > docker-compose.yml
 
             # ── ensure runtime .env exists for env_file consumers ──
+            # Prefer GitHub secrets; if a secret is unset, keep existing server value.
             PGUSER='${{ secrets.POSTGRES_USER }}'
+            [ -z "$PGUSER" ] && PGUSER="$(existing_env POSTGRES_USER)"
             [ -z "$PGUSER" ] && PGUSER='postgres'
 
             PGPASSWORD='${{ secrets.POSTGRES_PASSWORD }}'
+            [ -z "$PGPASSWORD" ] && PGPASSWORD="$(existing_env POSTGRES_PASSWORD)"
             [ -z "$PGPASSWORD" ] && PGPASSWORD='postgres'
 
             PGDB='${{ secrets.POSTGRES_DB }}'
+            [ -z "$PGDB" ] && PGDB="$(existing_env POSTGRES_DB)"
             [ -z "$PGDB" ] && PGDB='pig_ai_watch'
 
             APP_SECRET='${{ secrets.SECRET_KEY }}'
+            [ -z "$APP_SECRET" ] && APP_SECRET="$(existing_env SECRET_KEY)"
             [ -z "$APP_SECRET" ] && APP_SECRET='change-me-in-production'
 
             EDGE_KEY='${{ secrets.EDGE_API_KEY }}'
+            [ -z "$EDGE_KEY" ] && EDGE_KEY="$(existing_env EDGE_API_KEY)"
+
             GEMINI_KEY='${{ secrets.GEMINI_API_KEY }}'
+            [ -z "$GEMINI_KEY" ] && GEMINI_KEY="$(existing_env GEMINI_API_KEY)"
+
+            DEBUG_VALUE="$(existing_env DEBUG)"
+            [ -z "$DEBUG_VALUE" ] && DEBUG_VALUE='false'
+
+            LOCAL_CAMERAS_VALUE="$(existing_env LOCAL_CAMERAS_ENABLED)"
+            [ -z "$LOCAL_CAMERAS_VALUE" ] && LOCAL_CAMERAS_VALUE='false'
+
+            MEDIAMTX_VALUE="$(existing_env MEDIAMTX_ENABLED)"
+            [ -z "$MEDIAMTX_VALUE" ] && MEDIAMTX_VALUE='false'
 
             cat > .env <<EOF
             POSTGRES_USER=$PGUSER
@@ -288,9 +313,9 @@ jobs:
             SECRET_KEY=$APP_SECRET
             EDGE_API_KEY=$EDGE_KEY
             GEMINI_API_KEY=$GEMINI_KEY
-            DEBUG=false
-            LOCAL_CAMERAS_ENABLED=false
-            MEDIAMTX_ENABLED=false
+            DEBUG=$DEBUG_VALUE
+            LOCAL_CAMERAS_ENABLED=$LOCAL_CAMERAS_VALUE
+            MEDIAMTX_ENABLED=$MEDIAMTX_VALUE
             EOF
 
             # ── write the production image-override file ──────────
