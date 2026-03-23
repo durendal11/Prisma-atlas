@@ -55,7 +55,6 @@ export default function EventLogsPage() {
       clearInterval(interval);
       behaviorLogger.stopLogging();
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [testPenRunning]);
 
   return (

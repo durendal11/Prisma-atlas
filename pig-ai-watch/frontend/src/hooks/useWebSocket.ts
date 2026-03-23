@@ -249,7 +249,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
       clearInterval(pingInterval);
       disconnect();
     };
-  }, [penId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [penId]);
 
   return { sendMessage, disconnect, reconnect: connect };
 }
