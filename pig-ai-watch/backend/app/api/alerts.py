@@ -13,6 +13,29 @@ from app.schemas.pig import AlertCreate, AlertUpdate, AlertResponse
 router = APIRouter(prefix="/api/alerts", tags=["Alerts"])
 
 
+@router.post("/test", response_model=AlertResponse, status_code=status.HTTP_201_CREATED)
+async def create_test_alert(
+    pen_id: int = Query(..., description="Pen ID for the test alert"),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Create a test alert for testing the acknowledgment feature."""
+    test_alert = Alert(
+        type="crushing_risk",
+        severity="critical",
+        title=f"🧪 TEST ALERT - Pen {pen_id}",
+        message="This is a test alert. Click to acknowledge and verify the red dot disappears.",
+        pen_id=pen_id,
+        is_read=False,
+        is_resolved=False,
+    )
+    db.add(test_alert)
+    await db.commit()
+    await db.refresh(test_alert)
+
+    return test_alert
+
+
 @router.get("", response_model=List[AlertResponse])
 async def get_alerts(
     skip: int = Query(0, ge=0),

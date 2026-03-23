@@ -43,7 +43,27 @@ export function useDashboardStats() {
 export function usePenStatus() {
   return useQuery({
     queryKey: ['penStatus'],
-    queryFn: dashboardApi.getPenStatus,
+    queryFn: async () => {
+      const statusList = await dashboardApi.getPenStatus();
+
+      // Some deployments return an empty pen-status list until streams/detections are active.
+      // Fall back to active pens so Live Monitoring and Dashboard still show registered pens.
+      if (statusList.length > 0) {
+        return statusList;
+      }
+
+      const activePens = await pensApi.getAll(true);
+      return activePens.map((pen) => ({
+        pen_id: pen.id,
+        pen_name: pen.name,
+        sow_tag: null,
+        piglet_count: 0,
+        sow_posture: 'unknown',
+        crushing_risk: 0,
+        last_updated: new Date().toISOString(),
+        is_streaming: false,
+      }));
+    },
     refetchInterval: 10000, // Refetch every 10 seconds
   });
 }

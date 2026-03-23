@@ -170,6 +170,7 @@ export default function DashboardPage() {
           <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-3">
             {penStatuses.map((pen) => {
               const risk = pen.crushing_risk || 0;
+              const hasUnresolvedAlerts = recentAlerts?.some(alert => alert.pen_id === pen.pen_id && !alert.is_resolved) || false;
               const riskColor = risk >= 0.65 ? 'text-red-500' : risk >= 0.4 ? 'text-amber-500' : 'text-primary-500';
               const riskBg = risk >= 0.65 ? 'bg-red-50 dark:bg-red-900/20 border-red-200/60 dark:border-red-700/50' :
                 risk >= 0.4 ? 'bg-amber-50 dark:bg-amber-900/20 border-amber-200/60 dark:border-amber-700/50' :
@@ -183,18 +184,19 @@ export default function DashboardPage() {
                     'relative flex flex-col items-center justify-center rounded-2xl border p-4 shadow-sm transition-all duration-200',
                     riskBg, 'hover:shadow-md hover:-translate-y-0.5 active:scale-95 cursor-pointer'
                   )}
-                  title={`${pen.pen_name} — ${pen.piglet_count} piglets — Risk ${(risk * 100).toFixed(0)}%`}
+                  title={`${pen.pen_name} — ${pen.piglet_count} piglets — Risk ${(risk * 100).toFixed(0)}%${hasUnresolvedAlerts ? ' — Unresolved alerts' : ''}`}
                 >
                   <MapPin className={clsx('h-6 w-6 mb-1.5', riskColor)} />
                   <span className="text-xs font-semibold text-gray-900 dark:text-white truncate w-full text-center">{pen.pen_name}</span>
                   <span className="text-[10px] text-gray-400 dark:text-slate-500">
                     {pen.piglet_count} <Baby className="inline h-2.5 w-2.5 -mt-0.5" />
                   </span>
-                  {risk >= 0.4 && (
+                  {/* Alert indicator - only show when there are unresolved alerts */}
+                  {hasUnresolvedAlerts && (
                     <div className={clsx(
-                      'absolute top-1.5 right-1.5 h-2.5 w-2.5 rounded-full',
-                      risk >= 0.65 ? 'bg-red-500 animate-pulse' : 'bg-amber-500'
-                    )} />
+                      'absolute top-1.5 right-1.5 h-2.5 w-2.5 rounded-full animate-pulse',
+                      risk >= 0.65 ? 'bg-red-500' : risk >= 0.4 ? 'bg-amber-500' : 'bg-blue-500'
+                    )} title="Unresolved alerts - click to view" />
                   )}
                 </button>
               );

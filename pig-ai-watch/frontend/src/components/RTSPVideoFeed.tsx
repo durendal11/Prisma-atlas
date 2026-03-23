@@ -291,7 +291,6 @@ export const RTSPVideoFeed: React.FC<RTSPVideoFeedProps> = ({
     };
 
     loadModel();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [useClientDetection, penId]);
 
   // Draw detections on canvas overlay (same as TestPenPage)

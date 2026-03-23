@@ -614,15 +614,19 @@ export default function PenMonitorPage() {
     penStatus
       ? { crushing_risk: penStatus.crushing_risk, piglet_count: penStatus.piglet_count, sow_posture: penStatus.sow_posture }
       : liveDetection
-      ? { crushing_risk: liveDetection.data.risk_level, piglet_count: liveDetection.data.piglet_count, sow_posture: liveDetection.data.posture }
+      ? {
+          crushing_risk: liveDetection.data?.risk_level ?? 0,
+          piglet_count: liveDetection.data?.piglet_count ?? 0,
+          sow_posture: liveDetection.data?.posture ?? 'unknown',
+        }
       : null
   );
 
   const activeFarrowing = farrowingRecords.find((r) => !r.farrowing_completed);
   const hasCameraAssigned = Boolean(currentPenCameraSource);
-  const riskValue = latestDetection?.crushingRisk ?? liveDetection?.data.risk_level ?? penStatus?.crushing_risk ?? 0;
-  const pigletCountLive = latestDetection?.pigletCount ?? liveDetection?.data.piglet_count ?? penStatus?.piglet_count ?? 0;
-  const sowPostureLive = (latestDetection?.sowPosture ?? liveDetection?.data.posture ?? penStatus?.sow_posture ?? 'unknown').replace(/_/g, ' ').replace(/-/g, ' ');
+  const riskValue = latestDetection?.crushingRisk ?? liveDetection?.data?.risk_level ?? penStatus?.crushing_risk ?? 0;
+  const pigletCountLive = latestDetection?.pigletCount ?? liveDetection?.data?.piglet_count ?? penStatus?.piglet_count ?? 0;
+  const sowPostureLive = (latestDetection?.sowPosture ?? liveDetection?.data?.posture ?? penStatus?.sow_posture ?? 'unknown').replace(/_/g, ' ').replace(/-/g, ' ');
   const daysSinceFarrowing = activeFarrowing?.farrowing_started
     ? Math.floor((Date.now() - new Date(activeFarrowing.farrowing_started).getTime()) / 86400000)
     : null;

@@ -133,11 +133,13 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
         continue;
       }
 
+      const alertData: { severity?: string; [key: string]: unknown } = message.data ?? {};
+
       if (notificationsRef.current && shouldNotifyAlert(message)) {
-        const severity = message.data.severity || 'medium';
+        const severity = alertData.severity || 'medium';
 
         toast.custom(
-          (t) => createElement(AlertPopup, { data: message.data, severity, t }),
+          (t) => createElement(AlertPopup, { data: alertData, severity, t }),
           { duration: severity === 'critical' ? 8000 : 5000 },
         );
 
@@ -247,7 +249,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}) {
       clearInterval(pingInterval);
       disconnect();
     };
-  }, [penId]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [penId]);
 
   return { sendMessage, disconnect, reconnect: connect };
 }
