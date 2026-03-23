@@ -311,6 +311,10 @@ jobs:
             docker compose -f docker-compose.yml -f docker-compose.prod.yml \
               up -d --remove-orphans
 
+            # ── seed the database (creates admin user if not exists) ──
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+              --profile seed up seed || echo "⚠️ Seed script failed (may already exist)"
+
             # ── clean up dangling images ──────────────────────────
             docker image prune -f
 
