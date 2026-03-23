@@ -158,12 +158,30 @@ class ONNXDetector {
     console.log('ONNX wasm paths:', ort.env.wasm.wasmPaths);
 
     try {
+      const response = await fetch(modelPath, { cache: 'no-store' });
+      if (!response.ok) {
+        throw new Error(`Model fetch failed: HTTP ${response.status} ${response.statusText}`);
+      }
+
+      const contentType = response.headers.get('content-type') || 'unknown';
+      const modelBuffer = await response.arrayBuffer();
+      const modelBytes = new Uint8Array(modelBuffer);
+
+      // Catch common deployment issue where SPA fallback returns index.html (200) instead of model bytes.
+      const head = new TextDecoder().decode(modelBytes.slice(0, 128));
+      if (head.includes('<!DOCTYPE html') || head.includes('<html')) {
+        throw new Error(
+          `Model URL returned HTML instead of ONNX binary (content-type=${contentType}). ` +
+          `Check frontend deployment and static /models path.`
+        );
+      }
+
       const options: ort.InferenceSession.SessionOptions = {
         executionProviders: ['wasm'],
         graphOptimizationLevel: 'all',
       };
 
-      this.session = await ort.InferenceSession.create(modelPath, options);
+      this.session = await ort.InferenceSession.create(modelBytes, options);
       console.log('✅ ONNX model loaded successfully');
       console.log('Input names:', this.session.inputNames);
       console.log('Output names:', this.session.outputNames);
