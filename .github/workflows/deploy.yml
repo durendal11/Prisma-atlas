@@ -286,6 +286,8 @@ jobs:
             SECRET_KEY=$APP_SECRET
             EDGE_API_KEY=$EDGE_KEY
             DEBUG=false
+            LOCAL_CAMERAS_ENABLED=false
+            MEDIAMTX_ENABLED=false
             EOF
 
             # ── write the production image-override file ──────────
