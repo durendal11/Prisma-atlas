@@ -21,6 +21,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
 from app.core.config import settings
 from app.core.database import get_db
@@ -82,15 +83,30 @@ class ModelVersion(BaseModel):
 @router.post("/detections", dependencies=[Depends(verify_edge_key)])
 async def push_detection(body: DetectionPush, db: AsyncSession = Depends(get_db)):
     """Receive a single detection from the edge device."""
-    detection, event, alert, message, pen_id = _build_detection_payload(body)
-    db.add(detection)
-    db.add(event)
-    if alert is not None:
-        db.add(alert)
+    try:
+        detection, event, alert, message, pen_id = _build_detection_payload(body)
+        db.add(detection)
+        db.add(event)
+        if alert is not None:
+            db.add(alert)
 
-    await db.commit()
-    await _broadcast_detection(message, pen_id)
-    return {"status": "ok"}
+        await db.commit()
+        await _broadcast_detection(message, pen_id)
+        return {"status": "ok"}
+    except ValueError as exc:
+        await db.rollback()
+        raise HTTPException(status_code=422, detail=f"Invalid detection payload: {exc}")
+    except IntegrityError as exc:
+        await db.rollback()
+        logger.warning("Edge detection rejected by DB constraints: %s", exc)
+        raise HTTPException(
+            status_code=400,
+            detail="Detection rejected. Ensure referenced pen exists and payload is valid.",
+        )
+    except SQLAlchemyError as exc:
+        await db.rollback()
+        logger.exception("Edge detection database error")
+        raise HTTPException(status_code=500, detail="Database error while storing detection")
 
 
 # ── POST /detections/batch ───────────────────────────────────────────────────
@@ -116,7 +132,13 @@ async def push_detection_batch(body: DetectionBatch, db: AsyncSession = Depends(
             logger.warning("Skipping duplicate/bad detection: %s", exc)
 
     if stored:
-        await db.commit()
+        try:
+            await db.commit()
+        except SQLAlchemyError:
+            await db.rollback()
+            logger.exception("Batch commit failed")
+            raise HTTPException(status_code=500, detail="Database error while storing detection batch")
+
         for message, pen_id in pending_messages:
             await _broadcast_detection(message, pen_id)
 
@@ -184,7 +206,8 @@ def _resolve_pen_id(pen_id: str) -> int:
 def _build_detection_payload(det: DetectionPush) -> Tuple[Detection, Event, Optional[Alert], dict, str]:
     """Build ORM objects and websocket payload from a detection request."""
     pen_id_int = _resolve_pen_id(det.pen_id)
-    ts = datetime.fromisoformat(det.timestamp)
+    ts_str = det.timestamp.replace("Z", "+00:00")
+    ts = datetime.fromisoformat(ts_str)
 
     detection = Detection(
         pen_id=pen_id_int,
