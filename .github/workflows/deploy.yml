@@ -232,6 +232,19 @@ jobs:
       contents: read
 
     steps:
+      - name: Checkout compose file only
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          filter: blob:none
+          sparse-checkout: |
+            pig-ai-watch/docker-compose.yml
+
+      - name: Encode compose file for transfer
+        id: compose
+        run: |
+          echo "content=$(base64 -w0 pig-ai-watch/docker-compose.yml)" >> "$GITHUB_OUTPUT"
+
       - name: Deploy via SSH
         uses: appleboy/ssh-action@v1.2.0
         with:
@@ -248,10 +261,8 @@ jobs:
             mkdir -p "$APP_DIR"
             cd "$APP_DIR"
 
-            # ── pull latest docker-compose.yml from repo ──────────
-            curl -fsSL \
-              "https://raw.githubusercontent.com/${{ github.repository }}/main/pig-ai-watch/docker-compose.yml" \
-              -o docker-compose.yml
+            # ── write docker-compose.yml from workflow payload ─────
+            echo '${{ steps.compose.outputs.content }}' | base64 -d > docker-compose.yml
 
             # ── write the production image-override file ──────────
             # Uses pre-built images from Docker Hub so the Droplet
