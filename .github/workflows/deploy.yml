@@ -264,6 +264,30 @@ jobs:
             # ── write docker-compose.yml from workflow payload ─────
             echo '${{ steps.compose.outputs.content }}' | base64 -d > docker-compose.yml
 
+            # ── ensure runtime .env exists for env_file consumers ──
+            PGUSER='${{ secrets.POSTGRES_USER }}'
+            [ -z "$PGUSER" ] && PGUSER='postgres'
+
+            PGPASSWORD='${{ secrets.POSTGRES_PASSWORD }}'
+            [ -z "$PGPASSWORD" ] && PGPASSWORD='postgres'
+
+            PGDB='${{ secrets.POSTGRES_DB }}'
+            [ -z "$PGDB" ] && PGDB='pig_ai_watch'
+
+            APP_SECRET='${{ secrets.SECRET_KEY }}'
+            [ -z "$APP_SECRET" ] && APP_SECRET='change-me-in-production'
+
+            EDGE_KEY='${{ secrets.EDGE_API_KEY }}'
+
+            cat > .env <<EOF
+            POSTGRES_USER=$PGUSER
+            POSTGRES_PASSWORD=$PGPASSWORD
+            POSTGRES_DB=$PGDB
+            SECRET_KEY=$APP_SECRET
+            EDGE_API_KEY=$EDGE_KEY
+            DEBUG=false
+            EOF
+
             # ── write the production image-override file ──────────
             # Uses pre-built images from Docker Hub so the Droplet
             # never needs to recompile source code.
