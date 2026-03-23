@@ -120,14 +120,14 @@ const RISK_WEIGHTS = {
 
 class ONNXDetector {
   private session: ort.InferenceSession | null = null;
-  private isLoading = false;
+  private loadingPromise: Promise<void> | null = null;
   private inputWidth = 640;
   private inputHeight = 640;
   private confidenceThreshold = 0.25;
   private iouThreshold = 0.45;
   private detectionHistory: DetectionResult[] = [];
   private maxHistoryLength = 30;
-  
+
   // Reusable canvases for preprocessing - CRITICAL for performance
   private preprocessCanvas: HTMLCanvasElement | null = null;
   private preprocessCtx: CanvasRenderingContext2D | null = null;
@@ -135,33 +135,48 @@ class ONNXDetector {
   private tempCtx: CanvasRenderingContext2D | null = null;
 
   async loadModel(modelPath: string = '/models/pig_detection.onnx'): Promise<void> {
-    if (this.session || this.isLoading) return;
-    
-    this.isLoading = true;
+    // If model already loaded, return immediately
+    if (this.session) return;
+
+    // If currently loading, wait for the existing load operation
+    if (this.loadingPromise) {
+      return this.loadingPromise;
+    }
+
+    // Start loading and store the promise so other callers can await it
+    this.loadingPromise = this._loadModelInternal(modelPath);
+
+    try {
+      await this.loadingPromise;
+    } finally {
+      this.loadingPromise = null;
+    }
+  }
+
+  private async _loadModelInternal(modelPath: string): Promise<void> {
     console.log('Loading ONNX model...');
     console.log('ONNX wasm paths:', ort.env.wasm.wasmPaths);
-    
+
     try {
       const options: ort.InferenceSession.SessionOptions = {
         executionProviders: ['wasm'],
         graphOptimizationLevel: 'all',
       };
-      
+
       this.session = await ort.InferenceSession.create(modelPath, options);
       console.log('✅ ONNX model loaded successfully');
       console.log('Input names:', this.session.inputNames);
       console.log('Output names:', this.session.outputNames);
-      
+
       // Log which backend is actually being used
       const backend = ort.env.webgl?.contextId ? 'WebGL' : 'WASM';
       console.log(`🚀 Execution Provider: ${backend}`);
       console.log(`⚙️ WASM threads: ${ort.env.wasm.numThreads}, SIMD: ${ort.env.wasm.simd}`);
-      
+
     } catch (error) {
       console.error('Failed to load ONNX model:', error);
+      this.session = null; // Reset on error so retry is possible
       throw error;
-    } finally {
-      this.isLoading = false;
     }
   }
   
