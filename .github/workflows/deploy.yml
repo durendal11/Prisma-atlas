@@ -130,33 +130,26 @@ jobs:
           echo "Disk usage after cleanup:"
           df -h
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Extract Git metadata (tags / labels)
-        id: meta-backend
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.BACKEND_IMAGE }}
-          tags: |
-            type=sha,prefix=sha-,format=short
-            type=raw,value=latest
+      - name: Build & push backend image (classic docker)
+        run: |
+          SHORT_SHA="${GITHUB_SHA::7}"
+          export DOCKER_BUILDKIT=0
 
-      - name: Build & push backend image
-        uses: docker/build-push-action@v6
-        with:
-          context: pig-ai-watch/backend
-          file: pig-ai-watch/backend/Dockerfile
-          push: true
-          tags: ${{ steps.meta-backend.outputs.tags }}
-          labels: ${{ steps.meta-backend.outputs.labels }}
-          provenance: false
+          docker build \
+            --pull \
+            -f pig-ai-watch/backend/Dockerfile \
+            -t "${BACKEND_IMAGE}:latest" \
+            -t "${BACKEND_IMAGE}:sha-${SHORT_SHA}" \
+            pig-ai-watch/backend
+
+          docker push "${BACKEND_IMAGE}:latest"
+          docker push "${BACKEND_IMAGE}:sha-${SHORT_SHA}"
 
   # ──────────────────────────────────────────────────────────────
   #  JOB 3B — Build & push frontend image  (main branch only)
