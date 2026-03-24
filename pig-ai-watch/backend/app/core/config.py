@@ -2,6 +2,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Optional
 import os
 from pathlib import Path
+from urllib.parse import quote_plus
 
 
 _BACKEND_ROOT = Path(__file__).resolve().parents[2]
@@ -17,8 +18,13 @@ class Settings(BaseSettings):
     DEBUG: bool = True
     
     # Database - PostgreSQL
-    DATABASE_URL: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/pig_ai_watch"
-    DATABASE_URL_SYNC: str = "postgresql://postgres:postgres@localhost:5432/pig_ai_watch"
+    DATABASE_URL: Optional[str] = None
+    DATABASE_URL_SYNC: Optional[str] = None
+    DB_HOST: str = "localhost"
+    DB_PORT: int = 5432
+    DB_USER: str = "postgres"
+    DB_PASSWORD: str = "postgres"
+    DB_NAME: str = "pig_ai_watch"
     
     # JWT
     SECRET_KEY: str = "your-super-secret-key-change-in-production"
@@ -107,6 +113,26 @@ class Settings(BaseSettings):
     ANTHROPIC_API_KEY: Optional[str] = None
     FCM_PROJECT_ID: Optional[str] = None
     FCM_SERVICE_ACCOUNT_JSON: Optional[str] = None
+
+    @property
+    def resolved_database_url(self) -> str:
+        if self.DATABASE_URL:
+            return self.DATABASE_URL
+        encoded_password = quote_plus(self.DB_PASSWORD)
+        return (
+            f"postgresql+asyncpg://{self.DB_USER}:{encoded_password}"
+            f"@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
+        )
+
+    @property
+    def resolved_database_url_sync(self) -> str:
+        if self.DATABASE_URL_SYNC:
+            return self.DATABASE_URL_SYNC
+        encoded_password = quote_plus(self.DB_PASSWORD)
+        return (
+            f"postgresql://{self.DB_USER}:{encoded_password}"
+            f"@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
+        )
 
 
 settings = Settings()

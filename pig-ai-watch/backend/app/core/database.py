@@ -4,7 +4,7 @@ from sqlalchemy.orm import declarative_base
 from app.core.config import settings
 
 # Check if using SQLite for different engine configuration
-is_sqlite = settings.DATABASE_URL.startswith("sqlite")
+is_sqlite = settings.resolved_database_url.startswith("sqlite")
 
 engine_kwargs = {
     "echo": settings.DEBUG,
@@ -18,7 +18,7 @@ if not is_sqlite:
     })
 
 engine = create_async_engine(
-    settings.DATABASE_URL,
+    settings.resolved_database_url,
     **engine_kwargs
 )
 

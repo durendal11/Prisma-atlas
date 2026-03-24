@@ -42,6 +42,9 @@ Rules:
 - State WHY (brief veterinary rationale).
 - Keep it under 120 words.
 - If nothing is urgent, say so clearly and briefly.
+- If sow is within 7 days of expected farrowing, include one time-window recommendation.
+- If sow is within 1-3 days or 24h, prioritize restlessness/nesting/posture-switch guidance.
+- Ground farrowing recommendations in known studies when relevant.
 - Always respond in JSON format.
 """
 
@@ -140,6 +143,9 @@ def generate_pen_advisory(data: Dict[str, Any]) -> Dict[str, Any]:
     if not model:
         return {"error": "LLM not configured (missing API key or setup failed)."}
 
+    due_context = data.get('farrowing_due_context', {}) or {}
+    study_hints = data.get('study_hints', []) or []
+
     prompt = f"""
     Farm data snapshot for pen {data.get('pen_id', 'Unknown')} — sow {data.get('sow_name', 'Unknown')}:
     Detection window: last {_format_window(data.get('window_minutes', 60))}
@@ -150,6 +156,12 @@ def generate_pen_advisory(data: Dict[str, Any]) -> Dict[str, Any]:
     Active alerts: {data.get('active_alerts_list', 'None')}
     Lifecycle / Days context: {data.get('lifecycle_stage', 'Unknown')} / {data.get('days_context', 'N/A')}
     Nursing / Motionless events: {data.get('nursing_events', 0)} / {data.get('motionless_events', 0)}
+
+    Farrowing due context: {json.dumps(due_context)}
+    Evidence hints: {json.dumps(study_hints)}
+
+    If farrowing_due_context.farrowing_window is within_7d/within_3d/within_24h,
+    explicitly state if sow may be approaching farrowing and add one practical recommendation.
     """
     
     try:
