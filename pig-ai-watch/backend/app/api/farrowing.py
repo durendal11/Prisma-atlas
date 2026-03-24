@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, func
 from datetime import datetime, timedelta
-from typing import List, Optional
+from typing import List, Optional, Any
 import json
 import logging
 import math
@@ -1034,6 +1034,53 @@ async def log_farrowing_monitor_state(
         system_state = payload.get("system_state", "NORMAL_MONITORING")
         previous_state = payload.get("previous_state")
 
+        def _birth_time_from_event(event: dict[str, Any]) -> datetime:
+            detected_at = event.get("detectedAt")
+            if isinstance(detected_at, (int, float)):
+                # Frontend sends epoch milliseconds.
+                return datetime.utcfromtimestamp(float(detected_at) / 1000)
+            return datetime.utcnow()
+
+        async def _sync_piglet_records_from_events(record: FarrowingRecord) -> int:
+            if not record.sow_id:
+                return 0
+
+            birth_events = payload.get("birth_events") or []
+
+            # Fallback when events are unavailable: create up to highest observed count.
+            if not birth_events:
+                highest = int(payload.get("highest_piglet_count") or 0)
+                birth_events = [{"pigletNumber": i + 1} for i in range(highest)]
+
+            existing_result = await db.execute(
+                select(PigletRecord.birth_order).where(PigletRecord.farrowing_record_id == record.id)
+            )
+            existing_orders = {row[0] for row in existing_result.all() if row[0] is not None}
+
+            created = 0
+            for idx, event in enumerate(birth_events):
+                order = int(event.get("pigletNumber") or (idx + 1))
+                if order in existing_orders:
+                    continue
+
+                piglet = PigletRecord(
+                    farrowing_record_id=record.id,
+                    sow_id=record.sow_id,
+                    birth_order=order,
+                    birth_time=_birth_time_from_event(event),
+                    status="alive",
+                )
+                db.add(piglet)
+                existing_orders.add(order)
+                created += 1
+
+            # Keep aggregate fields aligned with highest observed order.
+            highest_order = max(existing_orders) if existing_orders else 0
+            record.total_born = max(int(record.total_born or 0), highest_order)
+            record.born_alive = max(int(record.born_alive or 0), highest_order)
+            record.current_litter_size = max(int(record.current_litter_size or 0), highest_order)
+            return created
+
         logger.info(
             f"[AI Monitor] State: {previous_state} → {system_state} "
             f"(pen={pen_id}, sow={sow_id}, piglets={payload.get('highest_piglet_count', 0)})"
@@ -1052,6 +1099,10 @@ async def log_farrowing_monitor_state(
                 )
                 sow = result.scalar_one_or_none()
 
+            if not sow:
+                logger.warning(f"[AI Monitor] FARROWING_STARTED ignored for pen {pen_id}: no active/pregnant sow found")
+                return {"status": "ignored", "state": system_state, "reason": "no_sow_found"}
+
             record = FarrowingRecord(
                 sow_id=sow.id if sow else None,
                 pen_id=pen_id,
@@ -1060,6 +1111,9 @@ async def log_farrowing_monitor_state(
                 notes=f"Auto-detected by AI monitoring engine. Prediction: {payload.get('prediction_metrics', {}).get('farrowingProbability', 'N/A')}",
             )
             db.add(record)
+            await db.flush()
+
+            created_piglets = await _sync_piglet_records_from_events(record)
 
             if sow:
                 sow.status = "farrowing"
@@ -1075,8 +1129,39 @@ async def log_farrowing_monitor_state(
             db.add(event)
             await db.commit()
 
-            logger.info(f"[AI Monitor] Created farrowing record #{record.id} for pen {pen_id}")
+            logger.info(
+                f"[AI Monitor] Created farrowing record #{record.id} for pen {pen_id} "
+                f"with {created_piglets} piglet record(s)"
+            )
             return {"status": "ok", "state": system_state, "farrowing_record_id": record.id}
+
+        # Sync incremental piglet records while farrowing is active
+        if system_state == "FARROWING_ACTIVE" and pen_id:
+            result = await db.execute(
+                select(FarrowingRecord)
+                .where(and_(
+                    FarrowingRecord.pen_id == pen_id,
+                    FarrowingRecord.farrowing_completed.is_(None),
+                    FarrowingRecord.ai_detected == True,
+                ))
+                .order_by(FarrowingRecord.farrowing_started.desc())
+            )
+            record = result.scalar_one_or_none()
+
+            if record:
+                created_piglets = await _sync_piglet_records_from_events(record)
+                record.crushing_incidents = max(
+                    int(record.crushing_incidents or 0),
+                    int(payload.get("crushing_incidents") or 0),
+                )
+                await db.commit()
+                return {
+                    "status": "ok",
+                    "state": system_state,
+                    "farrowing_record_id": record.id,
+                    "new_piglet_records": created_piglets,
+                    "total_born": record.total_born,
+                }
 
         # Auto-complete on FARROWING_COMPLETED
         if system_state == "FARROWING_COMPLETED" and pen_id:

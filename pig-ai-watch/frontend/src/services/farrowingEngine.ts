@@ -445,6 +445,7 @@ class FarrowingEngine {
 
         if (store.systemState === 'NORMAL_MONITORING' || store.systemState === 'PREDICTION_HIGH') {
           // First birth → FARROWING_STARTED
+          const previousState = store.systemState;
           store.transitionTo('FARROWING_STARTED');
           store.startFarrowingSession(undefined, undefined);
 
@@ -454,9 +455,6 @@ class FarrowingEngine {
             message: `Farrowing has started. First piglet(s) detected (${currentCount}). Confidence: ${(recentConfidence * 100).toFixed(0)}%.`,
             data: { pigletCount: currentCount, confidence: recentConfidence },
           });
-
-          // Persist to backend
-          this.persistStateToBackend('FARROWING_STARTED', store.systemState);
 
           // Log birth events for all detected piglets
           for (let i = 0; i < currentCount; i++) {
@@ -470,6 +468,9 @@ class FarrowingEngine {
 
           this.state.lastNewPigletTime = now;
           this.state.highestPigletCount = currentCount;
+
+          // Persist after birth events are attached to activeSession.
+          this.persistStateToBackend('FARROWING_STARTED', previousState);
         }
       }
     } else if (currentCount <= prevCount) {
@@ -539,6 +540,9 @@ class FarrowingEngine {
         this.state.lastNewPigletTime = now;
         this.state.previousStablePigletCount = currentCount;
         this.state.consecutiveHigherPigletFrames = 0;
+
+        // Persist incremental birth events so backend can create piglet records.
+        this.persistStateToBackend('FARROWING_ACTIVE', 'FARROWING_ACTIVE');
 
         console.log(`[FarrowingEngine] Piglet #${currentCount} born at ${new Date(now).toLocaleTimeString()}`);
       }
