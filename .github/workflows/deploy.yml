@@ -346,6 +346,17 @@ jobs:
             docker compose -f docker-compose.yml -f docker-compose.prod.yml \
               up -d --remove-orphans
 
+            # ── align DB role password with deployed .env to avoid auth drift ─
+            # Existing postgres volumes keep old role passwords; this keeps DB + app env in sync.
+            ESCAPED_PGPASSWORD=$(printf "%s" "$PGPASSWORD" | sed "s/'/''/g")
+            docker exec pig-ai-watch-db psql -U "$PGUSER" -d postgres \
+              -c "ALTER USER \"$PGUSER\" WITH PASSWORD '${ESCAPED_PGPASSWORD}';" || \
+              echo "⚠️ Could not align DB password automatically"
+
+            # Restart backend/frontend after potential password alignment
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+              up -d backend frontend
+
             # ── seed the database (creates admin user if not exists) ──
             docker compose -f docker-compose.yml -f docker-compose.prod.yml \
               --profile seed up seed || echo "⚠️ Seed script failed (may already exist)"
