@@ -28,9 +28,14 @@ interface DueSow {
   pen_id?: number;
   expected_date?: string;
   days_until?: number;
+  hours_until?: number;
   parity?: number;
   status: string;
   urgency: string;
+  farrowing_window?: 'within_24h' | 'within_3d' | 'within_7d' | 'beyond_7d';
+  monitoring_frequency?: string;
+  recommendation?: string;
+  signs_to_watch?: string[];
 }
 
 interface FarrowingRecord {
@@ -61,6 +66,7 @@ interface FarrowingStats {
 const urgencyColors = {
   critical: 'bg-red-100 text-red-700 border-red-300 dark:bg-red-900/40 dark:text-red-300 dark:border-red-700/50',
   high: 'bg-orange-100 text-orange-700 border-orange-300 dark:bg-orange-900/40 dark:text-orange-300 dark:border-orange-700/50',
+  watch: 'bg-amber-100 text-amber-700 border-amber-300 dark:bg-amber-900/40 dark:text-amber-300 dark:border-amber-700/50',
   normal: 'bg-blue-100 text-blue-700 border-blue-300 dark:bg-blue-900/40 dark:text-blue-300 dark:border-blue-700/50',
 };
 
@@ -68,7 +74,7 @@ export default function FarrowingPage() {
   // const { t } = useTranslation();
   const api = useApi();
   
-  const [dueSows, setDueSows] = useState<{ sows: DueSow[]; critical_count: number; high_count: number }>({ sows: [], critical_count: 0, high_count: 0 });
+  const [dueSows, setDueSows] = useState<{ sows: DueSow[]; critical_count: number; high_count: number; watch_count: number }>({ sows: [], critical_count: 0, high_count: 0, watch_count: 0 });
   const [recentRecords, setRecentRecords] = useState<FarrowingRecord[]>([]);
   const [stats, setStats] = useState<FarrowingStats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -241,6 +247,11 @@ export default function FarrowingPage() {
                   {dueSows.high_count} high priority
                 </span>
               )}
+              {dueSows.watch_count > 0 && (
+                <span className="text-sm bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300 px-2.5 py-0.5 rounded-full">
+                  {dueSows.watch_count} in 7-day watch window
+                </span>
+              )}
             </div>
           </div>
           
@@ -260,7 +271,8 @@ export default function FarrowingPage() {
                   key={sow.id}
                   className={`p-4 hover:bg-gray-50 dark:hover:bg-slate-700/30 transition-all duration-200 ${
                     sow.urgency === 'critical' ? 'bg-red-50/50 dark:bg-red-900/20' : 
-                    sow.urgency === 'high' ? 'bg-orange-50/50 dark:bg-orange-900/20' : ''
+                    sow.urgency === 'high' ? 'bg-orange-50/50 dark:bg-orange-900/20' :
+                    sow.urgency === 'watch' ? 'bg-amber-50/50 dark:bg-amber-900/20' : ''
                   }`}
                 >
                   <div className="flex items-center justify-between">
@@ -292,6 +304,28 @@ export default function FarrowingPage() {
                           'text-gray-600 dark:text-slate-400'
                         }`}>
                           {getDaysUntilText(sow.days_until)}
+                          {typeof sow.hours_until === 'number' && (
+                            <span className="ml-2 text-gray-500 dark:text-slate-500 font-normal">(~{Math.round(sow.hours_until)}h)</span>
+                          )}
+                        </div>
+                      )}
+
+                      {sow.recommendation && (
+                        <div className="mt-2 text-sm text-gray-700 dark:text-slate-300">
+                          <span className="font-medium">Recommendation:</span> {sow.recommendation}
+                        </div>
+                      )}
+
+                      {(sow.monitoring_frequency || sow.signs_to_watch?.length) && (
+                        <div className="mt-2 text-xs text-gray-600 dark:text-slate-400 space-y-1">
+                          {sow.monitoring_frequency && (
+                            <div>
+                              <span className="font-medium">Monitor:</span> {sow.monitoring_frequency}
+                            </div>
+                          )}
+                          {sow.signs_to_watch?.slice(0, 2).map((tip, idx) => (
+                            <div key={`${sow.id}-tip-${idx}`}>• {tip}</div>
+                          ))}
                         </div>
                       )}
                     </div>
@@ -430,6 +464,7 @@ export default function FarrowingPage() {
                         className={`text-xs px-2 py-1 rounded transition-transform duration-200 hover:scale-105 ${
                           sow.urgency === 'critical' ? 'bg-red-100 dark:bg-red-900/50 text-red-700 dark:text-red-300' :
                           sow.urgency === 'high' ? 'bg-orange-100 dark:bg-orange-900/50 text-orange-700 dark:text-orange-300' :
+                          sow.urgency === 'watch' ? 'bg-amber-100 dark:bg-amber-900/50 text-amber-700 dark:text-amber-300' :
                           'bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300'
                         }`}
                       >

@@ -8,9 +8,10 @@ from datetime import datetime, timedelta
 from typing import List, Optional
 import json
 import logging
+import math
 
 from app.core.database import get_db
-from app.models.pig import FarrowingRecord, PigletRecord, Sow, Pen, Event, Task, BehaviorLog
+from app.models.pig import FarrowingRecord, PigletRecord, Sow, Pen, Event, Task, BehaviorLog, Alert
 from app.models.user import User
 from app.core.security import get_current_user
 
@@ -544,6 +545,60 @@ async def get_sows_due_to_farrow(
     """Get sows due to farrow in the next X days"""
     now = datetime.utcnow()
     future = now + timedelta(days=days_ahead)
+
+    # Evidence-informed behavioral windows used for guidance text:
+    # - Nesting/restlessness typically rises within 12-72h pre-farrowing.
+    # - Pronounced lying/sleep cycling and occasional leg twitching are most actionable in ~24h window.
+    window_hours = {
+        "critical": 24,
+        "high": 72,
+        "watch": 168,
+    }
+
+    def classify_window(hours_until: float) -> tuple[str, str, str, str, list[str]]:
+        if hours_until <= window_hours["critical"]:
+            return (
+                "critical",
+                "within_24h",
+                "Every 2-4 hours",
+                "Prepare farrowing support now. Keep the sow under close watch and verify pen readiness.",
+                [
+                    "Watch for repeated sleep/lying cycles with leg twitching; this can indicate farrowing is very near (~24h).",
+                    "Watch for persistent restlessness and nest-building behavior; active nesting often precedes birth within 12-24h.",
+                ],
+            )
+        if hours_until <= window_hours["high"]:
+            return (
+                "high",
+                "within_3d",
+                "Every 6-8 hours",
+                "Increase monitoring frequency and stage farrowing supplies.",
+                [
+                    "Watch for restlessness and nesting behavior; these signs commonly intensify in the final 1-3 days.",
+                    "Track posture-switch frequency; sharp increases can indicate transition to active pre-farrowing.",
+                ],
+            )
+        if hours_until <= window_hours["watch"]:
+            return (
+                "watch",
+                "within_7d",
+                "At least twice daily",
+                "Begin pre-farrow monitoring protocol and verify staff handoff plan.",
+                [
+                    "Start baseline checks for appetite, posture pattern, and activity so final-day changes are easier to spot.",
+                    "Confirm crate setup, hygiene, heat source, and emergency contacts before the high-risk window.",
+                ],
+            )
+        return (
+            "normal",
+            "beyond_7d",
+            "Daily",
+            "Continue routine pregnancy monitoring.",
+            [
+                "Maintain normal welfare checks and body condition scoring.",
+                "Review expected farrowing date and update schedule if breeding records change.",
+            ],
+        )
     
     result = await db.execute(
         select(Sow).where(and_(
@@ -554,10 +609,75 @@ async def get_sows_due_to_farrow(
         )).order_by(Sow.expected_farrowing_date.asc())
     )
     sows = result.scalars().all()
+
+    existing_due_alert_keys: set[tuple[int, str]] = set()
+    if sows:
+        sow_ids = [s.id for s in sows]
+        lookback = now - timedelta(hours=24)
+        existing_result = await db.execute(
+            select(Alert.sow_id, Alert.type).where(
+                and_(
+                    Alert.sow_id.in_(sow_ids),
+                    Alert.type.in_(
+                        [
+                            "farrowing_due_7d",
+                            "farrowing_due_3d",
+                            "farrowing_due_24h",
+                        ]
+                    ),
+                    Alert.created_at >= lookback,
+                )
+            )
+        )
+        existing_due_alert_keys = {
+            (row[0], row[1])
+            for row in existing_result.all()
+            if row[0] is not None and row[1] is not None
+        }
+
+    new_due_alerts: list[Alert] = []
     
     sow_list = []
     for sow in sows:
-        days_until = (sow.expected_farrowing_date - now).days if sow.expected_farrowing_date else None
+        if not sow.expected_farrowing_date:
+            continue
+
+        delta = sow.expected_farrowing_date - now
+        hours_until = max(0.0, delta.total_seconds() / 3600)
+        days_until = max(0, math.floor(hours_until / 24))
+        urgency, farrowing_window, monitoring_frequency, recommendation, signs_to_watch = classify_window(hours_until)
+
+        alert_type_map = {
+            "within_24h": "farrowing_due_24h",
+            "within_3d": "farrowing_due_3d",
+            "within_7d": "farrowing_due_7d",
+        }
+
+        due_alert_type = alert_type_map.get(farrowing_window)
+        if due_alert_type and (sow.id, due_alert_type) not in existing_due_alert_keys:
+            severity = "critical" if urgency == "critical" else "high" if urgency == "high" else "medium"
+            new_due_alerts.append(
+                Alert(
+                    type=due_alert_type,
+                    severity=severity,
+                    sow_id=sow.id,
+                    pen_id=sow.pen_id,
+                    title=f"Sow {sow.tag_id} approaching farrowing ({farrowing_window.replace('_', ' ')})",
+                    message=(
+                        f"{sow.tag_id} is expected to farrow in ~{hours_until:.0f}h. "
+                        f"{recommendation} Priority signs: {signs_to_watch[0]}"
+                    ),
+                    detection_data=json.dumps(
+                        {
+                            "hours_until": round(hours_until, 1),
+                            "days_until": days_until,
+                            "farrowing_window": farrowing_window,
+                            "monitoring_frequency": monitoring_frequency,
+                            "signs_to_watch": signs_to_watch,
+                        }
+                    ),
+                )
+            )
         
         sow_list.append({
             "id": sow.id,
@@ -566,16 +686,27 @@ async def get_sows_due_to_farrow(
             "pen_id": sow.pen_id,
             "expected_date": sow.expected_farrowing_date.isoformat() if sow.expected_farrowing_date else None,
             "days_until": days_until,
+            "hours_until": round(hours_until, 1),
             "parity": sow.parity,
             "status": sow.status,
-            "urgency": "critical" if days_until and days_until <= 1 else "high" if days_until and days_until <= 3 else "normal"
+            "urgency": urgency,
+            "farrowing_window": farrowing_window,
+            "monitoring_frequency": monitoring_frequency,
+            "recommendation": recommendation,
+            "signs_to_watch": signs_to_watch,
         })
+
+    if new_due_alerts:
+        db.add_all(new_due_alerts)
+        await db.commit()
     
     return {
         "sows": sow_list,
         "total": len(sows),
         "critical_count": sum(1 for s in sow_list if s["urgency"] == "critical"),
-        "high_count": sum(1 for s in sow_list if s["urgency"] == "high")
+        "high_count": sum(1 for s in sow_list if s["urgency"] == "high"),
+        "watch_count": sum(1 for s in sow_list if s["urgency"] == "watch"),
+        "generated_alerts": len(new_due_alerts),
     }
 
 
