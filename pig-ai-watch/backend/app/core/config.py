@@ -114,6 +114,13 @@ class Settings(BaseSettings):
     FCM_PROJECT_ID: Optional[str] = None
     FCM_SERVICE_ACCOUNT_JSON: Optional[str] = None
 
+    # Cloudinary media storage
+    CLOUDINARY_CLOUD_NAME: Optional[str] = None
+    CLOUDINARY_API_KEY: Optional[str] = None
+    CLOUDINARY_API_SECRET: Optional[str] = None
+    CLOUDINARY_FOLDER: str = "pig-ai-watch"
+    CLOUDINARY_SECURE: bool = True
+
     @property
     def resolved_database_url(self) -> str:
         if self.DATABASE_URL:
@@ -132,6 +139,14 @@ class Settings(BaseSettings):
         return (
             f"postgresql://{self.DB_USER}:{encoded_password}"
             f"@{self.DB_HOST}:{self.DB_PORT}/{self.DB_NAME}"
+        )
+
+    @property
+    def cloudinary_enabled(self) -> bool:
+        return bool(
+            self.CLOUDINARY_CLOUD_NAME
+            and self.CLOUDINARY_API_KEY
+            and self.CLOUDINARY_API_SECRET
         )
 
 

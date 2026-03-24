@@ -6,7 +6,7 @@ import logging
 
 from app.core.config import settings
 from app.core.database import init_db
-from app.api import auth, sows, alerts, events, dashboard, stream, websocket, pens, detect, behavior, tasks, farrowing, edge, advisory, notifications
+from app.api import auth, sows, alerts, events, dashboard, stream, websocket, pens, detect, behavior, tasks, farrowing, edge, advisory, notifications, media
 from app.api.websocket import detection_broadcast_loop
 from app.services.yolo_detector import get_detector
 
@@ -103,6 +103,7 @@ app.include_router(farrowing.router)
 app.include_router(edge.router)
 app.include_router(advisory.router, prefix="/api/advisory", tags=["Advisory"])
 app.include_router(notifications.router)
+app.include_router(media.router)
 
 
 @app.get("/")
