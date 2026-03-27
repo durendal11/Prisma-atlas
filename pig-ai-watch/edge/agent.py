@@ -71,12 +71,33 @@ def _cloud_post(path: str, **kwargs) -> httpx.Response:
 
 def fetch_camera_config() -> Dict[str, str]:
     """GET /api/edge/config → {pen_id: camera_url, …}"""
+    # Local edge camera sources (LAN/file/index) used as fallback/override.
+    local_cameras = {}
+    for i in range(1, 11):
+        url = os.getenv(f"CAMERA_PEN_{i}")
+        if url:
+            local_cameras[f"pen_{i}"] = url
+
     # Try cloud first
     try:
         resp = _cloud_get("/api/edge/config")
         resp.raise_for_status()
         data = resp.json()
-        cameras = {p["pen_id"]: p["camera_url"] for p in data.get("cameras", []) if p.get("camera_url")}
+        cameras = {}
+        for p in data.get("cameras", []):
+            pen_id = p.get("pen_id")
+            camera_url = p.get("camera_url")
+            if not pen_id or not camera_url:
+                continue
+
+            # Cloud UI stores Edge Node Stream as rtsp://mediamtx:8554/pen_x,
+            # but "mediamtx" only resolves inside the cloud Docker network.
+            if "rtsp://mediamtx:8554/" in camera_url and pen_id in local_cameras:
+                cameras[pen_id] = local_cameras[pen_id]
+                logger.info("Using local CAMERA_%s override for cloud edge-stream path", pen_id.upper())
+            else:
+                cameras[pen_id] = camera_url
+
         if cameras:
             logger.info("Loaded %d camera(s) from cloud config", len(cameras))
             return cameras
@@ -84,13 +105,8 @@ def fetch_camera_config() -> Dict[str, str]:
         logger.warning("Cloud config unavailable (%s), falling back to .env", exc)
 
     # Fallback: read CAMERA_PEN_* from environment
-    cameras = {}
-    for i in range(1, 11):
-        url = os.getenv(f"CAMERA_PEN_{i}")
-        if url:
-            cameras[f"pen_{i}"] = url
-    logger.info("Loaded %d camera(s) from local .env", len(cameras))
-    return cameras
+    logger.info("Loaded %d camera(s) from local .env", len(local_cameras))
+    return local_cameras
 
 
 # ── 2. Model Update ─────────────────────────────────────────────────────────

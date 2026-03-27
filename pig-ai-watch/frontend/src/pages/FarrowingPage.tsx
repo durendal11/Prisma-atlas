@@ -20,6 +20,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
   LineChart, Line, ReferenceLine,
 } from 'recharts';
+import { OverdueBanner } from '@/components/OverdueBanner';
 
 interface DueSow {
   id: number;
@@ -32,6 +33,9 @@ interface DueSow {
   parity?: number;
   status: string;
   urgency: string;
+  is_overdue?: boolean;
+  days_overdue?: number;
+  tier?: number;
   farrowing_window?: 'within_24h' | 'within_3d' | 'within_7d' | 'beyond_7d';
   monitoring_frequency?: string;
   recommendation?: string;
@@ -174,6 +178,7 @@ export default function FarrowingPage() {
 
   return (
     <div className="p-6 max-w-7xl mx-auto animate-fade-in">
+      <OverdueBanner />
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
@@ -285,6 +290,15 @@ export default function FarrowingPage() {
                         <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${urgencyColors[sow.urgency as keyof typeof urgencyColors]}`}>
                           {sow.urgency}
                         </span>
+                        {sow.is_overdue && (
+                          <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${
+                            sow.tier === 3 ? 'bg-red-100 text-red-700 border-red-200 animate-pulse' :
+                            sow.tier === 2 ? 'bg-orange-100 text-orange-700 border-orange-200' :
+                            'bg-amber-100 text-amber-700 border-amber-200'
+                          }`}>
+                            OVERDUE (Day +{sow.days_overdue})
+                          </span>
+                        )}
                       </div>
                       
                       <div className="flex items-center gap-4 mt-1 text-sm text-gray-500 dark:text-slate-400">

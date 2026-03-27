@@ -18,6 +18,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 import { useWebSocket } from '@/hooks/useWebSocket';
 import { useDashboardStore, useTestPenStore } from '@/store';
 import { behaviorLogger, FarrowingLikelihood } from '@/services/behaviorLogger';
+import { OverdueBanner } from '@/components/OverdueBanner';
 import toast from 'react-hot-toast';
 import clsx from 'clsx';
 
@@ -73,6 +74,7 @@ export default function DashboardPage() {
 
   return (
     <div className="max-w-5xl mx-auto animate-fade-in space-y-5">
+      <OverdueBanner />
       {/* Compact hero header with mini-stats */}
       <div className="relative rounded-2xl overflow-hidden shadow-lg bg-gradient-to-r from-primary-600 via-primary-500 to-emerald-400 dark:from-primary-800 dark:via-primary-700 dark:to-emerald-600">
         <div className="absolute inset-0 opacity-10">

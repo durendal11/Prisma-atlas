@@ -6,6 +6,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { X, User, Lock, Loader2 } from 'lucide-react';
+import { GoogleLogin } from '@react-oauth/google';
 import { authApi } from '@/api';
 import { useAuthStore } from '@/store';
 
@@ -76,6 +77,24 @@ export default function LoginModal({ open, onClose }: Props) {
       setLoading(false);
     }
   }, [username, password, attempts, lockedUntil, setAuth, navigate, onClose]);
+
+  const handleGoogleSuccess = useCallback(async (credentialResponse: any) => {
+    if (!credentialResponse.credential) return;
+    setLoading(true);
+    setError('');
+    try {
+      const tokenData = await authApi.googleLogin(credentialResponse.credential);
+      localStorage.setItem('access_token', tokenData.access_token);
+      const user = await authApi.getCurrentUser();
+      setAuth(user, tokenData.access_token);
+      onClose();
+      navigate('/', { replace: true });
+    } catch (err: any) {
+      setError(err.response?.data?.detail || 'Google sign-in failed');
+    } finally {
+      setLoading(false);
+    }
+  }, [setAuth, navigate, onClose]);
 
   return (
     <AnimatePresence>
@@ -171,6 +190,24 @@ export default function LoginModal({ open, onClose }: Props) {
                 {loading ? <Loader2 size={16} className="animate-spin" /> : null}
                 {loading ? 'Signing in…' : 'Sign In'}
               </button>
+
+              <div className="flex items-center justify-center my-4">
+                <div className="border-t border-white/20 flex-grow"></div>
+                <span className="text-xs text-white/50 px-2">OR</span>
+                <div className="border-t border-white/20 flex-grow"></div>
+              </div>
+
+              <div className="flex justify-center flex-col items-center">
+                <GoogleLogin
+                  onSuccess={handleGoogleSuccess}
+                  onError={() => {
+                    setError('Google sign-in failed');
+                  }}
+                  theme="filled_black"
+                  shape="rectangular"
+                  text="signin_with"
+                />
+              </div>
 
               <p className="text-center text-xs text-white/30 pt-2">
                 Don't have an account? <span className="text-indigo-400">Contact Admin</span>

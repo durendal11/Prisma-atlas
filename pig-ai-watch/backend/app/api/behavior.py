@@ -510,7 +510,7 @@ async def get_farrowing_likelihood(
     transitions_per_hour_from_data = float(latest_detection_data.get("transitions_per_hour", 0.0) or 0.0)
 
     # ── Final composite score (0-100) ──
-    score = int(round(
+    behavioral_score = int(round(
         (
             posture_component * 0.20
             + movement_component * 0.20
@@ -519,7 +519,21 @@ async def get_farrowing_likelihood(
             + nesting_score_component * 0.25
         ) * 100
     ))
-    score = max(0, min(100, score))
+    
+    # ── Delayed Farrowing Calendar Bonus ──
+    sow_result = await db.execute(
+        select(Sow).where(and_(Sow.pen_id == pen_id, Sow.status.in_(['pregnant', 'overdue_watch', 'farrowing'])))
+    )
+    sow = sow_result.scalar_one_or_none()
+    
+    calendar_bonus = 0
+    if sow and sow.expected_farrowing_date:
+        today = datetime.utcnow().date()
+        exp_date = sow.expected_farrowing_date.date() if isinstance(sow.expected_farrowing_date, datetime) else sow.expected_farrowing_date
+        days_overdue = max(0, (today - exp_date).days)
+        calendar_bonus = min(30, days_overdue * 10)  # +10 per overdue day, cap at 30
+        
+    score = min(100, max(0, behavioral_score + calendar_bonus))
 
     # Nursing presence decreases likelihood
     nursing_ratio = sum(1 for l in logs if l.is_nursing) / len(logs)

@@ -42,6 +42,13 @@ class Sow(Base):
     last_farrowing_date = Column(DateTime(timezone=True))
     pen_id = Column(Integer, ForeignKey("pens.id"))
     notes = Column(Text)
+    
+    # Delayed Farrowing Monitoring Fields
+    intensified_monitoring = Column(Boolean, default=False)
+    prolonged_gestation = Column(Boolean, default=False)
+    overdue_acknowledged_at = Column(DateTime(timezone=True))
+    overdue_notes = Column(Text)
+    
     is_archived = Column(Boolean, default=False, nullable=False)
     archived_at = Column(DateTime(timezone=True))
     created_at = Column(DateTime(timezone=True), server_default=func.now())

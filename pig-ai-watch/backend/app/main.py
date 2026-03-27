@@ -9,6 +9,7 @@ from app.core.database import init_db
 from app.api import auth, sows, alerts, events, dashboard, stream, websocket, pens, detect, behavior, tasks, farrowing, edge, advisory, notifications, media
 from app.api.websocket import detection_broadcast_loop
 from app.services.yolo_detector import get_detector
+from app.services.delayed_farrowing_checker import delayed_farrowing_task_loop
 
 # Configure logging
 logging.basicConfig(
@@ -42,6 +43,10 @@ async def lifespan(app: FastAPI):
         logger.info("Detection broadcast loop started")
     else:
         logger.info("Detection broadcast relayed from edge device via /api/edge/detections")
+        
+    # Start delayed farrowing background processor
+    delayed_farrowing_task = asyncio.create_task(delayed_farrowing_task_loop())
+    logger.info("Delayed farrowing checker task started")
     
     # Sync camera assignments to MediaMTX proxy
     if settings.LOCAL_CAMERAS_ENABLED and settings.MEDIAMTX_ENABLED:
@@ -53,6 +58,10 @@ async def lifespan(app: FastAPI):
     
     # Shutdown
     logger.info("Shutting down...")
+    
+    if delayed_farrowing_task is not None:
+        delayed_farrowing_task.cancel()
+        
     if broadcast_task is not None:
         broadcast_task.cancel()
     

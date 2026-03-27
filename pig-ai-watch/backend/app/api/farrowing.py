@@ -602,9 +602,9 @@ async def get_sows_due_to_farrow(
     
     result = await db.execute(
         select(Sow).where(and_(
-            Sow.expected_farrowing_date >= now,
+            Sow.expected_farrowing_date >= future - timedelta(days=days_ahead + 10),
             Sow.expected_farrowing_date <= future,
-            Sow.status.in_(["pregnant", "active"]),
+            Sow.status.in_(["pregnant", "active", "overdue_watch"]),
             Sow.is_archived == False,
         )).order_by(Sow.expected_farrowing_date.asc())
     )
@@ -643,6 +643,15 @@ async def get_sows_due_to_farrow(
             continue
 
         delta = sow.expected_farrowing_date - now
+        is_overdue = delta.total_seconds() < 0 or sow.status == 'overdue_watch'
+        days_overdue = max(0, -math.floor(delta.total_seconds() / 86400))
+        tier = 0
+        if is_overdue:
+            if sow.prolonged_gestation:
+                tier = 3
+            else:
+                tier = 1 if days_overdue == 1 else (2 if days_overdue == 2 else 3 if days_overdue >= 3 else 1)
+                
         hours_until = max(0.0, delta.total_seconds() / 3600)
         days_until = max(0, math.floor(hours_until / 24))
         urgency, farrowing_window, monitoring_frequency, recommendation, signs_to_watch = classify_window(hours_until)
@@ -687,6 +696,9 @@ async def get_sows_due_to_farrow(
             "expected_date": sow.expected_farrowing_date.isoformat() if sow.expected_farrowing_date else None,
             "days_until": days_until,
             "hours_until": round(hours_until, 1),
+            "is_overdue": is_overdue,
+            "days_overdue": days_overdue,
+            "tier": tier,
             "parity": sow.parity,
             "status": sow.status,
             "urgency": urgency,
@@ -1228,3 +1240,116 @@ async def log_farrowing_monitor_state(
         logger.error(f"[AI Monitor] Error: {e}")
         await db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
+
+from pydantic import BaseModel
+
+class AcknowledgeRequest(BaseModel):
+    notes: str
+
+@router.get("/overdue-sows")
+async def get_overdue_sows(db: AsyncSession = Depends(get_db)):
+    """Returns all sows with status overdue_watch or days_overdue > 0, ordered by urgency."""
+    query = select(Sow).where(
+        Sow.status.in_(['pregnant', 'overdue_watch']),
+        Sow.expected_farrowing_date != None
+    )
+    result = await db.execute(query)
+    sows = result.scalars().all()
+    
+    overdue_sows = []
+    
+    for sow in sows:
+        exp_date = sow.expected_farrowing_date.date() if isinstance(sow.expected_farrowing_date, datetime) else sow.expected_farrowing_date
+        days_overdue = (datetime.utcnow().date() - exp_date).days
+        
+        if days_overdue > 0 or sow.status == 'overdue_watch':
+            tier = 1 if days_overdue == 1 else (2 if days_overdue == 2 else (3 if days_overdue >= 3 else 0))
+            if sow.prolonged_gestation:
+                tier = 3
+                
+            overdue_sows.append({
+                "id": sow.id,
+                "tag_id": sow.tag_id,
+                "pen_id": sow.pen_id,
+                "expected_farrowing_date": sow.expected_farrowing_date,
+                "days_overdue": max(0, days_overdue),
+                "tier": tier,
+                "intensified_monitoring": sow.intensified_monitoring,
+                "prolonged_gestation": sow.prolonged_gestation,
+                "status": sow.status
+            })
+            
+    # Sort by tier descending, then days overdue descending
+    overdue_sows.sort(key=lambda x: (x["tier"], x["days_overdue"]), reverse=True)
+    return overdue_sows
+
+@router.get("/overdue-sows/{sow_id}/summary")
+async def get_overdue_sow_summary(sow_id: int, db: AsyncSession = Depends(get_db)):
+    """Returns detailed summary for a specific overdue sow."""
+    result = await db.execute(select(Sow).where(Sow.id == sow_id))
+    sow = result.scalar_one_or_none()
+    
+    if not sow:
+        raise HTTPException(status_code=404, detail="Sow not found")
+        
+    exp_date = sow.expected_farrowing_date.date() if isinstance(sow.expected_farrowing_date, datetime) else sow.expected_farrowing_date
+    days_overdue = (datetime.utcnow().date() - exp_date).days if exp_date else 0
+    
+    tier = 1 if days_overdue == 1 else (2 if days_overdue == 2 else (3 if days_overdue >= 3 else 0))
+    if sow.prolonged_gestation:
+        tier = 3
+        
+    # Check behavioral compound risk
+    from app.services.delayed_farrowing_checker import check_compound_risk
+    compound_risk_active = await check_compound_risk(sow, db)
+    
+    # Check pre-induction task
+    task_result = await db.execute(
+        select(Task).where(and_(Task.sow_id == sow.id, Task.title.like('%Pre-Induction%')))
+    )
+    task = task_result.scalar_one_or_none()
+    
+    return {
+        "sow_id": sow.id,
+        "tag_id": sow.tag_id,
+        "days_overdue": max(0, days_overdue),
+        "tier": tier,
+        "compound_risk_active": compound_risk_active,
+        "intensified_monitoring": sow.intensified_monitoring,
+        "checklist_task": {
+            "id": task.id if task else None,
+            "status": task.status if task else None
+        } if task else None
+    }
+
+@router.post("/overdue-sows/{sow_id}/acknowledge")
+async def acknowledge_overdue_sow(
+    sow_id: int, 
+    req: AcknowledgeRequest,
+    db: AsyncSession = Depends(get_db), 
+    current_user: User = Depends(get_current_user)
+):
+    """Farm worker acknowledges the overdue state."""
+    result = await db.execute(select(Sow).where(Sow.id == sow_id))
+    sow = result.scalar_one_or_none()
+    
+    if not sow:
+        raise HTTPException(status_code=404, detail="Sow not found")
+        
+    import pytz # Using timezone if necessary
+    sow.overdue_acknowledged_at = datetime.utcnow()
+    sow.overdue_notes = req.notes
+    
+    event = Event(
+        sow_id=sow.id,
+        pen_id=sow.pen_id,
+        type='overdue_acknowledged',
+        category='farrowing',
+        description=f'Overdue state acknowledged by {current_user.name}: {req.notes}',
+        timestamp=datetime.utcnow()
+    )
+    
+    db.add(event)
+    await db.commit()
+    
+    return {"status": "success", "message": "Acknowledged successfully"}

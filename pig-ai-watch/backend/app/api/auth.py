@@ -3,6 +3,8 @@ from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from datetime import timedelta
+from google.oauth2 import id_token
+from google.auth.transport import requests as google_requests
 
 from app.core.database import get_db
 from app.core.security import (
@@ -17,7 +19,8 @@ from app.schemas.user import (
     UserCreate, 
     UserResponse, 
     Token, 
-    LoginRequest
+    LoginRequest,
+    GoogleLoginRequest
 )
 
 router = APIRouter(prefix="/api/auth", tags=["Authentication"])
@@ -47,6 +50,84 @@ async def login(
             detail="User account is disabled"
         )
     
+    access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
+    access_token = create_access_token(
+        data={"sub": user.username}, 
+        expires_delta=access_token_expires
+    )
+    
+    return {"access_token": access_token, "token_type": "bearer"}
+
+
+@router.post("/google", response_model=Token)
+async def google_login(
+    request: GoogleLoginRequest,
+    db: AsyncSession = Depends(get_db)
+):
+    """Authenticate or register user using Google ID token."""
+    try:
+        # Verify the token with Google
+        # Note: In production you should pass your specific CLIENT_ID to verify
+        # id_token.verify_oauth2_token(token, google_requests.Request(), YOUR_CLIENT_ID)
+        idinfo = id_token.verify_oauth2_token(
+            request.credential, 
+            google_requests.Request()
+        )
+
+        email = idinfo.get('email')
+        name = idinfo.get('name')
+        
+        if not email:
+            raise ValueError("Token didn't contain an email")
+
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid Google token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    # Check if user exists
+    result = await db.execute(
+        select(User).where(User.email == email)
+    )
+    user = result.scalar_one_or_none()
+
+    # If user doesn't exist, we register them automatically
+    if not user:
+        # Create a safe base username from email
+        base_username = email.split('@')[0]
+        username = base_username
+        
+        # Ensure username uniqueness
+        counter = 1
+        while True:
+            existing = await db.execute(select(User).where(User.username == username))
+            if not existing.scalar_one_or_none():
+                break
+            username = f"{base_username}{counter}"
+            counter += 1
+
+        # Create new user via Google
+        new_user = User(
+            username=username,
+            email=email,
+            hashed_password=get_password_hash("google-auth-random-pass-unusable"),
+            full_name=name,
+            role="operator" # Automatically assign operator role
+        )
+        db.add(new_user)
+        await db.commit()
+        await db.refresh(new_user)
+        user = new_user
+
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User account is disabled"
+        )
+    
+    # Generate standard JWT for our app
     access_token_expires = timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
         data={"sub": user.username}, 

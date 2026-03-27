@@ -142,6 +142,17 @@ def _open_capture(url: str, width: int, height: int, fps: int):
     return cap
 
 
+def _capture_is_opened(cap) -> bool:
+    """Support both custom FFmpegCapture and OpenCV VideoCapture interfaces."""
+    method = getattr(cap, "is_opened", None)
+    if callable(method):
+        return method()
+    method = getattr(cap, "isOpened", None)
+    if callable(method):
+        return method()
+    return False
+
+
 # ── Camera Worker Thread ────────────────────────────────────────────────────
 
 
@@ -187,12 +198,12 @@ class CameraWorker(threading.Thread):
 
         while not self._stop_event.is_set():
             # (re)connect
-            if cap is None or not getattr(cap, "is_opened", cap.isOpened)():
+            if cap is None or not _capture_is_opened(cap):
                 if cap is not None:
                     cap.release() if hasattr(cap, "release") else None
                 logger.info("[%s] Connecting to camera…", self.pen_id)
                 cap = _open_capture(self.camera_url, self.frame_w, self.frame_h, self.frame_fps)
-                opened = getattr(cap, "is_opened", cap.isOpened)()
+                opened = _capture_is_opened(cap)
                 if not opened:
                     logger.warning("[%s] Camera open failed, retrying in %ds", self.pen_id, backoff)
                     self._stop_event.wait(backoff)

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { PenOverduePanel } from '@/components/PenOverduePanel';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   computeRestlessnessScore,
@@ -1415,6 +1416,7 @@ export default function PenMonitorPage() {
       {/* ━━━━━━━━━━━━━━━━ TAB: FARROWING ━━━━━━━━━━━━━━━━━━━━━━━━ */}
       {activeTab === 'farrowing' && (
         <div className="space-y-5 animate-fade-in">
+          {sow?.status === 'overdue_watch' && <PenOverduePanel sowId={sow.id} />}
           {/* Action bar */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between flex-wrap gap-2">
             <h2 className="font-semibold text-gray-900 dark:text-white flex items-center gap-2">
