@@ -2737,10 +2737,10 @@ export default function TestPenPage() {
                         try {
                           await api.put(`/api/sows/${sow.id}`, {
                             status: 'active',
-                            last_breeding_date: null,
-                            expected_farrowing_date: null
+                            last_breeding_date: null as unknown as string,
+                            expected_farrowing_date: null as unknown as string
                           } as SowUpdate);
-                          loadSow();
+                          loadFarrowingData();
                           toast.success('Sow lifecycle reset to Active');
                         } catch (err: unknown) {
                           console.error(err);
