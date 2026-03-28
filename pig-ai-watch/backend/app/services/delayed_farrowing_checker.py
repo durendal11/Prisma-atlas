@@ -1,3 +1,4 @@
+from app.api.websocket import ws_manager
 import asyncio
 import json
 import logging
@@ -6,6 +7,7 @@ from datetime import datetime, date, timedelta, timezone
 from sqlalchemy import select, and_, or_, desc, func
 from app.core.database import AsyncSessionLocal
 from app.models.pig import Sow, Alert, Event, Task, TaskTemplate, BehaviorLog
+from app.core.firebase import broadcast_alert
 
 logger = logging.getLogger(__name__)
 
@@ -47,9 +49,9 @@ async def check_compound_risk(sow: Sow, db) -> bool:
         select(BehaviorLog)
         .where(
             BehaviorLog.pen_id == sow.pen_id,
-            BehaviorLog.timestamp >= two_hours_ago
+            BehaviorLog.logged_at >= two_hours_ago
         )
-        .order_by(desc(BehaviorLog.timestamp))
+        .order_by(desc(BehaviorLog.logged_at))
     )
     logs = result.scalars().all()
     
@@ -95,6 +97,27 @@ async def handle_tier1_watch(sow: Sow, db):
     db.add(alert)
     db.add(event)
     await db.commit()
+    await db.refresh(alert)
+    await broadcast_alert(
+        title=alert.title,
+        body=alert.message,
+        alert_type=alert.type,
+        pen_id=alert.pen_id,
+        severity=alert.severity
+    )
+    alert_message = {
+        "type": "alert",
+        "data": {
+            "id": alert.id,
+            "type": alert.type,
+            "severity": alert.severity,
+            "title": alert.title,
+            "message": alert.message,
+            "pen_id": alert.pen_id,
+            "timestamp": alert.created_at.isoformat() if hasattr(alert, 'created_at') and alert.created_at else None
+        }
+    }
+    await ws_manager.broadcast(alert_message)
     logger.info(f"Tier 1 (Watch) triggered for sow {sow.tag_id}")
 
 async def handle_tier2_action(sow: Sow, db):
@@ -140,6 +163,27 @@ async def handle_tier2_action(sow: Sow, db):
     db.add(event)
     db.add(task)
     await db.commit()
+    await db.refresh(alert)
+    await broadcast_alert(
+        title=alert.title,
+        body=alert.message,
+        alert_type=alert.type,
+        pen_id=alert.pen_id,
+        severity=alert.severity
+    )
+    alert_message = {
+        "type": "alert",
+        "data": {
+            "id": alert.id,
+            "type": alert.type,
+            "severity": alert.severity,
+            "title": alert.title,
+            "message": alert.message,
+            "pen_id": alert.pen_id,
+            "timestamp": alert.created_at.isoformat() if hasattr(alert, 'created_at') and alert.created_at else None
+        }
+    }
+    await ws_manager.broadcast(alert_message)
     logger.info(f"Tier 2 (Action) triggered for sow {sow.tag_id}")
 
 async def handle_tier3_critical(sow: Sow, days_overdue: int, db):
@@ -186,6 +230,27 @@ async def handle_tier3_critical(sow: Sow, days_overdue: int, db):
     )
     db.add(alert)
     await db.commit()
+    await db.refresh(alert)
+    await broadcast_alert(
+        title=alert.title,
+        body=alert.message,
+        alert_type=alert.type,
+        pen_id=alert.pen_id,
+        severity=alert.severity
+    )
+    alert_message = {
+        "type": "alert",
+        "data": {
+            "id": alert.id,
+            "type": alert.type,
+            "severity": alert.severity,
+            "title": alert.title,
+            "message": alert.message,
+            "pen_id": alert.pen_id,
+            "timestamp": alert.created_at.isoformat() if hasattr(alert, 'created_at') and alert.created_at else None
+        }
+    }
+    await ws_manager.broadcast(alert_message)
     logger.info(f"Tier 3 (Critical) triggered for sow {sow.tag_id}")
 
 async def run_checker():

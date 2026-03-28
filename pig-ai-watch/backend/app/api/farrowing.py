@@ -4,7 +4,7 @@ Farrowing Management API - Track farrowing events and piglet records
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, func
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional, Any
 import json
 import logging
@@ -175,7 +175,15 @@ async def update_farrowing_record(
     
     # Calculate duration if completed
     if record.farrowing_completed and record.farrowing_started:
-        duration = record.farrowing_completed - record.farrowing_started
+        completed = record.farrowing_completed
+        started = record.farrowing_started
+        
+        if completed.tzinfo and not started.tzinfo:
+            started = started.replace(tzinfo=timezone.utc)
+        elif not completed.tzinfo and started.tzinfo:
+            completed = completed.replace(tzinfo=timezone.utc)
+            
+        duration = completed - started
         record.duration_minutes = int(duration.total_seconds() / 60)
     
     await db.commit()
@@ -204,16 +212,19 @@ async def complete_farrowing(
         raise HTTPException(status_code=404, detail="Farrowing record not found")
     
     # Update record
-    record.farrowing_completed = datetime.utcnow()
-    record.total_born = data.get("total_born", 0)
-    record.born_alive = data.get("born_alive", 0)
-    record.stillborn = data.get("stillborn", 0)
-    record.mummified = data.get("mummified", 0)
-    record.current_litter_size = data.get("born_alive", 0)
-    record.sow_condition = data.get("sow_condition", "good")
+    record.farrowing_completed = datetime.now(timezone.utc)
+    record.total_born = data.get("total_born", record.total_born or 0)
+    record.born_alive = data.get("born_alive", record.born_alive or 0)
+    record.stillborn = data.get("stillborn", record.stillborn or 0)
+    record.mummified = data.get("mummified", record.mummified or 0)
+    record.current_litter_size = data.get("born_alive", record.current_litter_size or record.born_alive or 0)
+    record.sow_condition = data.get("sow_condition", record.sow_condition or "good")
     
     if record.farrowing_started:
-        duration = record.farrowing_completed - record.farrowing_started
+        started = record.farrowing_started
+        if started.tzinfo is None:
+            started = started.replace(tzinfo=timezone.utc)
+        duration = record.farrowing_completed - started
         record.duration_minutes = int(duration.total_seconds() / 60)
     
     # Update sow
@@ -226,12 +237,15 @@ async def complete_farrowing(
         sow.parity = (sow.parity or 0) + 1
     
     # Create completion event
+    sow_tag = sow.tag_id if sow else f"Unknown({record.sow_id})"
+    pen_id = sow.pen_id if sow else record.pen_id
+    
     event = Event(
         type="farrowing_complete",
         category="farrowing",
-        description=f"Farrowing completed for sow {sow.tag_id}: {record.born_alive} alive, {record.stillborn} stillborn",
-        sow_id=sow.id,
-        pen_id=sow.pen_id,
+        description=f"Farrowing completed for sow {sow_tag}: {record.born_alive} alive, {record.stillborn} stillborn",
+        sow_id=record.sow_id,
+        pen_id=pen_id,
         user_id=current_user.id,
         event_metadata=json.dumps({
             "total_born": record.total_born,
@@ -345,6 +359,29 @@ async def add_piglet(
     )
     
     db.add(piglet)
+    await db.flush()  # Ensure piglet is available for counting
+
+    # Recompute counts
+    alive_query = await db.execute(
+        select(func.count()).select_from(PigletRecord).where(
+            and_(PigletRecord.farrowing_record_id == record_id, PigletRecord.status == "alive")
+        )
+    )
+    stillborn_query = await db.execute(
+        select(func.count()).select_from(PigletRecord).where(
+            and_(PigletRecord.farrowing_record_id == record_id, PigletRecord.status == "stillborn")
+        )
+    )
+    total_query = await db.execute(
+        select(func.count()).select_from(PigletRecord).where(
+            PigletRecord.farrowing_record_id == record_id
+        )
+    )
+    
+    record.born_alive = alive_query.scalar() or 0
+    record.stillborn = stillborn_query.scalar() or 0
+    record.total_born = total_query.scalar() or 0
+
     await db.commit()
     await db.refresh(piglet)
     
@@ -543,7 +580,7 @@ async def get_sows_due_to_farrow(
     db: AsyncSession = Depends(get_db)
 ):
     """Get sows due to farrow in the next X days"""
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     future = now + timedelta(days=days_ahead)
 
     # Evidence-informed behavioral windows used for guidance text:
@@ -602,7 +639,7 @@ async def get_sows_due_to_farrow(
     
     result = await db.execute(
         select(Sow).where(and_(
-            Sow.expected_farrowing_date >= future - timedelta(days=days_ahead + 10),
+            Sow.expected_farrowing_date >= now - timedelta(days=60),
             Sow.expected_farrowing_date <= future,
             Sow.status.in_(["pregnant", "active", "overdue_watch"]),
             Sow.is_archived == False,
@@ -737,22 +774,32 @@ async def get_pre_post_comparison(
     Returns bucketed averages for posture, activity, nursing, feeding,
     crushing risk, and piglet counts for easy chart rendering.
     """
-    # Find the most recent completed farrowing for the sow
+    # Find the most recent farrowing for the sow
     result = await db.execute(
         select(FarrowingRecord)
-        .where(and_(
-            FarrowingRecord.sow_id == sow_id,
-            FarrowingRecord.farrowing_started.isnot(None),
-        ))
-        .order_by(FarrowingRecord.farrowing_started.desc())
+        .where(
+            FarrowingRecord.sow_id == sow_id
+        )
+        .order_by(FarrowingRecord.created_at.desc())
         .limit(1)
     )
     record = result.scalar_one_or_none()
 
-    if not record or not record.farrowing_started:
-        raise HTTPException(status_code=404, detail="No farrowing record found for this sow")
+    if not record:
+        return {
+            "insufficient_data": True,
+            "sow_id": sow_id,
+            "farrowing_record_id": None,
+            "farrowing_started": None,
+            "farrowing_completed": None,
+            "window_hours": window_hours,
+            "pre": None,
+            "post": None,
+            "timeline": [],
+            "message": "No farrowing record found for this sow."
+        }
 
-    farrow_time = record.farrowing_started
+    farrow_time = record.farrowing_started or record.created_at
     pre_start = farrow_time - timedelta(hours=window_hours)
     post_end = (record.farrowing_completed or farrow_time) + timedelta(hours=window_hours)
 
@@ -771,8 +818,9 @@ async def get_pre_post_comparison(
     )
     all_logs = logs_result.scalars().all()
 
-    if not all_logs:
+    if not all_logs or len(all_logs) < 5:
         return {
+            "insufficient_data": True,
             "sow_id": sow_id,
             "farrowing_record_id": record.id,
             "farrowing_started": farrow_time.isoformat(),
@@ -789,7 +837,15 @@ async def get_pre_post_comparison(
 
     def summarize(logs):
         if not logs:
-            return None
+            return {
+                "log_count": 0,
+                "avg_crushing_risk": None,
+                "avg_piglet_count": None,
+                "sleeping_pct": None,
+                "posture_distribution": {"unknown": 100.0},
+                "movement_distribution": {"unknown": 100.0},
+                "activity_levels": {"unknown": 100.0},
+            }
         n = len(logs)
         return {
             "log_count": n,
@@ -1189,14 +1245,21 @@ async def log_farrowing_monitor_state(
             record = result.scalar_one_or_none()
 
             if record:
-                now = datetime.utcnow()
+                now = datetime.now(timezone.utc)
                 record.farrowing_completed = now
-                duration = (now - record.farrowing_started).total_seconds() / 60 if record.farrowing_started else 0
-                record.duration_minutes = int(duration)
+                
+                duration_minutes = 0
+                if record.farrowing_started:
+                    started = record.farrowing_started
+                    if started.tzinfo is None:
+                        started = started.replace(tzinfo=timezone.utc)
+                    duration_minutes = (now - started).total_seconds() / 60
+                
+                record.duration_minutes = int(duration_minutes)
                 record.total_born = payload.get("highest_piglet_count", 0)
                 record.born_alive = payload.get("highest_piglet_count", 0)
                 record.crushing_incidents = payload.get("crushing_incidents", 0)
-                record.notes = (record.notes or "") + f"\nAI completed: {payload.get('highest_piglet_count', 0)} piglets, {int(duration)} min."
+                record.notes = (record.notes or "") + f"\nAI completed: {payload.get('highest_piglet_count', 0)} piglets, {int(duration_minutes)} min."
 
                 # Update sow status
                 if record.sow_id:
@@ -1211,7 +1274,7 @@ async def log_farrowing_monitor_state(
                     type="farrowing_complete",
                     category="ai_detection",
                     pen_id=pen_id,
-                    description=f"AI detected farrowing completed. {payload.get('highest_piglet_count', 0)} piglets born in {int(duration)} min."
+                    description=f"AI detected farrowing completed. {payload.get('highest_piglet_count', 0)} piglets born in {int(duration_minutes)} min."
                 )
                 db.add(event)
                 await db.commit()

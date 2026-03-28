@@ -8,6 +8,8 @@ import { pensApi } from '@/api';
 import { Maximize2, Grid, LayoutGrid, RefreshCw, Sliders, Eye, Zap, Plus, X, MapPin, Video, LayoutDashboard } from 'lucide-react';
 import clsx from 'clsx';
 import toast from 'react-hot-toast';
+import { PageSkeleton, useLoading } from '@/components/ui/Skeleton';
+import { PageInfoButton, PageInfoModal } from '@/components/ui/PageInfoModal';
 
 type LayoutType = '2x2' | '3x2' | '1x1';
 
@@ -21,7 +23,14 @@ export default function LiveMonitoringPage() {
   const [detectionFrameSkip, setDetectionFrameSkip] = useState<number>(5); // Default to smooth video
   const [visiblePens, setVisiblePens] = useState<Set<string>>(new Set());
   const observerRef = useRef<IntersectionObserver | null>(null);
-  const { data: penStatuses, refetch, isRefetching } = usePenStatus();
+  const [isInfoOpen, setIsInfoOpen] = useState(false);
+  const { data: penStatuses, refetch, isRefetching, isLoading: isPenLoading } = usePenStatus();
+  
+  const { isLoading, finishLoading } = useLoading(true, 800);
+
+  useEffect(() => {
+    if (!isPenLoading) finishLoading();
+  }, [isPenLoading, finishLoading]);
   const selectedPenDetection = useDetectionStore(
     useCallback(
       (state) => (selectedPen ? state.latestDetections[selectedPen] ?? null : null),
@@ -217,13 +226,22 @@ export default function LiveMonitoringPage() {
     );
   }
 
+  if (isLoading) {
+    return <PageSkeleton />;
+  }
+
   return (
     <div className="space-y-6 animate-fade-in">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div className="animate-slide-in-left">
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Live Monitoring</h1>
-          <p className="text-gray-500 dark:text-slate-400">Real-time video feeds from all pens</p>
+        <div className="animate-slide-in-left flex items-center gap-3">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Live Monitoring</h1>
+            <p className="text-gray-500 dark:text-slate-400">Real-time video feeds from all pens</p>
+          </div>
+          <div className="ml-2 bg-gray-100 dark:bg-slate-700/50 rounded-full border border-gray-200 dark:border-slate-600/50 flex shadow-sm">
+            <PageInfoButton onClick={() => setIsInfoOpen(true)} />
+          </div>
         </div>
 
         <div className="flex items-center gap-3">
@@ -574,6 +592,19 @@ export default function LiveMonitoringPage() {
           </div>
         </div>
       )}
+
+      <PageInfoModal isOpen={isInfoOpen} onClose={() => setIsInfoOpen(false)} title="Live Monitoring">
+        <div className="space-y-4 text-sm text-gray-600 dark:text-slate-300">
+          <p>
+            The Live Monitoring page allows you to view multi-pen camera streams simultaneously.
+          </p>
+          <ul className="list-disc pl-5 space-y-2">
+            <li><strong>Grid Layout:</strong> Use the layout buttons (2x2, 3x2, etc.) to change how many camera feeds are visible at once.</li>
+            <li><strong>Optimized Streaming:</strong> Video feeds pause automatically when scrolled out of view to save network bandwidth.</li>
+            <li><strong>Drill Down:</strong> Clicking on any specific camera feed expands it and allows you to jump directly to the detailed Pen Monitor page for that specific pen.</li>
+          </ul>
+        </div>
+      </PageInfoModal>
     </div>
   );
 }

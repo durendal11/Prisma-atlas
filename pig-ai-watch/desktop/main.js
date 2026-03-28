@@ -404,6 +404,10 @@ function createMainWindow() {
 
     // Handle external links
     mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+        // Allow Google Sign-in popups
+        if (url.startsWith('https://accounts.google.com/')) {
+            return { action: 'allow' };
+        }
         shell.openExternal(url);
         return { action: 'deny' };
     });
@@ -878,6 +882,22 @@ ipcMain.on('ws-detection-message', (event, message) => {
 
 // App lifecycle
 app.whenReady().then(async () => {
+    // Automatically grant notification permissions for your internal UI
+    session.defaultSession.setPermissionCheckHandler((webContents, permission, requestingOrigin, details) => {
+        if (permission === 'notifications') {
+            return true;
+        }
+        return false;
+    });
+
+    session.defaultSession.setPermissionRequestHandler((webContents, permission, callback) => {
+        if (permission === 'notifications') {
+            callback(true);
+        } else {
+            callback(false);
+        }
+    });
+
     createSplashWindow();
     
     // Update splash status

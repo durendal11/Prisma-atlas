@@ -9,6 +9,8 @@ from app.core.security import get_current_user
 from app.models.user import User
 from app.models.pig import Alert
 from app.schemas.pig import AlertCreate, AlertUpdate, AlertResponse
+from app.core.firebase import broadcast_alert
+from app.api.websocket import ws_manager
 
 router = APIRouter(prefix="/api/alerts", tags=["Alerts"])
 
@@ -32,6 +34,28 @@ async def create_test_alert(
     db.add(test_alert)
     await db.commit()
     await db.refresh(test_alert)
+    
+    await broadcast_alert(
+        title=test_alert.title,
+        body=test_alert.message,
+        alert_type=test_alert.type,
+        pen_id=test_alert.pen_id,
+        severity=test_alert.severity
+    )
+
+    alert_message = {
+        "type": "alert",
+        "data": {
+            "id": test_alert.id,
+            "type": test_alert.type,
+            "severity": test_alert.severity,
+            "title": test_alert.title,
+            "message": test_alert.message,
+            "pen_id": test_alert.pen_id,
+            "timestamp": test_alert.created_at.isoformat() if test_alert.created_at else None
+        }
+    }
+    await ws_manager.broadcast(alert_message)
 
     return test_alert
 
@@ -140,8 +164,29 @@ async def create_alert(
     await db.commit()
     await db.refresh(new_alert)
     
-    return new_alert
+    await broadcast_alert(
+        title=new_alert.title,
+        body=new_alert.message,
+        alert_type=new_alert.type,
+        pen_id=new_alert.pen_id,
+        severity=new_alert.severity
+    )
 
+    alert_message = {
+        "type": "alert",
+        "data": {
+            "id": new_alert.id,
+            "type": new_alert.type,
+            "severity": new_alert.severity,
+            "title": new_alert.title,
+            "message": new_alert.message,
+            "pen_id": new_alert.pen_id,
+            "timestamp": new_alert.created_at.isoformat() if new_alert.created_at else None
+        }
+    }
+    await ws_manager.broadcast(alert_message)
+
+    return new_alert
 
 @router.patch("/{alert_id}", response_model=AlertResponse)
 async def update_alert(

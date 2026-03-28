@@ -1,10 +1,18 @@
 from sqlalchemy import Column, Integer, String, Float, DateTime, ForeignKey, Text, Boolean, Time, JSON, UniqueConstraint
 from sqlalchemy.orm import relationship
+from sqlalchemy.orm import declarative_mixin
+
+@declarative_mixin
+
+class TenantAware:
+    owner_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=True, index=True)
+
+
 from sqlalchemy.sql import func
 from app.core.database import Base
 
 
-class Pen(Base):
+class Pen(TenantAware, Base):
     __tablename__ = "pens"
     
     id = Column(Integer, primary_key=True, index=True)
@@ -25,7 +33,7 @@ class Pen(Base):
     events = relationship("Event", back_populates="pen")
 
 
-class Sow(Base):
+class Sow(TenantAware, Base):
     __tablename__ = "sows"
     
     id = Column(Integer, primary_key=True, index=True)
@@ -59,7 +67,7 @@ class Sow(Base):
     events = relationship("Event", back_populates="sow")
 
 
-class Alert(Base):
+class Alert(TenantAware, Base):
     __tablename__ = "alerts"
     
     id = Column(Integer, primary_key=True, index=True)
@@ -79,7 +87,7 @@ class Alert(Base):
     sow = relationship("Sow", back_populates="alerts")
 
 
-class Event(Base):
+class Event(TenantAware, Base):
     __tablename__ = "events"
     
     id = Column(Integer, primary_key=True, index=True)
@@ -96,7 +104,7 @@ class Event(Base):
     pen = relationship("Pen", back_populates="events")
 
 
-class Detection(Base):
+class Detection(TenantAware, Base):
     __tablename__ = "detections"
     
     id = Column(Integer, primary_key=True, index=True)
@@ -113,7 +121,7 @@ class Detection(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
-class BehaviorLog(Base):
+class BehaviorLog(TenantAware, Base):
     """Logs sow behavior every 12 seconds for analytics and health monitoring"""
     __tablename__ = "behavior_logs"
     
@@ -161,7 +169,7 @@ class BehaviorLog(Base):
 # TASK MANAGEMENT & WORKFLOW AUTOMATION
 # ============================================================================
 
-class TaskTemplate(Base):
+class TaskTemplate(TenantAware, Base):
     """Predefined task templates for common farm operations"""
     __tablename__ = "task_templates"
     
@@ -185,7 +193,7 @@ class TaskTemplate(Base):
     tasks = relationship("Task", back_populates="template")
 
 
-class Task(Base):
+class Task(TenantAware, Base):
     """Individual tasks assigned to workers"""
     __tablename__ = "tasks"
     
@@ -226,7 +234,7 @@ class Task(Base):
     pen = relationship("Pen")
 
 
-class FarrowingRecord(Base):
+class FarrowingRecord(TenantAware, Base):
     """Detailed farrowing event records"""
     __tablename__ = "farrowing_records"
     
@@ -274,7 +282,7 @@ class FarrowingRecord(Base):
     pen = relationship("Pen")
 
 
-class PigletRecord(Base):
+class PigletRecord(TenantAware, Base):
     """Individual piglet tracking"""
     __tablename__ = "piglet_records"
     
@@ -318,7 +326,7 @@ class PigletRecord(Base):
     farrowing_record = relationship("FarrowingRecord")
 
 
-class WorkflowRule(Base):
+class WorkflowRule(TenantAware, Base):
     """Automated workflow rules for task generation"""
     __tablename__ = "workflow_rules"
     
@@ -348,7 +356,7 @@ class WorkflowRule(Base):
     task_template = relationship("TaskTemplate")
 
 
-class NotificationSubscription(Base):
+class NotificationSubscription(TenantAware, Base):
     __tablename__ = "notification_subscriptions"
     __table_args__ = (
         UniqueConstraint("user_id", "device_token", name="uq_notification_subscriptions_user_device"),
@@ -365,7 +373,7 @@ class NotificationSubscription(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())
 
 
-class NotificationLog(Base):
+class NotificationLog(TenantAware, Base):
     __tablename__ = "notification_log"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -377,3 +385,46 @@ class NotificationLog(Base):
     push_body = Column(Text, nullable=True)
     sent_at = Column(DateTime(timezone=True), server_default=func.now())
     delivered = Column(Boolean, default=False, nullable=False)
+
+import uuid
+from datetime import datetime
+from sqlalchemy import BigInteger
+
+class RecordingSchedule(TenantAware, Base):
+    __tablename__ = "recording_schedules"
+    
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    pen_id = Column(Integer, ForeignKey("pens.id"))
+    schedule_json = Column(JSON, default=list) # [{day, hour, mode}]
+    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    pen = relationship("Pen")
+
+class RecordingClip(TenantAware, Base):
+    __tablename__ = "recording_clips"
+    
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    pen_id = Column(Integer, ForeignKey("pens.id"))
+    start_time = Column(DateTime(timezone=True))
+    end_time = Column(DateTime(timezone=True))
+    mode = Column(String(50)) # 'continuous' | 'detection'
+    file_path = Column(Text)
+    storage_path = Column(Text)
+    file_size_bytes = Column(BigInteger)
+    edge_device_id = Column(Text)
+    created_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    
+    pen = relationship("Pen")
+
+class StorageStatus(TenantAware, Base):
+    __tablename__ = "storage_status"
+    
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    pen_id = Column(Integer, ForeignKey("pens.id"))
+    storage_path = Column(Text)
+    total_bytes = Column(BigInteger)
+    free_bytes = Column(BigInteger)
+    reported_at = Column(DateTime(timezone=True), default=datetime.utcnow)
+    
+    pen = relationship("Pen")
+

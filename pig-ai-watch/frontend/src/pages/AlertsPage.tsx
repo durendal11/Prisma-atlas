@@ -1,6 +1,9 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { AlertCard } from '@/components';
 import { useAlerts, useAlertStats, useUpdateAlert, useMarkAllAlertsRead } from '@/hooks';
+import { PageSkeleton, useLoading } from '@/components/ui/Skeleton';
+import { PageInfoButton, PageInfoModal } from '@/components/ui/PageInfoModal';
 import { 
   Filter, 
   CheckCircle, 
@@ -15,16 +18,19 @@ const severityOptions = ['all', 'critical', 'high', 'medium', 'low'];
 const typeOptions = ['all', 'crushing_risk', 'posture_change', 'piglet_count_change', 'system'];
 
 export default function AlertsPage() {
+  const navigate = useNavigate();
   const [severity, setSeverity] = useState('all');
   const [type, setType] = useState('all');
   const [showResolved, setShowResolved] = useState(false);
+  const [isInfoOpen, setIsInfoOpen] = useState(false);
 
-  const { data: alerts, isLoading, refetch, isRefetching } = useAlerts({
+  const { data: alerts, isLoading: loadingAlerts, refetch, isRefetching } = useAlerts({
     severity: severity === 'all' ? undefined : severity,
     type: type === 'all' ? undefined : type,
     is_resolved: showResolved ? undefined : false,
     limit: 100,
   });
+  const { isLoading } = useLoading(loadingAlerts);
 
   const { data: stats } = useAlertStats();
   const updateAlert = useUpdateAlert();
@@ -49,12 +55,34 @@ export default function AlertsPage() {
     );
   };
 
+  const handleAlertClick = (alert: any) => {
+    if (!alert.is_read) {
+      handleMarkRead(alert.id);
+    }
+    
+    // Check if there is a specific pen related to the alert first
+    if (alert.pen_id) {
+      navigate(`/pen/${alert.pen_id}`);
+      return;
+    }
+
+    const alertType = (alert.type || '').toLowerCase();
+    const alertTitle = (alert.title || '').toLowerCase();
+    
+    // Farrowing related navigation fallback
+    if (alertType.includes('farrowing') || alertType.includes('gestation') || alertTitle.includes('farrowing')) {
+      navigate('/farrowing');
+    }
+  };
+
   const handleMarkAllRead = () => {
     markAllRead.mutate(undefined, {
       onSuccess: () => toast.success('All alerts marked as read'),
       onError: () => toast.error('Failed to mark alerts as read'),
     });
   };
+
+  if (isLoading && !alerts) return <PageSkeleton />;
 
   return (
     <div className="max-w-5xl mx-auto space-y-5 animate-fade-in">
@@ -68,9 +96,12 @@ export default function AlertsPage() {
         </div>
         <div className="relative px-5 sm:px-8 py-5">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div>
-              <h1 className="text-2xl sm:text-3xl font-bold text-white tracking-tight">Alerts</h1>
-              <p className="text-white/70 text-sm">Monitor and manage system alerts</p>
+            <div className="flex items-center gap-3">
+              <div>
+                <h1 className="text-2xl sm:text-3xl font-bold text-white tracking-tight">Alerts</h1>
+                <p className="text-white/70 text-sm">Monitor and manage system alerts</p>
+              </div>
+              <PageInfoButton onClick={() => setIsInfoOpen(true)} className="text-white hover:bg-white/20" />
             </div>
             <div className="flex items-center gap-2">
               <button
@@ -186,11 +217,7 @@ export default function AlertsPage() {
 
       {/* Alerts list */}
       <div className="space-y-3">
-        {isLoading ? (
-          <div className="flex justify-center py-12">
-            <div className="animate-spin rounded-full h-8 w-8 border-4 border-primary-200 dark:border-primary-800 border-t-primary-500 dark:border-t-primary-400" />
-          </div>
-        ) : alerts?.length === 0 ? (
+        {alerts?.length === 0 ? (
           <div className="bg-white dark:bg-slate-800/60 rounded-2xl border border-gray-200/60 dark:border-slate-700/50 p-12 text-center shadow-sm">
             <Bell className="h-12 w-12 mx-auto mb-3 text-gray-300 dark:text-slate-600" />
             <p className="text-base font-medium text-gray-600 dark:text-slate-300">No alerts found</p>
@@ -201,6 +228,7 @@ export default function AlertsPage() {
             <div key={alert.id} className="animate-fade-in-up" style={{ animationDelay: `${index * 50}ms` }}>
               <AlertCard
                 alert={alert}
+                onClick={() => handleAlertClick(alert)}
                 onResolve={() => handleResolveAlert(alert.id)}
                 onMarkRead={() => handleMarkRead(alert.id)}
               />
@@ -208,6 +236,19 @@ export default function AlertsPage() {
           ))
         )}
       </div>
+
+      <PageInfoModal 
+        isOpen={isInfoOpen}
+        onClose={() => setIsInfoOpen(false)}
+        title="Alerts Interface"
+        section="alerts"
+        steps={[
+          "Global Event Inbox: View all urgent engine events across every active stream and pen.",
+          "Categorizations: Filter alerts explicitly by operational urgency (e.g., Critical vs Warning) or origin type.",
+          "Dismissal: Mark read, bulk select, or definitively resolve historical alerting traces.",
+          "Real-time: Stream directly synchronized against engine WebSocket data."
+        ]}
+      />
     </div>
   );
 }

@@ -13,15 +13,136 @@ import {
   Eye,
   Info,
   X,
+  Video,
+  Download,
+  HardDrive
 } from 'lucide-react';
 import { getReplayData, ReplayData, ReplayFrame } from '@/services/behaviorLogger';
+import { recordingApi } from '@/api';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine,
 } from 'recharts';
 
 type PlaybackSpeed = 1 | 2 | 4 | 8;
 
+// --- Helper Component: Recordings Tab ---
+function RecordingsTab({ penId }: { penId: number }) {
+  const [recordings, setRecordings] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [storageInfo, setStorageInfo] = useState<{total: number, used: number, free: number} | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    const fetchRecordings = async () => {
+      setLoading(true);
+      try {
+        const data = await recordingApi.getRecordings(penId);
+        if (mounted) {
+          setRecordings(data.recordings || []);
+          if (data.storage) {
+            setStorageInfo(data.storage);
+          }
+        }
+      } catch (err) {
+        console.error("Failed to load recordings", err);
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    };
+    fetchRecordings();
+    return () => { mounted = false; };
+  }, [penId]);
+
+  return (
+    <div className="space-y-6">
+      <div className="bg-white dark:bg-slate-800/50 rounded-xl border border-gray-200 dark:border-slate-700/50 overflow-hidden">
+        {loading ? (
+          <div className="p-8 text-center text-gray-500 dark:text-slate-400">Loading recordings...</div>
+        ) : recordings.length === 0 ? (
+          <div className="p-8 text-center text-gray-500 dark:text-slate-400 flex flex-col items-center">
+            <Video className="w-12 h-12 mb-3 opacity-30" />
+            <p>No video recordings found for Pen {penId}</p>
+          </div>
+        ) : (
+          <table className="w-full text-left text-sm">
+            <thead className="bg-gray-50 dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700/50">
+              <tr>
+                <th className="px-4 py-3 font-medium text-gray-900 dark:text-white">Date & Time</th>
+                <th className="px-4 py-3 font-medium text-gray-900 dark:text-white">Duration</th>
+                <th className="px-4 py-3 font-medium text-gray-900 dark:text-white">Mode</th>
+                <th className="px-4 py-3 font-medium text-gray-900 dark:text-white">Size</th>
+                <th className="px-4 py-3 font-medium text-gray-900 dark:text-white">Action</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100 dark:divide-slate-700/50">
+              {recordings.map((rec, i) => (
+                <tr key={i} className="hover:bg-gray-50 dark:hover:bg-slate-800/30 transition-colors">
+                  <td className="px-4 py-3 text-gray-700 dark:text-slate-300">
+                    <div className="font-medium">{new Date(rec.start_time).toLocaleDateString()}</div>
+                    <div className="text-xs text-gray-500">{new Date(rec.start_time).toLocaleTimeString()}</div>
+                  </td>
+                  <td className="px-4 py-3 text-gray-600 dark:text-slate-400">
+                    {Math.round(rec.duration_sec)}s
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className={`px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400`}>
+                      {rec.mode}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-gray-600 dark:text-slate-400">
+                    {(rec.size_bytes / (1024 * 1024)).toFixed(1)} MB
+                  </td>
+                  <td className="px-4 py-3">
+                    <a 
+                      href={`/api/recording/download/${rec.id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      title="Download Video File"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-900/30 dark:text-indigo-400 dark:hover:bg-indigo-900/50 rounded-lg transition-colors border border-transparent hover:border-indigo-200 dark:hover:border-indigo-700/50 shadow-sm hover:shadow"
+                    >
+                      <Download className="w-4 h-4" /> Download
+                    </a>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {/* Storage Info Widget */}
+      {storageInfo && (
+        <div className="bg-white dark:bg-slate-800/50 rounded-xl border border-gray-200 dark:border-slate-700/50 p-6 flex items-center gap-6">
+          <div className="p-4 bg-indigo-50 dark:bg-indigo-900/30 rounded-full text-indigo-600 dark:text-indigo-400">
+            <HardDrive className="w-8 h-8" />
+          </div>
+          <div className="flex-1">
+            <div className="flex justify-between items-end mb-2">
+              <h3 className="font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+                Storage Status
+              </h3>
+              <span className="text-sm text-gray-600 dark:text-slate-400">
+                {((storageInfo.used / (1024**3)) || 0).toFixed(1)} GB / {((storageInfo.total / (1024**3)) || 0).toFixed(1)} GB
+              </span>
+            </div>
+            <div className="w-full bg-gray-200 dark:bg-slate-700 rounded-full h-2.5 overflow-hidden">
+              <div 
+                className="bg-indigo-500 h-2.5 rounded-full transition-all" 
+                style={{ width: `${Math.min(100, Math.max(0, (storageInfo.used / storageInfo.total) * 100))}%` }}
+              ></div>
+            </div>
+            <div className="mt-2 text-xs text-gray-500 dark:text-slate-400 flex justify-between">
+              <span>{((storageInfo.free / (1024**3)) || 0).toFixed(1)} GB Free Space</span>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function ReplayPage() {
+  const [activeTab, setActiveTab] = useState<'simulation' | 'recordings'>('simulation');
   const [showInfo, setShowInfo] = useState(false);
 
   // ── Data state ──
@@ -112,14 +233,14 @@ export default function ReplayPage() {
   return (
     <div className="p-6 max-w-7xl mx-auto animate-fade-in space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between shadow-sm">
         <div className="flex items-center gap-3">
           <div className="p-2 bg-indigo-100 dark:bg-indigo-900/50 rounded-xl">
             <Eye className="w-8 h-8 text-indigo-600 dark:text-indigo-400" />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Replay / Simulation Mode</h1>
+              <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Playback & Storage Hub</h1>
               <button 
                 onClick={() => setShowInfo(true)} 
                 className="p-1 rounded-full hover:bg-gray-100 dark:hover:bg-slate-700 text-gray-400 hover:text-indigo-500 dark:hover:text-indigo-400 transition-colors"
@@ -128,11 +249,11 @@ export default function ReplayPage() {
                 <Info className="w-5 h-5" />
               </button>
             </div>
-            <p className="text-gray-500 dark:text-slate-400">Play back recorded behavior data through the analytics pipeline</p>
+            <p className="text-gray-500 dark:text-slate-400">Play telemetry simulations or manage raw MP4 video storage</p>
           </div>
         </div>
 
-        {/* Pen & hours selectors */}
+        {/* Global pen selection shared by both tabs */}
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-1.5">
             <label className="text-sm text-gray-500 dark:text-slate-400">Pen:</label>
@@ -145,28 +266,58 @@ export default function ReplayPage() {
               className="w-16 text-sm bg-white dark:bg-slate-700/50 border border-gray-200 dark:border-slate-600 rounded-lg px-2 py-1.5 text-gray-700 dark:text-slate-300"
             />
           </div>
-          <div className="flex items-center gap-1.5">
-            <label className="text-sm text-gray-500 dark:text-slate-400">Hours:</label>
-            <select
-              value={hours}
-              onChange={e => setHours(Number(e.target.value))}
-              title="Replay hours"
-              className="text-sm bg-white dark:bg-slate-700/50 border border-gray-200 dark:border-slate-600 rounded-lg px-2 py-1.5 text-gray-700 dark:text-slate-300"
-            >
-              {[6, 12, 24, 48, 72, 168].map(h => (
-                <option key={h} value={h}>{h}h</option>
-              ))}
-            </select>
-          </div>
-          <button
-            onClick={fetchReplay}
-            disabled={fetching}
-            className="px-3 py-1.5 bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 rounded-lg text-sm font-medium hover:bg-indigo-200 dark:hover:bg-indigo-800/50 transition disabled:opacity-50"
-          >
-            {fetching ? 'Loading…' : 'Load'}
-          </button>
         </div>
       </div>
+
+      {/* Tabs */}
+      <div className="flex space-x-6 border-b border-gray-200 dark:border-slate-800">
+        <button
+          className={`pb-2 text-sm font-medium transition-all ${activeTab === 'simulation' ? 'border-b-2 border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 border-b-2 border-transparent'}`}
+          onClick={() => setActiveTab('simulation')}
+        >
+          <div className="flex items-center gap-2"><Activity className="w-4 h-4"/> Telemetry Simulation</div>
+        </button>
+        <button
+          className={`pb-2 text-sm font-medium transition-all ${activeTab === 'recordings' ? 'border-b-2 border-indigo-500 text-indigo-600 dark:text-indigo-400' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200 border-b-2 border-transparent'}`}
+          onClick={() => setActiveTab('recordings')}
+        >
+          <div className="flex items-center gap-2"><Video className="w-4 h-4"/> Video Recordings</div>
+        </button>
+      </div>
+
+      {/* activeTab: recordings */}
+      {activeTab === 'recordings' && (
+        <RecordingsTab penId={penId} />
+      )}
+
+      {/* activeTab: simulation */}
+      {activeTab === 'simulation' && (
+      <div className="space-y-6">
+        <div className="flex justify-between">
+          <div></div>
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-1.5">
+              <label className="text-sm text-gray-500 dark:text-slate-400">Hours:</label>
+              <select
+                value={hours}
+                onChange={e => setHours(Number(e.target.value))}
+                title="Replay hours"
+                className="text-sm bg-white dark:bg-slate-700/50 border border-gray-200 dark:border-slate-600 rounded-lg px-2 py-1.5 text-gray-700 dark:text-slate-300"
+              >
+                {[6, 12, 24, 48, 72, 168].map(h => (
+                  <option key={h} value={h}>{h}h</option>
+                ))}
+              </select>
+            </div>
+            <button
+              onClick={fetchReplay}
+              disabled={fetching}
+              className="px-3 py-1.5 bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 rounded-lg text-sm font-medium hover:bg-indigo-200 dark:hover:bg-indigo-800/50 transition disabled:opacity-50"
+            >
+              {fetching ? 'Loading…' : 'Load Simulation'}
+            </button>
+          </div>
+        </div>
 
       {/* Error / empty */}
       {loadError && (
@@ -309,6 +460,8 @@ export default function ReplayPage() {
             </ResponsiveContainer>
           </div>
         </>
+      )}
+      </div>
       )}
 
       {/* ── Info Modal ── */}

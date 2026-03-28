@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react';
-import { AlertCircle, FileText, Stethoscope } from 'lucide-react';
-import api from '../services/api';
+import { useEffect, useState } from 'react';
+import { AlertCircle } from 'lucide-react';
+import api from '../api';
 
 export function PenOverduePanel({ sowId }: { sowId: number }) {
   const [data, setData] = useState<any>(null);
@@ -10,7 +10,7 @@ export function PenOverduePanel({ sowId }: { sowId: number }) {
 
   const fetchSummary = async () => {
     try {
-      const res = await api.get(`/farrowing/overdue-sows/${sowId}/summary`);
+      const res = await api.get(`/api/farrowing/overdue-sows/${sowId}/summary`);
       setData(res.data);
     } catch (e) {
       console.error(e);

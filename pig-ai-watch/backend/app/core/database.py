@@ -30,7 +30,35 @@ AsyncSessionLocal = async_sessionmaker(
     autoflush=False
 )
 
+
 Base = declarative_base()
+
+from sqlalchemy import event
+from sqlalchemy.orm import Session, with_loader_criteria
+
+@event.listens_for(Session, "do_orm_execute")
+def _add_tenant_filter(execute_state):
+    # Skip if not an ORM statement
+    if not execute_state.is_orm_statement or execute_state.execution_options.get('ignore_tenant'):
+        return
+        
+    # Get tenant_id from execution_options
+    tenant_id = execute_state.session.info.get("tenant_id")
+    if tenant_id is not None:
+        try:
+            # We import here to avoid circular imports
+            from app.models.pig import TenantAware
+            execute_state.statement = execute_state.statement.options(
+                with_loader_criteria(
+                    TenantAware,
+                    lambda cls: cls.owner_id == tenant_id,
+                    include_aliases=True
+                )
+            )
+        except ImportError:
+            pass
+
+
 
 
 async def get_db():
@@ -65,3 +93,19 @@ def _ensure_archive_columns(sync_conn):
                 sync_conn.exec_driver_sql(
                     f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_ddl}"
                 )
+
+from sqlalchemy.orm import Mapper
+
+@event.listens_for(Session, "before_flush")
+def _receive_before_flush(session, flush_context, instances):
+    tenant_id = session.info.get("tenant_id")
+    if tenant_id is None:
+        return
+        
+    for obj in session.new:
+        try:
+            from app.models.pig import TenantAware
+            if isinstance(obj, TenantAware):
+                obj.owner_id = tenant_id
+        except ImportError:
+            pass

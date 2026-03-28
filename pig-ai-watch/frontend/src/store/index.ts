@@ -204,11 +204,15 @@ interface SettingsState {
   notifications: boolean;
   soundEnabled: boolean;
   crushingRiskThreshold: number;
+  watchThreshold: number;
+  actionThreshold: number;
   setTheme: (theme: 'light' | 'dark') => void;
   setLanguage: (language: 'en' | 'fil') => void;
   setNotifications: (enabled: boolean) => void;
   setSoundEnabled: (enabled: boolean) => void;
   setCrushingRiskThreshold: (threshold: number) => void;
+  setWatchThreshold: (threshold: number) => void;
+  setActionThreshold: (threshold: number) => void;
 }
 
 export const useSettingsStore = create<SettingsState>()(
@@ -219,6 +223,8 @@ export const useSettingsStore = create<SettingsState>()(
       notifications: true,
       soundEnabled: true,
       crushingRiskThreshold: 0.7,
+      watchThreshold: 1,
+      actionThreshold: 2,
       setTheme: (theme) => {
         // Apply dark mode class to document
         if (theme === 'dark') {
@@ -232,6 +238,8 @@ export const useSettingsStore = create<SettingsState>()(
       setNotifications: (enabled) => set({ notifications: enabled }),
       setSoundEnabled: (enabled) => set({ soundEnabled: enabled }),
       setCrushingRiskThreshold: (threshold) => set({ crushingRiskThreshold: threshold }),
+      setWatchThreshold: (threshold) => set({ watchThreshold: threshold }),
+      setActionThreshold: (threshold) => set({ actionThreshold: threshold }),
     }),
     {
       name: 'settings-storage',

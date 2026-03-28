@@ -418,4 +418,44 @@ export const farrowingApi = {
   },
 };
 
+export const recordingApi = {
+  getSchedule: async (pen_id: number) => {
+    const response = await api.get(`/api/recording/schedules/${pen_id}`);
+    return response.data;
+  },
+  saveSchedule: async (pen_id: number, schedule: any) => {
+    const response = await api.put(`/api/recording/schedules/${pen_id}`, { schedule });
+    return response.data;
+  },
+  getRecordings: async (pen_id: number) => {
+    // Merge both endpoints into one response format expected by the frontend
+    const clipsRes = await api.get(`/api/recording/clips/${pen_id}`);
+    const storageRes = await api.get(`/api/recording/storage`);
+    
+    // Find matching storage for this pen
+    const penStorage = storageRes.data.find((s: any) => s.pen_id === pen_id);
+    
+    // Map backend clip response fields to the mocked UI response fields
+    const recordings = clipsRes.data.map((clip: any) => ({
+      ...clip,
+      duration_sec: clip.duration_seconds,
+      size_bytes: clip.file_size_bytes,
+      filename: clip.file_path ? clip.file_path.split('/').pop() : `${clip.id}.mp4`
+    }));
+
+    return {
+      recordings,
+      storage: penStorage ? {
+        total: penStorage.total_bytes,
+        used: penStorage.total_bytes - penStorage.free_bytes,
+        free: penStorage.free_bytes
+      } : null
+    };
+  },
+  getStorage: async () => {
+    const response = await api.get(`/api/recording/storage`);
+    return response.data;
+  },
+};
+
 export default api;

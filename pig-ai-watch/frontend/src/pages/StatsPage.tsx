@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { PageSkeleton, useLoading } from '@/components/ui/Skeleton';
+import { PageInfoButton, PageInfoModal } from '@/components/ui/PageInfoModal';
 import {
   Users,
   Baby,
@@ -30,7 +32,9 @@ interface CleaningScheduleItem {
 
 export default function StatsPage() {
   const api = useApi();
-  const { data: stats, isLoading } = useDashboardStats();
+  const { data: stats, isLoading: fetchingStats } = useDashboardStats();
+  const { isLoading } = useLoading(fetchingStats);
+  const [isInfoOpen, setIsInfoOpen] = useState(false);
   const { data: penStatuses } = usePenStatus();
 
   const [healthSummary, setHealthSummary] = useState<HealthSummary | null>(null);
@@ -96,13 +100,7 @@ export default function StatsPage() {
     }, 12000);
   }, [selectedPenId, penStatuses]);
 
-  if (isLoading) {
-    return (
-      <div className="flex justify-center items-center py-32">
-        <div className="animate-spin rounded-full h-10 w-10 border-[3px] border-primary-200 dark:border-primary-800 border-t-primary-500" />
-      </div>
-    );
-  }
+  if (isLoading) return <PageSkeleton />;
 
   const statCards = [
     { label: 'Total Sows', value: stats?.total_sows || 0, icon: <Users className="h-5 w-5" />, color: 'text-primary-600 dark:text-primary-400', bg: 'bg-primary-50 dark:bg-primary-900/20' },
@@ -130,7 +128,10 @@ export default function StatsPage() {
           <div className="flex items-center gap-3">
             <BarChart3 className="h-8 w-8 text-white/80" />
             <div>
-              <h1 className="text-3xl font-bold text-white tracking-tight">Farm Statistics</h1>
+              <div className="flex items-center gap-3">
+                <h1 className="text-3xl font-bold text-white tracking-tight">Farm Statistics</h1>
+                <PageInfoButton onClick={() => setIsInfoOpen(true)} className="text-white hover:bg-white/20" />
+              </div>
               <p className="text-white/70 text-sm">Detailed overview of your farrowing monitoring system</p>
             </div>
           </div>
@@ -306,6 +307,18 @@ export default function StatsPage() {
           </div>
         </div>
       )}
+
+      <PageInfoModal 
+        isOpen={isInfoOpen}
+        onClose={() => setIsInfoOpen(false)}
+        title="Statistics Guide"
+        section="stats"
+        steps={[
+          "Global Summaries: High-level overview of total operations currently being registered.",
+          "Health Metrics: Trend analysis graphing general activity states natively computed from the pens.",
+          "System Up-time: View system analytics and reliability tracking of edge connections."
+        ]}
+      />
     </div>
   );
 }

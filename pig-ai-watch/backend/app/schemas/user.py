@@ -45,3 +45,6 @@ class LoginRequest(BaseModel):
 
 class GoogleLoginRequest(BaseModel):
     credential: str
+
+class FcmTokenRequest(BaseModel):
+    token: str

@@ -14,13 +14,15 @@ from app.core.security import (
     get_current_user
 )
 from app.core.config import settings
+from app.core.firebase import send_push_notification
 from app.models.user import User
 from app.schemas.user import (
     UserCreate, 
     UserResponse, 
     Token, 
     LoginRequest,
-    GoogleLoginRequest
+    GoogleLoginRequest,
+    FcmTokenRequest
 )
 
 router = APIRouter(prefix="/api/auth", tags=["Authentication"])
@@ -76,6 +78,7 @@ async def google_login(
 
         email = idinfo.get('email')
         name = idinfo.get('name')
+        google_sub = idinfo.get('sub')
         
         if not email:
             raise ValueError("Token didn't contain an email")
@@ -112,9 +115,11 @@ async def google_login(
         new_user = User(
             username=username,
             email=email,
-            hashed_password=get_password_hash("google-auth-random-pass-unusable"),
+            hashed_password=None,
+            google_sub=google_sub,
+            auth_provider='google',
             full_name=name,
-            role="operator" # Automatically assign operator role
+            role="viewer"
         )
         db.add(new_user)
         await db.commit()
@@ -186,3 +191,42 @@ async def get_current_user_info(
 ):
     """Get current authenticated user info."""
     return current_user
+
+@router.post("/fcm-token")
+async def update_fcm_token(
+    request: FcmTokenRequest,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Update Firebase Cloud Messaging token for the current user."""
+    current_user.fcm_token = request.token
+    db.add(current_user)
+    await db.commit()
+    return {"status": "success", "message": "FCM token updated"}
+
+@router.post("/test-notification")
+async def test_notification(
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Send a test push notification to the current user's registered device."""
+    if not current_user.fcm_token:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No FCM token registered for this user."
+        )
+    
+    result = send_push_notification(
+        title="Oink Oink! 🐷 Test Alert",
+        body="This is a test notification from Prisma AI Watch.",
+        token=current_user.fcm_token,
+        data={"type": "test_alert", "url": "/dashboard"}
+    )
+    
+    if result.get("success"):
+        return {"status": "success", "message": "Test notification sent!"}
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to send notification: {result.get('error')}"
+        )

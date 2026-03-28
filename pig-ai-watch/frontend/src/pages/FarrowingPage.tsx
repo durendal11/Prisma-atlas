@@ -570,8 +570,8 @@ export default function FarrowingPage() {
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
               {(() => {
                 const metrics = [
-                  { label: 'Crushing Risk', pre: +(comparison.pre.avg_crushing_risk * 100).toFixed(1), post: +(comparison.post.avg_crushing_risk * 100).toFixed(1), suffix: '%', better: 'lower' as const },
-                  { label: 'Piglet Count', pre: comparison.pre.avg_piglet_count, post: comparison.post.avg_piglet_count, suffix: '', better: 'higher' as const },
+                    { label: 'Crushing Risk', pre: comparison.pre?.avg_crushing_risk != null ? +(comparison.pre.avg_crushing_risk * 100).toFixed(1) : 0, post: comparison.post?.avg_crushing_risk != null ? +(comparison.post.avg_crushing_risk * 100).toFixed(1) : 0, suffix: '%', better: 'lower' as const },
+                    { label: 'Piglet Count', pre: comparison.pre?.avg_piglet_count ?? 0, post: comparison.post?.avg_piglet_count ?? 0, suffix: '', better: 'higher' as const },
                 ];
                 return metrics.map(m => {
                   const diff = m.post - m.pre;
@@ -602,7 +602,7 @@ export default function FarrowingPage() {
                 <ResponsiveContainer width="100%" height={200}>
                   <BarChart
                     data={[
-                      { name: 'Sleeping', pre: comparison.pre.sleeping_pct, post: comparison.post.sleeping_pct },
+                      { name: 'Sleeping', pre: comparison.pre?.sleeping_pct ?? 0, post: comparison.post?.sleeping_pct ?? 0 },
                     ]}
                     layout="vertical"
                   >
@@ -662,7 +662,7 @@ export default function FarrowingPage() {
               const avgInterval = computeAverageInterval(intervals);
               const longestInterval = computeLongestInterval(intervals);
               // Crushing incidents estimate: use post-farrowing crushing risk > 0.5 as proxy
-              const crushingIncidents = comparison.post
+              const crushingIncidents = comparison.post?.avg_crushing_risk != null
                 ? (comparison.post.avg_crushing_risk > 0.5 ? Math.round(comparison.post.avg_crushing_risk * 10) : 0)
                 : 0;
               const session = classifySession({ totalDurationMinutes: durationMin, longestInterval, stillbornCount: stillborn, crushingIncidents });

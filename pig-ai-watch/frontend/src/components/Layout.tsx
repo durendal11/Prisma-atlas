@@ -16,10 +16,12 @@ import {
   Camera,
   Eye,
   BarChart3,
+  CalendarDays
 } from 'lucide-react';
 import { useState } from 'react';
 import { useAuthStore, useAlertStore } from '@/store';
 import { useAlertStats } from '@/hooks';
+import { useNotifications } from '@/hooks/useNotifications';
 import clsx from 'clsx';
 import TestPenPage from '@/pages/TestPenPage';
 import { useEffect } from 'react';
@@ -35,6 +37,7 @@ const navigation = [
   { name: 'Event Logs', href: '/events', icon: ClipboardList },
   { name: 'Sow Profiles', href: '/sows', icon: Users },
   { name: 'Statistics', href: '/stats', icon: BarChart3 },
+  { name: 'Recording Schedule', href: '/recording-schedule', icon: CalendarDays },
   { name: 'Camera Setup', href: '/camera-setup', icon: Camera },
   { name: 'Settings', href: '/settings', icon: Settings },
 ];
@@ -61,6 +64,9 @@ export default function Layout() {
   const { data: alertStats } = useAlertStats();
   const unreadCount = useAlertStore((state) => state.unreadCount);
   const setUnreadCount = useAlertStore((state) => state.setUnreadCount);
+
+  // Initialize and handle Firebase FCM notifications
+  useNotifications();
 
   useEffect(() => {
     if (typeof alertStats?.unread_count === 'number') {

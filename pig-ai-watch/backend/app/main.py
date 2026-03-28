@@ -6,7 +6,8 @@ import logging
 
 from app.core.config import settings
 from app.core.database import init_db
-from app.api import auth, sows, alerts, events, dashboard, stream, websocket, pens, detect, behavior, tasks, farrowing, edge, advisory, notifications, media
+from app.core.firebase import init_firebase
+from app.api import auth, sows, alerts, events, dashboard, stream, websocket, pens, detect, behavior, tasks, farrowing, edge, advisory, notifications, media, recording
 from app.api.websocket import detection_broadcast_loop
 from app.services.yolo_detector import get_detector
 from app.services.delayed_farrowing_checker import delayed_farrowing_task_loop
@@ -28,6 +29,9 @@ async def lifespan(app: FastAPI):
     # Initialize database
     await init_db()
     logger.info("Database initialized")
+
+    # Initialize Firebase
+    init_firebase()
     
     # Load YOLO model (used by /api/detect and optionally local cameras)
     if settings.LOCAL_CAMERAS_ENABLED:
@@ -113,6 +117,7 @@ app.include_router(edge.router)
 app.include_router(advisory.router, prefix="/api/advisory", tags=["Advisory"])
 app.include_router(notifications.router)
 app.include_router(media.router)
+app.include_router(recording.router)
 
 
 @app.get("/")

@@ -119,6 +119,15 @@ async def fire_alert(db: AsyncSession, pen_id: int, event: dict[str, Any]):
             },
             f"pen_{pen_id}",
         )
+        
+        from app.core.firebase import broadcast_alert
+        await broadcast_alert(
+            title=push_title,
+            body=push_body,
+            alert_type=alert_type,
+            pen_id=pen_id,
+            severity=severity
+        )
 
 
 def _parse_detection_data(raw: Optional[str]) -> dict[str, Any]:

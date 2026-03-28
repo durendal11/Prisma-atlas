@@ -1,3 +1,4 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { PenOverduePanel } from '@/components/PenOverduePanel';
 import { useParams, useNavigate } from 'react-router-dom';
@@ -181,14 +182,19 @@ function computeWelfareInsights(
 }
 
 // ─── Main component ──────────────────────────────────────────────────────────
+import { PageSkeleton } from '@/components/ui/Skeleton';
+import { PageInfoButton, PageInfoModal } from '@/components/ui/PageInfoModal';
+
 export default function PenMonitorPage() {
   const { penId } = useParams<{ penId: string }>();
   const navigate = useNavigate();
   const api = useApi();
+  const queryClient = useQueryClient();
   const numericPenId = Number(penId);
 
   const [activeTab, setActiveTab] = useState<Tab>('overview');
   const [loading, setLoading] = useState(true);
+  const [isInfoOpen, setIsInfoOpen] = useState(false);
 
   // Pen & sow data
   const [sow, setSow] = useState<Sow | null>(null);
@@ -544,6 +550,25 @@ export default function PenMonitorPage() {
     }
   };
 
+  const handleResetLifecycle = async () => {
+    if (!sow) return;
+    if (!confirm('Are you sure you want to cancel the current lifecycle state? This will clear breeding and expected farrowing dates.')) return;
+    
+    try {
+      const resetData = {
+        status: 'active',
+        last_breeding_date: null,
+        expected_farrowing_date: null,
+      };
+      // We do not cast as SowUpdate to allow nulls, or we can just send standard payload.
+      await api.put(`/api/sows/${sow.id}`, resetData);
+      setSow({ ...sow, status: 'active', last_breeding_date: null, expected_farrowing_date: null } as any);
+      toast.success(`Sow lifecycle reset to active`);
+    } catch {
+      toast.error('Failed to reset sow lifecycle');
+    }
+  };
+
   const handleUpdateSowStatus = async (newStatus: string) => {
     if (!sow) return;
     try {
@@ -595,6 +620,8 @@ export default function PenMonitorPage() {
       setFormPiglets('');
       setFormStillborn('0');
       setFormNotes('');
+      queryClient.invalidateQueries({ queryKey: ["farrowing", "records"] });
+      queryClient.invalidateQueries({ queryKey: ["farrowingRecords"] });
       loadPenData();
     } catch (err: unknown) {
       console.error(err);
@@ -611,6 +638,8 @@ export default function PenMonitorPage() {
         sow_condition: 'good',
       });
       toast.success('Farrowing marked as complete');
+      queryClient.invalidateQueries({ queryKey: ["farrowing", "records"] });
+      queryClient.invalidateQueries({ queryKey: ["farrowingRecords"] });
       loadPenData();
     } catch {
       toast.error('Failed to complete farrowing');
@@ -644,6 +673,10 @@ export default function PenMonitorPage() {
   const riskValue = latestDetection?.crushingRisk ?? liveDetection?.data?.risk_level ?? penStatus?.crushing_risk ?? 0;
   const pigletCountLive = latestDetection?.pigletCount ?? liveDetection?.data?.piglet_count ?? penStatus?.piglet_count ?? 0;
   const sowPostureLive = (latestDetection?.sowPosture ?? liveDetection?.data?.posture ?? penStatus?.sow_posture ?? 'unknown').replace(/_/g, ' ').replace(/-/g, ' ');
+  const hasRecentCompletedFarrowing = farrowingRecords.some((r) => 
+    r.farrowing_completed && 
+    (Date.now() - new Date(r.farrowing_completed).getTime()) < 40 * 86400000
+  );
   const daysSinceFarrowing = activeFarrowing?.farrowing_started
     ? Math.floor((Date.now() - new Date(activeFarrowing.farrowing_started).getTime()) / 86400000)
     : null;
@@ -658,14 +691,7 @@ export default function PenMonitorPage() {
 
   // ── Loading state ──────────────────────────────────────────────
   if (loading) {
-    return (
-      <div className="flex items-center justify-center h-96">
-        <div className="relative">
-          <div className="animate-spin rounded-full h-16 w-16 border-4 border-primary-200 dark:border-slate-700 border-t-primary-500" />
-          <Activity className="absolute inset-0 m-auto h-6 w-6 text-primary-500 animate-pulse" />
-        </div>
-      </div>
-    );
+    return <PageSkeleton />;
   }
 
   return (
@@ -694,14 +720,17 @@ export default function PenMonitorPage() {
             <Zap className={`h-5 w-5 ${isPowerSaving ? 'fill-current' : ''}`} />
           </button>
           <div className="min-w-0">
-            <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2 truncate">
-              {penName}
-              {activeFarrowing && (
-                <span className="px-2.5 py-0.5 text-xs font-semibold rounded-full bg-pink-100 dark:bg-pink-900/40 text-pink-700 dark:text-pink-300 animate-pulse flex-shrink-0">
-                  Farrowing Active
-                </span>
-              )}
-            </h1>
+            <div className="flex items-center gap-3">
+              <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2 truncate">
+                {penName}
+                {activeFarrowing && (
+                  <span className="px-2.5 py-0.5 text-xs font-semibold rounded-full bg-pink-100 dark:bg-pink-900/40 text-pink-700 dark:text-pink-300 animate-pulse flex-shrink-0">
+                    Farrowing Active
+                  </span>
+                )}
+              </h1>
+              <PageInfoButton onClick={() => setIsInfoOpen(true)} />
+            </div>
             <p className="text-xs sm:text-sm text-gray-500 dark:text-slate-400 truncate">
               {sow ? `Sow ${sow.tag_id}${sow.name ? ` — ${sow.name}` : ''} • Parity ${sow.parity}` : 'No sow assigned'}
               {penStatus?.is_streaming && cameraConnectionStatus === 'connected' && (
@@ -1457,7 +1486,7 @@ export default function PenMonitorPage() {
                   <Edit3 className="h-4 w-4" /> Record Breeding
                 </button>
               )}
-              {sow && sow.status === 'lactating' && !activeFarrowing && (
+              {sow && sow.status === 'lactating' && !activeFarrowing && !hasRecentCompletedFarrowing && (
                 <button
                   onClick={() => setShowNewFarrowForm(!showNewFarrowForm)}
                   className="flex items-center gap-2 px-4 py-2 bg-pink-600 hover:bg-pink-700 text-white rounded-xl text-sm font-medium transition-all duration-200 hover:shadow-lg"
@@ -1655,7 +1684,7 @@ export default function PenMonitorPage() {
           )}
 
           {/* ── PROMPT: Sow lactating with no active farrowing — prompt to record birth ── */}
-          {sow && sow.status === 'lactating' && !activeFarrowing && !showNewFarrowForm && (
+          {sow && sow.status === 'lactating' && !activeFarrowing && !hasRecentCompletedFarrowing && !showNewFarrowForm && (
             <div className="bg-gradient-to-r from-pink-50 to-rose-50 dark:from-pink-900/20 dark:to-rose-900/15 rounded-2xl border-2 border-dashed border-pink-300 dark:border-pink-700 p-6 space-y-4">
               <div className="flex items-start gap-4">
                 <div className="h-12 w-12 rounded-full bg-pink-100 dark:bg-pink-800/40 flex items-center justify-center flex-shrink-0">
@@ -2117,32 +2146,46 @@ export default function PenMonitorPage() {
           {/* ── Sow Lifecycle Status Management ── */}
           {sow && (
             <div className="bg-white dark:bg-slate-800/60 rounded-2xl border border-gray-200 dark:border-slate-700 p-5">
-              <h3 className="font-semibold text-gray-900 dark:text-white flex items-center gap-2 mb-3">
-                <Activity className="h-5 w-5 text-indigo-500" /> Sow Lifecycle Status
-              </h3>
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+                  <Activity className="h-5 w-5 text-indigo-500" /> Sow Lifecycle Status
+                </h3>
+                {sow.status !== 'active' && sow.status !== 'inactive' && (
+                  <button
+                    onClick={handleResetLifecycle}
+                    className="text-xs text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 font-medium px-2 py-1 rounded-md hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors"
+                  >
+                    Cancel / Reset Registration
+                  </button>
+                )}
+              </div>
               <div className="flex flex-wrap items-center gap-2">
-                {(['active', 'pregnant', 'lactating', 'weaned', 'inactive'] as const).map((s) => (
+                {(['active', 'pregnant', 'lactating', 'weaned', 'inactive'] as const).map((s) => {
+                  
+                  // Strict locking logic: You can only follow normal progression or reset, you cannot jump around.
+                  const isCurrent = sow.status === s;
+                  
+                  return (
                   <button
                     key={s}
-                    onClick={() => handleUpdateSowStatus(s)}
-                    disabled={sow.status === s}
+                    disabled={true}
                     className={clsx(
                       'px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200 border',
-                      sow.status === s
+                      isCurrent
                         ? s === 'active' ? 'bg-green-100 dark:bg-green-900/30 border-green-300 dark:border-green-700 text-green-700 dark:text-green-300'
                         : s === 'pregnant' ? 'bg-purple-100 dark:bg-purple-900/30 border-purple-300 dark:border-purple-700 text-purple-700 dark:text-purple-300'
                         : s === 'lactating' ? 'bg-blue-100 dark:bg-blue-900/30 border-blue-300 dark:border-blue-700 text-blue-700 dark:text-blue-300'
                         : 'bg-gray-100 dark:bg-slate-700/30 border-gray-300 dark:border-slate-600 text-gray-700 dark:text-slate-300'
-                        : 'bg-white dark:bg-slate-700/20 border-gray-200 dark:border-slate-600 text-gray-500 dark:text-slate-400 hover:bg-gray-50 dark:hover:bg-slate-700/40 cursor-pointer'
+                        : 'bg-white/50 dark:bg-slate-800/40 border-gray-100 dark:border-slate-700/50 text-gray-400 dark:text-slate-500 cursor-not-allowed opacity-60'
                     )}
                   >
-                    {sow.status === s && <CheckCircle className="inline h-3.5 w-3.5 mr-1" />}
+                    {isCurrent && <CheckCircle className="inline h-3.5 w-3.5 mr-1" />}
                     {s.charAt(0).toUpperCase() + s.slice(1)}
                   </button>
-                ))}
+                )})}
               </div>
               <p className="text-xs text-gray-400 dark:text-slate-500 mt-2">
-                Current: <strong className="capitalize">{sow.status}</strong>. Click to manually change the sow's lifecycle status.
+                Current: <strong className="capitalize">{sow.status}</strong>. To restart the cycle or fix a mistake, click "Cancel / Reset Registration". Progressing the cycle requires using the action prompts above.
               </p>
             </div>
           )}
@@ -2515,6 +2558,19 @@ export default function PenMonitorPage() {
           </div>
         </div>
       )}
+
+      <PageInfoModal 
+        isOpen={isInfoOpen}
+        onClose={() => setIsInfoOpen(false)}
+        title="Pen Detail Monitor Guide"
+        section="pen_monitor"
+        steps={[
+          "Live Feed: View real-time video stream of the pen. Includes tools to switch between live and simulation mode.",
+          "Farrowing Status: Track real-time piglet birthing counts, time in labor, and monitor potential farrowing stagnation levels automatically.",
+          "Health & Safety Alerts: Instantly alerts you of imminent crushing risks and any sudden changes to the pen environment or sow activity.",
+          "Behavioral Feedback: Features an event feed recording lactation sessions, resting states, and AI advisories for the localized pen."
+        ]}
+      />
     </div>
   );
 }

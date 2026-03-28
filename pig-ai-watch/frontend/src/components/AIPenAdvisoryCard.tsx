@@ -8,7 +8,7 @@ const PenGeneratingAnimation = () => (
     <div className="flex items-center gap-2 mb-2">
       <Activity className="w-5 h-5 text-teal-500 animate-[spin_3s_linear_infinite]" />
       <span className="text-transparent bg-clip-text bg-gradient-to-r from-teal-500 via-emerald-400 to-teal-500 bg-[length:200%_auto] animate-[shimmer_2s_linear_infinite] font-semibold text-base">
-        Veterinary AI is diagnosing this pen...
+        Veterinary Engine is diagnosing this pen...
       </span>
     </div>
     
@@ -94,7 +94,7 @@ ${structured.recommended_action || 'Monitor closely.'}
       <div className="relative z-10 flex flex-wrap items-center justify-between gap-2 mb-3 border-b border-teal-100/50 dark:border-teal-800/30 pb-3">
         <div className="flex items-center gap-2 text-teal-700 dark:text-teal-400">
           <Sparkles className="w-5 h-5" />
-          <h3 className="text-lg font-bold">AI Pen Expert</h3>
+          <h3 className="text-lg font-bold">Pen Expert</h3>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <div className="flex items-center gap-0.5 bg-teal-50/80 dark:bg-teal-900/20 rounded-lg p-0.5">

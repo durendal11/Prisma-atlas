@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { PageInfoButton, PageInfoModal } from '@/components/ui/PageInfoModal';
 import { useQuery } from '@tanstack/react-query';
 import { onnxDetector, Detection, DetectionResult, drawRiskHighlights } from '@/utils/onnxDetector';
 import type { ProximityAlert } from '@/utils/onnxDetector';
@@ -14,6 +15,7 @@ import {
 } from 'recharts';
 import { behaviorLogger, type BehaviorAnalytics, type FarrowingLikelihood } from '@/services/behaviorLogger';
 import { simulationEngine } from '@/services/simulationEngine';
+import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from '@/hooks/useTranslation';
 import { useApi } from '@/hooks/useApi';
 import { useTestPenStore, type SowBehaviorProfile } from '@/store';
@@ -84,6 +86,7 @@ const FRAME_INTERVAL = 1000 / TARGET_FPS;
 export default function TestPenPage() {
   const { t } = useTranslation();
   const api = useApi();
+  const queryClient = useQueryClient();
   const videoRef = useRef<HTMLVideoElement>(null);
   const imageRef = useRef<HTMLImageElement>(null);
   const overlayRef = useRef<HTMLCanvasElement>(null);
@@ -117,6 +120,7 @@ export default function TestPenPage() {
   const [videoPlaying, setVideoPlaying] = useState(false);
   const [videoCurrentTime, setVideoCurrentTime] = useState(0);
   const [videoDuration, setVideoDuration] = useState(0);
+  const [isInfoOpen, setIsInfoOpen] = useState(false);
 
   // Farrowing state
   const [sow, setSow] = useState<Sow | null>(null);
@@ -620,6 +624,8 @@ export default function TestPenPage() {
         } catch { /* non-critical */ }
       }
 
+      queryClient.invalidateQueries({ queryKey: ["farrowing", "records"] });
+      queryClient.invalidateQueries({ queryKey: ["farrowingRecords"] });
       loadFarrowingData();
     } catch (err: unknown) {
       console.error(err);
@@ -636,6 +642,8 @@ export default function TestPenPage() {
         sow_condition: 'good',
       });
       toast.success('Farrowing marked as complete');
+      queryClient.invalidateQueries({ queryKey: ["farrowing", "records"] });
+      queryClient.invalidateQueries({ queryKey: ["farrowingRecords"] });
       loadFarrowingData();
     } catch {
       toast.error('Failed to complete farrowing');
@@ -732,6 +740,10 @@ export default function TestPenPage() {
   };
 
   const activeFarrowing = farrowingRecords.find((r) => !r.farrowing_completed);
+  const hasRecentCompletedFarrowing = farrowingRecords.some((r) => 
+    r.farrowing_completed && 
+    (Date.now() - new Date(r.farrowing_completed).getTime()) < 40 * 86400000
+  );
   const daysSinceFarrowing = activeFarrowing?.farrowing_started
     ? Math.floor((Date.now() - new Date(activeFarrowing.farrowing_started).getTime()) / 86400000)
     : null;
@@ -754,8 +766,9 @@ export default function TestPenPage() {
       {/* ── Header ───────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
-            Test Pen
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
+              Test Pen
             {activeFarrowing && (
               <span className="px-2.5 py-0.5 text-xs font-semibold rounded-full bg-pink-100 dark:bg-pink-900/40 text-pink-700 dark:text-pink-300 animate-pulse">
                 Farrowing Active
@@ -772,7 +785,9 @@ export default function TestPenPage() {
               </span>
             )}
           </h1>
-          <p className="text-sm text-gray-500 dark:text-slate-400">
+          <PageInfoButton onClick={() => setIsInfoOpen(true)} />
+        </div>
+          <p className="text-sm text-gray-500 dark:text-slate-400 mt-1">
             Upload images or videos to test AI detection • {selectedPenId ? `Pen #${selectedPenId}` : 'Select a pen to begin'}
           </p>
         </div>
@@ -1673,7 +1688,7 @@ export default function TestPenPage() {
                   <Edit3 className="h-4 w-4" /> Record Breeding
                 </button>
               )}
-              {sow && sow.status === 'lactating' && !activeFarrowing && (
+              {sow && sow.status === 'lactating' && !activeFarrowing && !hasRecentCompletedFarrowing && (
                 <button
                   onClick={() => setShowNewFarrowForm(!showNewFarrowForm)}
                   className="flex items-center gap-2 px-4 py-2 bg-pink-600 hover:bg-pink-700 text-white rounded-xl text-sm font-medium transition-all duration-200 hover:shadow-lg"
@@ -1787,7 +1802,7 @@ export default function TestPenPage() {
           )}
 
           {/* ── PROMPT: Sow is lactating with no active farrowing — prompt to record birth ── */}
-          {sow && sow.status === 'lactating' && !activeFarrowing && !showNewFarrowForm && (
+          {sow && sow.status === 'lactating' && !activeFarrowing && !hasRecentCompletedFarrowing && !showNewFarrowForm && (
             <div className="bg-gradient-to-r from-pink-50 to-rose-50 dark:from-pink-900/20 dark:to-rose-900/15 rounded-2xl border-2 border-dashed border-pink-300 dark:border-pink-700 p-6 space-y-4">
               <div className="flex items-start gap-4">
                 <div className="h-12 w-12 rounded-full bg-pink-100 dark:bg-pink-800/40 flex items-center justify-center flex-shrink-0">
@@ -2684,20 +2699,21 @@ export default function TestPenPage() {
               <p className="text-sm text-gray-500 dark:text-slate-400 mb-4">
                 Current status: <strong className="capitalize">{sow.status}</strong>. Update the sow's reproductive status to calibrate monitoring and alerts.
               </p>
+              {/* SOW STATUS UPDATE BLOCK - STRICT MODE */}
               <div className="flex flex-wrap gap-2">
                 {(['active', 'pregnant', 'lactating', 'weaned', 'inactive'] as const).map((s) => (
                   <button
                     key={s}
-                    onClick={() => s !== sow.status && handleUpdateSowStatus(s)}
+                    disabled={true}
                     className={clsx(
-                      'px-4 py-2 rounded-xl text-sm font-medium transition-all',
+                      'px-4 py-2 rounded-xl text-sm font-medium transition-all opacity-80 cursor-not-allowed',
                       s === sow.status
-                        ? s === 'pregnant' ? 'bg-purple-600 text-white shadow-md'
-                          : s === 'lactating' ? 'bg-pink-600 text-white shadow-md'
-                          : s === 'weaned' ? 'bg-cyan-600 text-white shadow-md'
-                          : s === 'active' ? 'bg-green-600 text-white shadow-md'
-                          : 'bg-gray-600 text-white shadow-md'
-                        : 'bg-gray-100 dark:bg-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-600'
+                        ? s === 'pregnant' ? 'bg-purple-600 text-white shadow-md font-bold'
+                          : s === 'lactating' ? 'bg-pink-600 text-white shadow-md font-bold'
+                          : s === 'weaned' ? 'bg-cyan-600 text-white shadow-md font-bold'
+                          : s === 'active' ? 'bg-green-600 text-white shadow-md font-bold'
+                          : 'bg-gray-600 text-white shadow-md font-bold'
+                        : 'bg-gray-100 dark:bg-slate-700 text-gray-500 dark:text-slate-500'
                     )}
                   >
                     {s === 'active' && '● Active'}
@@ -2708,7 +2724,38 @@ export default function TestPenPage() {
                   </button>
                 ))}
               </div>
-              <div className="mt-3 text-xs text-gray-400 dark:text-slate-500 space-y-1">
+
+              {sow.status !== 'active' && sow.status !== 'inactive' && (
+                <div className="mt-4 flex items-center justify-between bg-red-50 dark:bg-red-900/10 p-3 rounded-xl border border-red-100 dark:border-red-900/30">
+                  <div className="text-sm text-red-700 dark:text-red-400">
+                    <p className="font-semibold">Need to correct a mistake?</p>
+                    <p className="text-xs mt-0.5 opacity-90">Resetting will clear the current lifecycle dates and return the sow to Active status.</p>
+                  </div>
+                  <button
+                    onClick={async () => {
+                      if (confirm("Are you sure you want to reset this sow's lifecycle? This will clear breeding and expected farrowing dates.")) {
+                        try {
+                          await api.put(`/api/sows/${sow.id}`, {
+                            status: 'active',
+                            last_breeding_date: null,
+                            expected_farrowing_date: null
+                          } as SowUpdate);
+                          loadSow();
+                          toast.success('Sow lifecycle reset to Active');
+                        } catch (err: unknown) {
+                          console.error(err);
+                          toast.error('Failed to reset sow lifecycle');
+                        }
+                      }
+                    }}
+                    className="px-3 py-1.5 bg-red-100 dark:bg-red-900/30 hover:bg-red-200 dark:hover:bg-red-900/50 text-red-700 dark:text-red-300 rounded-lg text-sm font-medium transition-colors"
+                  >
+                    Cancel / Reset Registration
+                  </button>
+                </div>
+              )}
+              
+              <div className="mt-4 text-xs text-gray-400 dark:text-slate-500 space-y-1">
                 <p><strong>Active:</strong> Not bred. Record breeding date to start gestation tracking.</p>
                 <p><strong>Pregnant:</strong> Bred and gestating. System tracks days until expected farrowing and provides stage-specific guidance.</p>
                 <p><strong>Lactating:</strong> Has farrowed. System monitors piglet wellbeing, crushing risk, and lactation days.</p>
@@ -3039,6 +3086,19 @@ export default function TestPenPage() {
           <AlertTriangle className="h-4 w-4 flex-shrink-0" /> {error}
         </div>
       )}
+
+      <PageInfoModal 
+        isOpen={isInfoOpen}
+        onClose={() => setIsInfoOpen(false)}
+        title="Test Pen Sandbox"
+        section="test_pen"
+        steps={[
+          "Sandbox Simulator: Upload an mp4 file or an image to run a complete simulated detection pass mirroring the edge agent.",
+          "Bounding Box Overlays: Verify the visual fidelity of YOLOv8s' bounding boxes representing `sow`, `piglet`, and `posture` logic.",
+          "Farrowing Emulation: Toggle farrowing active to monitor how the state machine reacts to simulated rapid piglet growth.",
+          "Event Analytics: Track historical frames simulated in real-time or fast-forward modes."
+        ]}
+      />
     </div>
   );
 }

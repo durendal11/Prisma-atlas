@@ -7,7 +7,7 @@ export interface Sow {
   birth_date: string | null;
   weight: number | null;
   parity: number;
-  status: 'active' | 'pregnant' | 'farrowing' | 'lactating' | 'weaned' | 'inactive';
+  status: 'active' | 'pregnant' | 'farrowing' | 'lactating' | 'weaned' | 'inactive' | 'overdue_watch';
   current_litter_size: number;
   last_breeding_date: string | null;
   expected_farrowing_date: string | null;

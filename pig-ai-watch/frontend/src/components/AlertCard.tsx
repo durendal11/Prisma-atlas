@@ -43,10 +43,26 @@ const severityConfig = {
     badge: 'bg-blue-100 text-blue-700 dark:bg-blue-800/50 dark:text-blue-300',
     glow: 'dark:shadow-[0_0_20px_rgba(59,130,246,0.2)]',
   },
+  info: {
+    icon: Info,
+    bg: 'bg-gradient-to-br from-blue-50 to-blue-100/50 border-blue-200/50 dark:from-blue-900/30 dark:to-blue-800/20 dark:border-blue-700/50',
+    iconBg: 'bg-blue-100 dark:bg-blue-800/50',
+    iconColor: 'text-blue-600 dark:text-blue-400',
+    badge: 'bg-blue-100 text-blue-700 dark:bg-blue-800/50 dark:text-blue-300',
+    glow: 'dark:shadow-[0_0_20px_rgba(59,130,246,0.2)]',
+  },
+  warning: {
+    icon: AlertCircle,
+    bg: 'bg-gradient-to-br from-yellow-50 to-yellow-100/50 border-yellow-200/50 dark:from-yellow-900/30 dark:to-yellow-800/20 dark:border-yellow-700/50',
+    iconBg: 'bg-yellow-100 dark:bg-yellow-800/50',
+    iconColor: 'text-yellow-600 dark:text-yellow-400',
+    badge: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-800/50 dark:text-yellow-300',
+    glow: 'dark:shadow-[0_0_20px_rgba(234,179,8,0.2)]',
+  }
 };
 
 export default function AlertCard({ alert, onClick, onResolve }: AlertCardProps) {
-  const config = severityConfig[alert.severity];
+  const config = severityConfig[alert.severity as keyof typeof severityConfig] || severityConfig.info;
   const Icon = config.icon;
 
   return (

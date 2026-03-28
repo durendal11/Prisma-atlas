@@ -29,7 +29,9 @@ if BACKEND_DIR.exists():
     sys.path.insert(0, str(BACKEND_DIR))
 
 from camera_worker import CameraWorker
+from recording_worker import RecordingWorker
 from sync_buffer import SyncBuffer
+from storage_helper import detect_storage
 
 # ── Logging ──────────────────────────────────────────────────────────────────
 
@@ -269,6 +271,12 @@ def main():
         sys.exit(1)
 
     buf = SyncBuffer()
+    
+    # Store latest crushing risk for the RecordingWorker to consume globally
+    edge_pen_risks = {}
+    
+    def on_status_update(pen_id: str, payload: dict):
+        edge_pen_risks[pen_id] = payload.get("crushing_risk", 0.0)
 
     workers: List[CameraWorker] = []
     for pen_id, url in cameras.items():
@@ -283,6 +291,7 @@ def main():
             frame_w=FRAME_W,
             frame_h=FRAME_H,
             frame_fps=FRAME_FPS,
+            status_callback=on_status_update
         )
         w.start()
         workers.append(w)
@@ -329,4 +338,70 @@ def main():
 
 
 if __name__ == "__main__":
+    import threading
+    
+    # Track recording workers separate from camera workers
+    recording_workers = {}
+    
+    def fetch_recording_schedules() -> Dict[str, dict]:
+        """GET /api/edge/recording-schedule -> {pen_id: schedule_list}"""
+        try:
+            resp = _cloud_get("/api/edge/recording-schedule")
+            resp.raise_for_status()
+            schedules = resp.json()
+            return {str(s.get("pen_id")): s.get("schedule", []) for s in schedules}
+        except Exception as exc:
+            logger.warning("Recording schedule fetch failed: %s", exc)
+            return {}
+
+    def report_storage_status():
+        """POST /api/edge/storage-status -> current free space"""
+        try:
+            path, total, free = detect_storage()
+            payload = {
+                "storage_path": str(path),
+                "total_bytes": total,
+                "free_bytes": free
+            }
+            _cloud_post("/api/edge/storage-status", json=payload)
+        except Exception as exc:
+            logger.warning("Storage status report failed: %s", exc)
+
+    def schedule_loop():
+        # Routinely poll GET /api/edge/recording-schedule and POST /api/edge/storage-status
+        while True:
+            # Report storage capacity periodically
+            report_storage_status()
+            
+            # Fetch updated config and schedules
+            cameras = fetch_camera_config()
+            schedules = fetch_recording_schedules()
+            
+            # Manage RecordingWorker instances alongside CameraWorker
+            # Since CameraWorkers are managed in main loop directly in this basic script,
+            # we'll sync them here.
+            for pen_id, url in cameras.items():
+                pen_id_clean = pen_id.replace("pen_", "")
+                # schedules dict usually comes in with numeric keys if from API:
+                sched = schedules.get(pen_id_clean, schedules.get(pen_id, []))
+                
+                if pen_id not in recording_workers:
+                    rw = RecordingWorker(
+                        pen_id=pen_id, 
+                        stream_url=url, 
+                        schedules=sched,
+                        cloud_url=CLOUD_URL, 
+                        api_key=API_KEY,
+                        get_risk_score=lambda pid=pen_id: edge_pen_risks.get(pid, 0.0)
+                    )
+                    rw.start()
+                    recording_workers[pen_id] = rw
+                else:
+                    recording_workers[pen_id].update_schedules(sched)
+                    
+            time.sleep(15 * 60)  # Sleep 15 mins
+            
+    # Start schedule loop in background
+    threading.Thread(target=schedule_loop, daemon=True).start()
+    
     main()

@@ -1,147 +1,91 @@
-import json
 import logging
-import os
-import importlib
 from typing import Any, Dict
 
 logger = logging.getLogger(__name__)
 
-_GEMINI_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent"
+def generate_alert_summary(pen_data: dict) -> Dict[str, Any]:
+    """Generates a static, deterministic alert summary based on pen data."""
+    pen_id = pen_data.get("pen_id", "Unknown")
+    sow_name = pen_data.get("sow_name", f"Sow in Pen {pen_id}")
+    
+    avg_risk = float(pen_data.get("avg_risk", 0.0))
+    peak_risk = float(pen_data.get("peak_risk", 0.0))
+    danger_zone = int(pen_data.get("danger_zone_count", 0))
+    transitions = int(pen_data.get("transition_count", 0))
+    nesting_score = float(pen_data.get("nesting_score", 0.0))
+    is_farrowing = pen_data.get("is_farrowing", False)
+    mins_since = int(pen_data.get("mins_since_piglet", 0))
+    motionless = pen_data.get("motionless_piglet_flag", False)
+    
+    # 1. Critical: Crushing Risk
+    if peak_risk >= 0.70 or danger_zone > 0:
+        return {
+            "priority": "CRITICAL",
+            "alert_type": "crushing_risk_critical",
+            "headline": f"CRITICAL: Immediate Crushing Risk in Pen {pen_id}",
+            "detail": f"{sow_name} recorded a {peak_risk*100:.0f}% crushing risk with {danger_zone} piglets in the danger zone.",
+            "recommended_action": "Intervene immediately; check piglet positions near the sow.",
+            "evidence_basis": "Weary et al.: most crushing events during sternal-to-lateral roll.",
+            "push_title": f"Pen {pen_id} CRUSHING ALERT",
+            "push_body": f"Highest risk: {peak_risk*100:.0f}%% - Check {sow_name} immediately.",
+            "suppress_until_minutes": 5
+        }
+    
+    # 2. Critical: Dystocia (Prolonged Farrowing)
+    if is_farrowing and mins_since > 45:
+        return {
+            "priority": "CRITICAL",
+            "alert_type": "farrowing_interval_critical",
+            "headline": f"Dystocia Warning: Prolonged Farrowing Interval",
+            "detail": f"It has been {mins_since} minutes since {sow_name} delivered the last piglet.",
+            "recommended_action": "Perform a manual vaginal examination to check for obstruction.",
+            "evidence_basis": "Merck Veterinary Manual: >45 min = dystocia intervention threshold.",
+            "push_title": f"Pen {pen_id} DYSTOCIA",
+            "push_body": f"{mins_since}m since last piglet. Intervention required.",
+            "suppress_until_minutes": 15
+        }
+        
+    # 3. High: Motionless Piglets
+    if motionless:
+        return {
+            "priority": "HIGH",
+            "alert_type": "piglet_welfare_warning",
+            "headline": "Motionless Piglet Detected",
+            "detail": f"A piglet in Pen {pen_id} has been motionless for an extended period.",
+            "recommended_action": "Check the piglet for viability, hypothermia, or crushing.",
+            "evidence_basis": "Routine welfare check.",
+            "push_title": f"Pen {pen_id} WELFARE",
+            "push_body": "Motionless piglet detected. Please inspect.",
+            "suppress_until_minutes": 15
+        }
 
-_SYSTEM_PROMPT = """
-You are a Precision Livestock Farming advisor for a pig farrowing
-monitoring system in the Philippines. You receive aggregated behavioral
-data from AI vision detection and produce structured, actionable summaries.
+    # 4. High: Active Farrowing Preparation / Nesting
+    if transitions > 6 or nesting_score >= 0.60:
+        return {
+            "priority": "HIGH",
+            "alert_type": "farrowing_imminent",
+            "headline": "Pre-Farrowing Behavior Detected",
+            "detail": f"{sow_name} shows high nesting activity ({transitions} posture transitions/30m).",
+            "recommended_action": "Prepare farrowing support. Farrowing expected within 12-24 hours.",
+            "evidence_basis": "Oliviero et al.: posture transitions >6/30min = strongest pre-farrowing predictor.",
+            "push_title": f"Pen {pen_id} NESTING",
+            "push_body": f"{sow_name} is exhibiting active pre-farrowing behavior.",
+            "suppress_until_minutes": 60
+        }
 
-Your summaries must:
-- Be concise and action-oriented (max 2 sentences per alert)
-- Reference the specific observation that triggered the alert
-- Recommend one concrete action grounded in veterinary best practice
-- Indicate urgency: CRITICAL / HIGH / MEDIUM / ROUTINE
-
-Scientific grounding you must reference where applicable:
-- Weary et al.: most crushing events during sternal-to-lateral roll
-- Oliviero et al. (2010, Livestock Science): posture transitions >6/30min
-  = strongest pre-farrowing predictor; active nesting = ~12h window
-- Jensen (1993, Applied Animal Behaviour Science): rooting/nesting
-  onset 12-24h pre-farrowing in confined sows
-- Merck Veterinary Manual: normal inter-piglet interval 15-20 min;
-  >45 min = dystocia intervention threshold
-- Quesnel et al. (J. Animal Science): piglets nurse 20-30 times/day;
-  colostrum window = first hour post-birth
-
-Return ONLY valid JSON — no preamble, no markdown, no backticks:
-{
-  "pen_id": number,
-  "priority": "CRITICAL" | "HIGH" | "MEDIUM" | "ROUTINE",
-  "alert_type": string,
-  "headline": string (max 60 chars),
-  "detail": string (max 200 chars, includes metric + threshold),
-  "recommended_action": string (max 150 chars),
-  "evidence_basis": string (study cited),
-  "push_title": string (max 50 chars, starts with pen name),
-  "push_body": string (max 100 chars),
-  "suppress_until_minutes": number
-}
-""".strip()
-
-
-def _fallback(pen_id: Any) -> Dict[str, Any]:
+    # Fallback to Routine
     return {
         "priority": "ROUTINE",
-        "headline": "Summary unavailable",
-        "push_title": f"Pen {pen_id}",
-        "push_body": "Check dashboard for details",
-        "suppress_until_minutes": 60,
+        "alert_type": "routine_monitoring",
+        "headline": f"Pen {pen_id} is Stable",
+        "detail": f"{sow_name} is resting safely. Peak risk: {peak_risk*100:.0f}%.",
+        "recommended_action": "Continue remote monitoring.",
+        "evidence_basis": "Standard observation.",
+        "push_title": f"Pen {pen_id} Status",
+        "push_body": "All behaviors normal.",
+        "suppress_until_minutes": 60
     }
 
+async def generate_alert_summary_async(pen_data: dict) -> Dict[str, Any]:
+    return generate_alert_summary(pen_data)
 
-def _strip_markdown_fences(text: str) -> str:
-    cleaned = (text or "").strip()
-    if cleaned.startswith("```"):
-        lines = cleaned.splitlines()
-        if lines and lines[0].startswith("```"):
-            lines = lines[1:]
-        if lines and lines[-1].strip() == "```":
-            lines = lines[:-1]
-        cleaned = "\n".join(lines).strip()
-    return cleaned
-
-
-def _build_user_prompt(pen_data: dict) -> str:
-    return (
-        f"Pen: {pen_data.get('pen_id')} | Sow: {pen_data.get('sow_name')} | Stage: {pen_data.get('lifecycle_stage')}\n"
-        f"Window: last {pen_data.get('window_minutes')} min ({pen_data.get('log_count')} observations)\n\n"
-        "Behavioral data:\n"
-        f"- Dominant posture: {pen_data.get('dominant_posture')} ({float(pen_data.get('posture_pct', 0.0)):.2f}% of window)\n"
-        f"- Posture transitions: {pen_data.get('transition_count')} (>6/30min = pre-farrowing signal)\n"
-        f"- Nursing events: {pen_data.get('nursing_count')}\n"
-        f"- Feeding events: {pen_data.get('feeding_count')}\n"
-        f"- Avg crushing risk: {float(pen_data.get('avg_risk', 0.0)):.2f} (peak: {float(pen_data.get('peak_risk', 0.0)):.2f})\n"
-        f"- Piglets in danger zone: {pen_data.get('danger_zone_count')}\n"
-        f"- Active farrowing: {pen_data.get('is_farrowing')}\n"
-        f"- Minutes since last piglet: {pen_data.get('mins_since_piglet')}\n"
-        f"- Nesting score: {float(pen_data.get('nesting_score', 0.0)):.2f} / phase: {pen_data.get('nesting_phase')}\n"
-        f"- Motionless piglet flag: {pen_data.get('motionless_piglet_flag')}\n"
-        f"- Anomalies: {pen_data.get('anomalies')}\n\n"
-        "Generate the most important single alert for this pen right now."
-    )
-
-
-async def generate_alert_summary(pen_data: dict) -> dict:
-    pen_id = pen_data.get("pen_id", "Unknown")
-    api_key = os.getenv("GEMINI_API_KEY")
-    if not api_key:
-        logger.warning("GEMINI_API_KEY not set; returning fallback summary.")
-        return _fallback(pen_id)
-
-    user_prompt = _build_user_prompt(pen_data)
-
-    payload = {
-        "system_instruction": {
-            "parts": [{"text": _SYSTEM_PROMPT}],
-        },
-        "contents": [
-            {
-                "role": "user",
-                "parts": [{"text": user_prompt}],
-            }
-        ],
-        "generationConfig": {
-            "maxOutputTokens": 1000,
-            "temperature": 0.2,
-        },
-    }
-
-    try:
-        httpx = importlib.import_module("httpx")
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(
-                _GEMINI_API_URL,
-                params={"key": api_key},
-                json=payload,
-            )
-            response.raise_for_status()
-            data = response.json()
-
-        candidates = data.get("candidates") or []
-        if not candidates:
-            logger.error("Gemini returned no candidates: %s", data)
-            return _fallback(pen_id)
-
-        parts = (((candidates[0] or {}).get("content") or {}).get("parts") or [])
-        text = "\n".join(part.get("text", "") for part in parts if isinstance(part, dict)).strip()
-        if not text:
-            logger.error("Gemini candidate has no text parts: %s", candidates[0])
-            return _fallback(pen_id)
-
-        cleaned = _strip_markdown_fences(text)
-        parsed = json.loads(cleaned)
-        if isinstance(parsed, dict):
-            return parsed
-
-        logger.error("Gemini output is not a JSON object: %s", cleaned)
-        return _fallback(pen_id)
-    except Exception as exc:
-        logger.error("Failed to generate alert summary: %s", exc)
-        return _fallback(pen_id)

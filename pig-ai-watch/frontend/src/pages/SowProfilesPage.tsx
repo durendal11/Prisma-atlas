@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useSows, useCreateSow, useUpdateSow, useDeleteSow, useArchiveSow, usePens } from '@/hooks';
+import { PageSkeleton, useLoading } from '@/components/ui/Skeleton';
+import { PageInfoButton, PageInfoModal } from '@/components/ui/PageInfoModal';
 import { 
   Plus, 
   Search, 
@@ -45,13 +47,15 @@ export default function SowProfilesPage() {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isInfoOpen, setIsInfoOpen] = useState(false);
   const [editingSow, setEditingSow] = useState<Sow | null>(null);
   const [menuOpenId, setMenuOpenId] = useState<number | null>(null);
 
-  const { data: sows, isLoading } = useSows({
+  const { data: sows, isLoading: fetchingSows } = useSows({
     status: statusFilter === 'all' ? undefined : statusFilter,
     search: search || undefined,
   });
+  const { isLoading } = useLoading(fetchingSows);
   const { data: pens } = usePens(true);
   const createSow = useCreateSow();
   const updateSow = useUpdateSow();
@@ -123,6 +127,8 @@ export default function SowProfilesPage() {
     setMenuOpenId(null);
   };
 
+  if (isLoading) return <PageSkeleton />;
+
   return (
     <div className="max-w-6xl mx-auto animate-fade-in">
       {/* ── Hero banner (Google Classroom style) ──────────────────────── */}
@@ -136,7 +142,10 @@ export default function SowProfilesPage() {
         </div>
         <div className="relative px-8 py-10 flex flex-col sm:flex-row sm:items-end justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-bold text-white tracking-tight">Sow Profiles</h1>
+            <div className="flex items-center gap-3">
+              <h1 className="text-3xl font-bold text-white tracking-tight">Sow Profiles</h1>
+              <PageInfoButton onClick={() => setIsInfoOpen(true)} className="text-white hover:bg-white/20" />
+            </div>
             <p className="text-white/80 mt-1 text-sm">Manage and monitor all registered sows</p>
           </div>
           <div className="flex items-center gap-3">
@@ -196,11 +205,7 @@ export default function SowProfilesPage() {
       </div>
 
       {/* ── Sow cards grid (Google Classroom inspired) ────────────────── */}
-      {isLoading ? (
-        <div className="flex justify-center py-20">
-          <div className="animate-spin rounded-full h-9 w-9 border-[3px] border-primary-200 dark:border-primary-800 border-t-primary-500 dark:border-t-primary-400" />
-        </div>
-      ) : sows?.length === 0 ? (
+      {sows?.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 text-center">
           <div className="h-20 w-20 rounded-full bg-gray-100 dark:bg-slate-800/60 flex items-center justify-center mb-4">
             <Users className="h-10 w-10 text-gray-300 dark:text-slate-600" />
@@ -413,6 +418,19 @@ export default function SowProfilesPage() {
           </div>
         </div>
       )}
+
+      <PageInfoModal 
+        isOpen={isInfoOpen}
+        onClose={() => setIsInfoOpen(false)}
+        title="Sow Profiles Guide"
+        section="sow_profiles"
+        steps={[
+          "Profile Management: Centralized database of all active and inactive sows tracked by the farm.",
+          "Health History: Keep record of breed profiles, weight logs, parity data, and pregnancy performance.",
+          "Location Tracking: Easily map your sows to specific pens for the localized AI engine to begin farrowing monitoring.",
+          "Data Archives: Soft-delete/Archive inactive sows to preserve long-term farm analytics."
+        ]}
+      />
     </div>
   );
 }

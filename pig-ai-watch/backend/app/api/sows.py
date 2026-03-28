@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query
+from fastapi import APIRouter, Depends, HTTPException, status, Query, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_
 from typing import List, Optional
@@ -10,6 +10,7 @@ from app.core.security import get_current_user
 from app.models.user import User
 from app.models.pig import Sow, Pen, BehaviorLog
 from app.schemas.pig import SowCreate, SowUpdate, SowResponse
+from app.services.delayed_farrowing_checker import run_checker
 
 router = APIRouter(prefix="/api/sows", tags=["Sows"])
 
@@ -26,26 +27,7 @@ async def get_sows(
     current_user: User = Depends(get_current_user)
 ):
     """Get all sows with optional filters."""
-    behavior_summary = (
-        select(
-            BehaviorLog.sow_id.label("sow_id"),
-            func.count(BehaviorLog.id).label("detection_logs_count"),
-            func.max(BehaviorLog.logged_at).label("last_detection_at"),
-        )
-        .where(BehaviorLog.is_archived == archived)
-        .group_by(BehaviorLog.sow_id)
-        .subquery()
-    )
-
-    query = (
-        select(
-            Sow,
-            func.coalesce(behavior_summary.c.detection_logs_count, 0),
-            behavior_summary.c.last_detection_at,
-        )
-        .outerjoin(behavior_summary, behavior_summary.c.sow_id == Sow.id)
-        .where(Sow.is_archived == archived)
-    )
+    query = select(Sow).where(Sow.is_archived == archived)
     
     if status:
         query = query.where(Sow.status == status)
@@ -59,9 +41,10 @@ async def get_sows(
     
     query = query.offset(skip).limit(limit).order_by(Sow.created_at.desc())
     result = await db.execute(query)
+    # We return 0 and None for the behavior stats to avoid a massive slow JOIN on the entire logs table
     return [
-        serialize_sow_response(sow, detection_logs_count, last_detection_at)
-        for sow, detection_logs_count, last_detection_at in result.all()
+        serialize_sow_response(sow, 0, None)
+        for sow in result.scalars().all()
     ]
 
 
@@ -99,6 +82,7 @@ async def get_sow(
 @router.post("", response_model=SowResponse, status_code=status.HTTP_201_CREATED)
 async def create_sow(
     sow_data: SowCreate,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -125,6 +109,9 @@ async def create_sow(
     await db.commit()
     await db.refresh(new_sow)
     
+    if new_sow.expected_farrowing_date:
+        background_tasks.add_task(run_checker)
+    
     return new_sow
 
 
@@ -132,6 +119,7 @@ async def create_sow(
 async def update_sow(
     sow_id: int,
     sow_data: SowUpdate,
+    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -150,6 +138,9 @@ async def update_sow(
     
     await db.commit()
     await db.refresh(sow)
+    
+    if "expected_farrowing_date" in update_data or "status" in update_data:
+        background_tasks.add_task(run_checker)
     
     return sow
 

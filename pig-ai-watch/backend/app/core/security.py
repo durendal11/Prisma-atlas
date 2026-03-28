@@ -86,4 +86,8 @@ async def get_current_user(
     
     if user is None:
         raise credentials_exception
+        
+    # Enable tenancy isolation for all subsequent DB operations in this request
+    db.info["tenant_id"] = user.id
+    
     return user

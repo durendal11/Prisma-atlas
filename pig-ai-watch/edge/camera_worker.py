@@ -172,6 +172,7 @@ class CameraWorker(threading.Thread):
         frame_w: int = 1280,
         frame_h: int = 720,
         frame_fps: int = 15,
+        status_callback = None
     ):
         super().__init__(daemon=True, name=f"cam-{pen_id}")
         self.pen_id = pen_id
@@ -184,6 +185,7 @@ class CameraWorker(threading.Thread):
         self.frame_w = frame_w
         self.frame_h = frame_h
         self.frame_fps = frame_fps
+        self.status_callback = status_callback
         self._stop_event = threading.Event()
 
     def stop(self):
@@ -253,6 +255,10 @@ class CameraWorker(threading.Thread):
 
             # push to cloud (or buffer)
             self._push(payload)
+            
+            # notify agent of the latest status
+            if self.status_callback:
+                self.status_callback(self.pen_id, payload)
 
             # wait for next cycle
             self._stop_event.wait(self.interval)

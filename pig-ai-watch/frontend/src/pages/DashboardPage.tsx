@@ -21,14 +21,26 @@ import { behaviorLogger, FarrowingLikelihood } from '@/services/behaviorLogger';
 import { OverdueBanner } from '@/components/OverdueBanner';
 import toast from 'react-hot-toast';
 import clsx from 'clsx';
+import { PageSkeleton, useLoading } from '@/components/ui/Skeleton';
+import { PageInfoButton, PageInfoModal } from '@/components/ui/PageInfoModal';
 
 export default function DashboardPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { data: stats } = useDashboardStats();
-  const { data: penStatuses } = usePenStatus();
-  const { data: recentAlerts } = useAlerts({ limit: 5, is_resolved: false });
+  const { data: stats, isLoading: statsLoading } = useDashboardStats();
+  const { data: penStatuses, isLoading: pensLoading } = usePenStatus();
+  const { data: recentAlerts, isLoading: alertsLoading } = useAlerts({ limit: 5, is_resolved: false });
   const updateAlert = useUpdateAlert();
+
+  const [isInfoOpen, setIsInfoOpen] = useState(false);
+
+  const { isLoading, finishLoading } = useLoading(true, 800);
+
+  useEffect(() => {
+    if (!statsLoading && !pensLoading && !alertsLoading) {
+      finishLoading();
+    }
+  }, [statsLoading, pensLoading, alertsLoading, finishLoading]);
 
   const { setStats, setPenStatuses } = useDashboardStore();
   const { latestResult: testPenResult, isRunning: testPenRunning, totalFrames } = useTestPenStore();
@@ -68,9 +80,32 @@ export default function DashboardPage() {
     );
   };
 
+  const handleAlertClick = (alert: any) => {
+    if (!alert.is_read) {
+      updateAlert.mutate({ id: alert.id, data: { is_read: true } });
+    }
+    
+    // Always navigate to the pen if we know which pen it is
+    if (alert.pen_id) {
+      navigate(`/pen/${alert.pen_id}`);
+      return;
+    }
+
+    const alertType = (alert.type || '').toLowerCase();
+    const alertTitle = (alert.title || '').toLowerCase();
+    
+    if (alertType.includes('farrowing') || alertType.includes('gestation') || alertTitle.includes('farrowing')) {
+      navigate('/farrowing');
+    }
+  };
+
   const totalSows = stats?.total_sows || 0;
   const totalPiglets = stats?.total_piglets || 0;
   const activeAlerts = stats?.active_alerts || 0;
+
+  if (isLoading) {
+    return <PageSkeleton />;
+  }
 
   return (
     <div className="max-w-5xl mx-auto animate-fade-in space-y-5">
@@ -85,9 +120,14 @@ export default function DashboardPage() {
         </div>
         <div className="relative px-5 sm:px-8 py-5">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div>
-              <h1 className="text-2xl sm:text-3xl font-bold text-white tracking-tight">{t('dashboard')}</h1>
-              <p className="text-white/70 text-sm">{t('dashboardSubtitle')}</p>
+            <div className="flex items-center gap-3">
+              <div>
+                <h1 className="text-2xl sm:text-3xl font-bold text-white tracking-tight">{t('dashboard')}</h1>
+                <p className="text-white/70 text-sm">{t('dashboardSubtitle')}</p>
+              </div>
+              <div className="ml-2 w-8 h-8 rounded-full bg-white/20 flex items-center justify-center backdrop-blur-sm shadow-sm border border-white/30">
+                <PageInfoButton onClick={() => setIsInfoOpen(true)} />
+              </div>
             </div>
             <div className="flex items-center gap-3">
               <div className="flex gap-2">
@@ -234,7 +274,7 @@ export default function DashboardPage() {
           </div>
           <div className="px-5 pb-5 space-y-2.5">
             {recentAlerts?.slice(0, 3).map((alert) => (
-              <AlertCard key={alert.id} alert={alert} onResolve={() => handleResolveAlert(alert.id)} />
+              <AlertCard key={alert.id} alert={alert} onClick={() => handleAlertClick(alert)} onResolve={() => handleResolveAlert(alert.id)} />
             ))}
             {(!recentAlerts || recentAlerts.length === 0) && (
               <div className="text-center py-6 text-gray-400 dark:text-slate-500">
@@ -293,6 +333,20 @@ export default function DashboardPage() {
           )}
         </div>
       </div>
+
+      <PageInfoModal isOpen={isInfoOpen} onClose={() => setIsInfoOpen(false)} title="Dashboard">
+        <div className="space-y-4 text-sm text-gray-600 dark:text-slate-300">
+          <p>
+            Welcome to the Prisma AI Watch Dashboard! This is your central hub for monitoring farm activity.
+          </p>
+          <ul className="list-disc pl-5 space-y-2">
+            <li><strong>Hero Stats:</strong> Key numbers including total sows, piglets, and active system alerts.</li>
+            <li><strong>System Alerts:</strong> Immediate warnings regarding AI detection (like crushing risks) or device failures.</li>
+            <li><strong>AI Pen Tracking:</strong> Live status blocks for every pen currently tracked by edge cameras.</li>
+            <li><strong>Farrowing Likelihood:</strong> Live predictive AI indicating the chances of an incoming birthing event.</li>
+          </ul>
+        </div>
+      </PageInfoModal>
     </div>
   );
 }

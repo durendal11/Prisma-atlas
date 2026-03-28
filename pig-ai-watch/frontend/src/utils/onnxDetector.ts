@@ -202,28 +202,20 @@ class ONNXDetector {
    * Optimize for live streaming - reduce input resolution for faster inference
    * Call this before starting live detection
    */
-  setLiveStreamMode(enabled: boolean = true): void {
-    if (enabled) {
-      this.inputWidth = 416;
-      this.inputHeight = 416;
-      console.log('🎥 Live stream mode enabled - using 416x416 input (faster inference)');
-      
-      // Reset canvases to force recreation with new dimensions
-      this.preprocessCanvas = null;
-      this.preprocessCtx = null;
-      this.tempCanvas = null;
-      this.tempCtx = null;
-    } else {
-      this.inputWidth = 640;
-      this.inputHeight = 640;
-      console.log('📸 High quality mode - using 640x640 input');
-      
-      // Reset canvases
-      this.preprocessCanvas = null;
-      this.preprocessCtx = null;
-      this.tempCanvas = null;
-      this.tempCtx = null;
-    }
+  setLiveStreamMode(_enabled: boolean = true): void {
+    // Current ONNX export is statically fixed to 640x640. 
+    // We cannot change this down to 416x416 unless we re-export the YOLO model 
+    // with dynamic axes (dynamic_axes={'images': {2: 'height', 3: 'width'}}).
+    // For now, always use 640x640 to prevent dimension mismatch crashes.
+    this.inputWidth = 640;
+    this.inputHeight = 640;
+    console.log(`📸 setLiveStreamMode called but Model is fixed - using ${this.inputWidth}x${this.inputHeight} input`);
+    
+    // Reset canvases
+    this.preprocessCanvas = null;
+    this.preprocessCtx = null;
+    this.tempCanvas = null;
+    this.tempCtx = null;
   }
 
   async detect(imageData: ImageData | HTMLCanvasElement | HTMLVideoElement): Promise<DetectionResult> {

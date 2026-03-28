@@ -1,6 +1,8 @@
 import { Link } from 'react-router-dom';
-import { useSettingsStore, useAuthStore } from '@/store';
-import { useTranslation } from '@/hooks/useTranslation';
+import { useState } from 'react';
+import { PageInfoButton, PageInfoModal } from '@/components/ui/PageInfoModal';
+import { useSettingsStore, useAuthStore } from '@/store';import { requestFirebaseToken } from '../lib/firebase';
+import api from '../api';import { useTranslation } from '@/hooks/useTranslation';
 import { 
   Bell, 
   Volume2, 
@@ -18,6 +20,7 @@ import {
 import toast from 'react-hot-toast';
 
 export default function SettingsPage() {
+  const [isInfoOpen, setIsInfoOpen] = useState(false);
   const { t } = useTranslation();
   const { 
     theme, 
@@ -25,11 +28,15 @@ export default function SettingsPage() {
     notifications, 
     soundEnabled, 
     crushingRiskThreshold,
+    watchThreshold,
+    actionThreshold,
     setTheme,
     setLanguage,
     setNotifications,
     setSoundEnabled,
-    setCrushingRiskThreshold
+    setCrushingRiskThreshold,
+    setWatchThreshold,
+    setActionThreshold
   } = useSettingsStore();
 
   const { user } = useAuthStore();
@@ -42,7 +49,10 @@ export default function SettingsPage() {
     <div className="max-w-3xl mx-auto space-y-6 animate-fade-in">
       {/* Header */}
       <div className="animate-slide-in-left">
-        <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Settings</h1>
+        <div className="flex items-center gap-3">
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Settings</h1>
+          <PageInfoButton onClick={() => setIsInfoOpen(true)} />
+        </div>
         <p className="text-gray-500 dark:text-slate-400">Manage your application preferences</p>
       </div>
 
@@ -87,13 +97,41 @@ export default function SettingsPage() {
           <div className="flex items-center justify-between p-3 rounded-lg hover:bg-gray-50 dark:hover:bg-slate-700/30 transition-colors duration-200">
             <div>
               <p className="font-medium text-gray-900 dark:text-white">Push Notifications</p>
-              <p className="text-sm text-gray-500 dark:text-slate-400">Receive alerts for critical events</p>
+              <p className="text-sm text-gray-500 dark:text-slate-400">Receive alerts for critical events (requires OS permission)</p>
             </div>
             <label className="relative inline-flex items-center cursor-pointer">
               <input
                 type="checkbox"
                 checked={notifications}
-                onChange={(e) => setNotifications(e.target.checked)}
+                onChange={async (e) => {
+                  const enabled = e.target.checked;
+                  setNotifications(enabled);
+                  
+                  if (enabled) {
+                    toast.loading('Requesting permissions...', { id: 'push-req' });
+                    try {
+                      // Attempt to grab token explicitly triggered by the user
+                      const token = await requestFirebaseToken();
+                      if (token) {
+                        await api.post('/api/auth/fcm-token', { token });
+                        toast.success('Push enabled! Ensure macOS System Settings allows notifications.', { id: 'push-req' });
+                        
+                        // Fire a small local test so they know it works
+                        if (Notification.permission === 'granted') {
+                           new Notification("Test Local Notif", { body: "Your browser can show notifications!" });
+                        }
+                      } else {
+                         toast.error('Permission blocked by browser.', { id: 'push-req' });
+                         setNotifications(false);
+                      }
+                    } catch (err) {
+                      toast.error('Failed to enable push setup', { id: 'push-req' });
+                      setNotifications(false);
+                    }
+                  } else {
+                     toast.success('Push disabled visually (token still exists)', { id: 'push-req' });
+                  }
+                }}
                 className="sr-only peer"
               />
               <div className="w-11 h-6 bg-gray-200 dark:bg-slate-600 peer-focus:ring-4 peer-focus:ring-primary-100 dark:peer-focus:ring-primary-900/50 rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-primary-500 dark:peer-checked:bg-primary-600" />
@@ -259,6 +297,67 @@ export default function SettingsPage() {
         </div>
       </div>
 
+      {/* Farrowing Thresholds */}
+      <div className="bg-white dark:bg-slate-800/50 rounded-xl border border-gray-100 dark:border-slate-700/50 p-6 hover:shadow-md dark:hover:shadow-dark-lg transition-all duration-300 group">
+        <div className="flex items-center gap-3 mb-4">
+          <Activity className="h-5 w-5 text-gray-500 dark:text-slate-400 group-hover:scale-110 transition-transform duration-200" />
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Farrowing Thresholds</h2>
+        </div>
+
+        <div className="mb-6">
+          <div className="flex items-center justify-between mb-2">
+            <p className="font-medium text-gray-900 dark:text-white">Watch Threshold (Days Overdue)</p>
+            <span className="text-sm font-medium text-amber-600 dark:text-amber-400 px-2 py-1 bg-amber-50 dark:bg-amber-900/30 rounded-lg">
+              +{watchThreshold} days
+            </span>
+          </div>
+          <p className="text-sm text-gray-500 dark:text-slate-400 mb-3">
+            Trigger Tier 1 watch alerts when sow is this many days past her expected date
+          </p>
+          <input
+            type="range"
+            min="0"
+            max="3"
+            step="1"
+            value={watchThreshold}
+            onChange={(e) => setWatchThreshold(Number(e.target.value))}
+            className="w-full h-2 bg-gray-200 dark:bg-slate-600 rounded-lg appearance-none cursor-pointer accent-amber-500"
+          />
+          <div className="flex justify-between text-xs text-gray-400 dark:text-slate-500 mt-1">
+            <span>0</span>
+            <span>1</span>
+            <span>2</span>
+            <span>3</span>
+          </div>
+        </div>
+
+        <div>
+          <div className="flex items-center justify-between mb-2">
+            <p className="font-medium text-gray-900 dark:text-white">Action Threshold (Days Overdue)</p>
+            <span className="text-sm font-medium text-red-600 dark:text-red-400 px-2 py-1 bg-red-50 dark:bg-red-900/30 rounded-lg">
+              +{actionThreshold} days
+            </span>
+          </div>
+          <p className="text-sm text-gray-500 dark:text-slate-400 mb-3">
+            Trigger Tier 2 action alerts (induction eligibility)
+          </p>
+          <input
+            type="range"
+            min="1"
+            max="5"
+            step="1"
+            value={actionThreshold}
+            onChange={(e) => setActionThreshold(Number(e.target.value))}
+            className="w-full h-2 bg-gray-200 dark:bg-slate-600 rounded-lg appearance-none cursor-pointer accent-red-500"
+          />
+          <div className="flex justify-between text-xs text-gray-400 dark:text-slate-500 mt-1">
+            <span>1</span>
+            <span>3</span>
+            <span>5</span>
+          </div>
+        </div>
+      </div>
+
       {/* Save button */}
       <div className="flex justify-end">
         <button
@@ -269,6 +368,18 @@ export default function SettingsPage() {
           Save Settings
         </button>
       </div>
+
+      <PageInfoModal 
+        isOpen={isInfoOpen}
+        onClose={() => setIsInfoOpen(false)}
+        title="Settings Guide"
+        section="settings"
+        steps={[
+          "User Preferences: Control app-wide UI parameters (Language, Theme Mode).",
+          "Notification Filters: Manually override when sound/visual alerts execute on specific severity tiers.",
+          "Threshold Definitions: Customize minimum thresholds for Farrowing engine outputs based on specific operational guidelines."
+        ]}
+      />
     </div>
   );
 }

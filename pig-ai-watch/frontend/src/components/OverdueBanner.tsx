@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { AlertTriangle, Clock, AlertOctagon } from 'lucide-react';
-import api from '../services/api';
+import api from '../api';
 
 interface OverdueSow {
   id: number;
@@ -20,8 +20,12 @@ export function OverdueBanner() {
 
   const fetchOverdue = async () => {
     try {
-      const response = await api.get('/farrowing/overdue-sows');
-      setOverdueSows(response.data);
+      const response = await api.get('/api/farrowing/overdue-sows');
+      if (Array.isArray(response.data)) {
+        setOverdueSows(response.data);
+      } else {
+        setOverdueSows([]);
+      }
     } catch (err) {
       console.error("Failed to fetch overdue sows", err);
     } finally {

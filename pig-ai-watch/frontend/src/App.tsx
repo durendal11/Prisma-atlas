@@ -24,6 +24,7 @@ const CameraSetupPage = lazy(() => import('@/pages/CameraSetupPage'));
 const PenMonitorPage = lazy(() => import('@/pages/PenMonitorPage'));
 const ReplayPage = lazy(() => import('@/pages/ReplayPage'));
 const StatsPage = lazy(() => import('@/pages/StatsPage'));
+const RecordingSchedulePage = lazy(() => import('@/pages/RecordingSchedulePage'));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -129,6 +130,7 @@ export default function App() {
             <Route path="pen/:penId" element={<PenMonitorPage />} />
             <Route path="replay" element={<ReplayPage />} />
             <Route path="stats" element={<StatsPage />} />
+            <Route path="recording-schedule" element={<RecordingSchedulePage />} />
           </Route>
         </Routes>
         </Suspense>

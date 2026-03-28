@@ -1,4 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
+import { PageSkeleton, useLoading } from '@/components/ui/Skeleton';
+import { PageInfoButton, PageInfoModal } from '@/components/ui/PageInfoModal';
 import { 
   Camera, 
   ChevronRight, 
@@ -224,6 +226,8 @@ export default function CameraSetupPage() {
   const [activeCameraIdx, setActiveCameraIdx] = useState(0);
   const [pens, setPens] = useState<Pen[]>([]);
   const [loadingPens, setLoadingPens] = useState(true);
+  const { isLoading } = useLoading(loadingPens);
+  const [isInfoOpen, setIsInfoOpen] = useState(false);
   const [savingCamera, setSavingCamera] = useState(false);
   const [disconnectingPen, setDisconnectingPen] = useState<number | null>(null);
   const [showUrlFor, setShowUrlFor] = useState<number | null>(null);
@@ -1549,15 +1553,20 @@ export default function CameraSetupPage() {
     </div>
   );
 
+  if (isLoading) return <PageSkeleton />;
+
   return (
     <div className="max-w-5xl mx-auto space-y-6 animate-fade-in">
       {/* Page Header */}
       <div className="flex items-center justify-between animate-slide-in-left">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-3">
-            <Camera className="h-7 w-7 text-primary-500" />
-            Camera Setup
-          </h1>
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-3">
+              <Camera className="h-7 w-7 text-primary-500" />
+              Camera Setup
+            </h1>
+            <PageInfoButton onClick={() => setIsInfoOpen(true)} />
+          </div>
           <p className="text-gray-500 dark:text-slate-400">Configure cameras for each pen in your facility</p>
         </div>
         <div className="flex items-center gap-2">
@@ -1587,11 +1596,20 @@ export default function CameraSetupPage() {
         </div>
       </div>
 
-      {loadingPens ? (
-        <div className="flex items-center justify-center py-20">
-          <Loader2 className="h-8 w-8 text-primary-500 animate-spin" />
-        </div>
-      ) : view === 'overview' ? renderOverview() : renderWizard()}
+      {view === 'overview' ? renderOverview() : renderWizard()}
+      
+      <PageInfoModal 
+        isOpen={isInfoOpen}
+        onClose={() => setIsInfoOpen(false)}
+        title="Camera Setup Guide"
+        section="camera_setup"
+        steps={[
+          "Device Configuration: Manage all connected RTMP/RTSP camera feeds linking directly to the AI Engine.",
+          "Networking Verification: Utilize built-in testing tools to ensure packets are received effectively by MediaMTX via local/cloud relay modes.",
+          "Pen Association: Easily map specific cameras to specific physical farm pens to track the right data.",
+          "Re-synchronization: One-click tools available to force rebuild your media streams if a camera disconnects."
+        ]}
+      />
     </div>
   );
 }

@@ -3,7 +3,7 @@
 AI-powered pig farrowing monitoring dashboard with real-time YOLO detection.
 
 ## Features
-
+- **Smart Edge Recording**: Video stored locally on edge devices only during crushing risk spikes (>40%), reducing storage needs.
 - **Real-time Video Monitoring**: MJPEG streams from multiple pens with YOLO detection overlay
 - **AI-Powered Detection**: Piglet counting, sow posture detection, and crushing risk assessment
 - **Live Alerts**: WebSocket-based real-time alerts for critical events

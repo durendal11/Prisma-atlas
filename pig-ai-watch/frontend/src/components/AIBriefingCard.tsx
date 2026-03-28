@@ -9,7 +9,7 @@ const GeneratingAnimation = () => (
     <div className="flex items-center gap-2 mb-2">
       <Sparkles className="w-5 h-5 text-indigo-500 animate-pulse" />
       <span className="text-transparent bg-clip-text bg-gradient-to-r from-indigo-500 via-purple-400 to-indigo-500 bg-[length:200%_auto] animate-[shimmer_2s_linear_infinite] font-semibold text-lg">
-        AI is generating your insights...
+        System is generating your insights...
       </span>
     </div>
     
@@ -80,7 +80,7 @@ export const AIBriefingCard: React.FC<{ penData?: any }> = ({ penData }) => {
       <div className="relative z-10 flex flex-wrap items-center justify-between gap-3 mb-4 pb-4 border-b border-indigo-100 dark:border-indigo-800/50">
         <div className="flex items-center gap-2 text-indigo-700 dark:text-indigo-400">
           <Sparkles className="w-6 h-6" />
-          <h2 className="text-xl font-bold tracking-tight">AI Morning Briefing</h2>
+          <h2 className="text-xl font-bold tracking-tight">Morning Briefing</h2>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <div className="flex items-center gap-1 bg-indigo-50/80 dark:bg-indigo-900/30 rounded-lg p-0.5">
@@ -123,7 +123,7 @@ export const AIBriefingCard: React.FC<{ penData?: any }> = ({ penData }) => {
           <div className="flex flex-col items-center justify-center py-8 text-slate-500 dark:text-slate-400">
             <Sparkles className="w-10 h-10 mb-3 opacity-20" />
             <p className="text-base text-center">Click "Generate Now" to analyze the {PERIOD_OPTIONS.find(o => o.value === periodHours)?.label.toLowerCase() || 'last 24 hours'} of farm activity.</p>
-            <p className="text-xs text-center mt-1 opacity-70">Powered by Gemini AI Veterinary Models</p>
+            <p className="text-xs text-center mt-1 opacity-70"></p>
           </div>
         )}
       </div>

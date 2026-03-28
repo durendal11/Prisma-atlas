@@ -16,7 +16,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status, Header
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -84,13 +84,35 @@ class ModelVersion(BaseModel):
 async def push_detection(body: DetectionPush, db: AsyncSession = Depends(get_db)):
     """Receive a single detection from the edge device."""
     try:
-        detection, event, alert, message, pen_id = _build_detection_payload(body)
-        db.add(detection)
-        db.add(event)
-        if alert is not None:
-            db.add(alert)
+        pen_id_int = _resolve_pen_id(body.pen_id)
+        result = await db.execute(select(Pen).where(Pen.id == pen_id_int).execution_options(ignore_tenant=True))
+        pen = result.scalar_one_or_none()
+        if pen:
+            db.info["tenant_id"] = pen.owner_id
+
+        has_sow = bool(pen and pen.current_sow_id)
+        detection, event, alert, message, pen_id = _build_detection_payload(body, has_sow=has_sow)
+        
+        if has_sow:
+            db.add(detection)
+            db.add(event)
+            if alert is not None:
+                db.add(alert)
 
         await db.commit()
+        if has_sow and alert is not None:
+             try:
+                 await db.refresh(alert)
+                 from app.core.firebase import broadcast_alert
+                 await broadcast_alert(
+                     title=alert.title,
+                     body=alert.message,
+                     alert_type=alert.type,
+                     pen_id=alert.pen_id,
+                     severity=alert.severity
+                 )
+             except Exception as e:
+                 logger.error(f"Error broadcasting alert: {e}")
         await _broadcast_detection(message, pen_id)
         return {"status": "ok"}
     except ValueError as exc:
@@ -118,14 +140,28 @@ async def push_detection_batch(body: DetectionBatch, db: AsyncSession = Depends(
     # After: 1 transaction for the entire batch.
     stored = 0
     pending_messages: List[Tuple[dict, str]] = []
+    active_alerts: List[Alert] = []
 
     for det in body.detections:
         try:
-            detection, event, alert, message, pen_id = _build_detection_payload(det)
-            db.add(detection)
-            db.add(event)
-            if alert is not None:
-                db.add(alert)
+            pen = None
+            if det.pen_id:
+                pen_id_int = _resolve_pen_id(det.pen_id)
+                result = await db.execute(select(Pen).where(Pen.id == pen_id_int).execution_options(ignore_tenant=True))
+                pen = result.scalar_one_or_none()
+                if pen:
+                    db.info["tenant_id"] = pen.owner_id
+                    
+            has_sow = bool(pen and pen.current_sow_id)
+            detection, event, alert, message, pen_id = _build_detection_payload(det, has_sow=has_sow)
+            
+            if has_sow:
+                db.add(detection)
+                db.add(event)
+                if alert is not None:
+                    db.add(alert)
+                    active_alerts.append(alert)
+                    
             pending_messages.append((message, pen_id))
             stored += 1
         except Exception as exc:
@@ -134,6 +170,19 @@ async def push_detection_batch(body: DetectionBatch, db: AsyncSession = Depends(
     if stored:
         try:
             await db.commit()
+            for alert in active_alerts:
+                try:
+                    await db.refresh(alert)
+                    from app.core.firebase import broadcast_alert
+                    await broadcast_alert(
+                        title=alert.title,
+                        body=alert.message,
+                        alert_type=alert.type,
+                        pen_id=alert.pen_id,
+                        severity=alert.severity
+                    )
+                except Exception as e:
+                    logger.error(f"Error broadcasting alert: {e}")
         except SQLAlchemyError:
             await db.rollback()
             logger.exception("Batch commit failed")
@@ -203,7 +252,7 @@ def _resolve_pen_id(pen_id: str) -> int:
         return 1
 
 
-def _build_detection_payload(det: DetectionPush) -> Tuple[Detection, Event, Optional[Alert], dict, str]:
+def _build_detection_payload(det: DetectionPush, has_sow: bool = True) -> Tuple[Detection, Event, Optional[Alert], dict, str]:
     """Build ORM objects and websocket payload from a detection request."""
     pen_id_int = _resolve_pen_id(det.pen_id)
     ts_str = det.timestamp.replace("Z", "+00:00")
@@ -234,7 +283,7 @@ def _build_detection_payload(det: DetectionPush) -> Tuple[Detection, Event, Opti
     )
 
     alert: Optional[Alert] = None
-    if det.crushing_risk >= settings.CRUSHING_RISK_THRESHOLD:
+    if has_sow and det.crushing_risk >= settings.CRUSHING_RISK_THRESHOLD:
         severity = "critical" if det.crushing_risk >= 0.8 else "high"
         alert = Alert(
             type="crushing_risk",
@@ -274,3 +323,63 @@ async def _broadcast_detection(message: dict, pen_id: str):
         await ws_manager.broadcast(message, pen_id)
     except Exception as exc:
         logger.debug("WebSocket broadcast skipped: %s", exc)
+from app.models.pig import RecordingSchedule, RecordingClip, StorageStatus, Pen
+from app.schemas.recording import RecordingClipReport, StorageStatusReport
+import json
+
+@router.get("/recording-schedule")
+async def get_recording_schedule(db: AsyncSession = Depends(get_db)):
+    """Get recording schedules for all pens"""
+    result = await db.execute(select(RecordingSchedule))
+    schedules = result.scalars().all()
+    
+    result_pens = await db.execute(select(Pen))
+    pens = result_pens.scalars().all()
+    
+    pen_schedules = {s.pen_id: s.schedule_json for s in schedules}
+    
+    output = []
+    for pen in pens:
+        output.append({
+            "pen_id": pen.id,
+            "schedule": pen_schedules.get(pen.id, [])
+        })
+        
+    return output
+
+@router.post("/recordings")
+async def register_recording(
+    clip: RecordingClipReport,
+    x_edge_key: str = Header(...),
+    db: AsyncSession = Depends(get_db)
+):
+    """Register a completed video clip"""
+    new_clip = RecordingClip(
+        pen_id=clip.pen_id,
+        file_path=clip.file_path,
+        start_time=clip.start_time,
+        end_time=clip.end_time,
+        mode=clip.mode,
+        file_size_bytes=clip.file_size_bytes,
+        storage_path=clip.storage_path,
+        edge_device_id=x_edge_key
+    )
+    db.add(new_clip)
+    await db.commit()
+    return {"status": "ok", "id": new_clip.id}
+
+@router.post("/storage-status")
+async def report_storage_status(
+    status: StorageStatusReport,
+    db: AsyncSession = Depends(get_db)
+):
+    """Update storage status for the edge agent/pen"""
+    new_status = StorageStatus(
+        pen_id=status.pen_id,
+        storage_path=status.storage_path,
+        total_bytes=status.total_bytes,
+        free_bytes=status.free_bytes
+    )
+    db.add(new_status)
+    await db.commit()
+    return {"status": "ok"}
