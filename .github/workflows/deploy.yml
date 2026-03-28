@@ -212,6 +212,7 @@ jobs:
           docker build \
             --pull \
             --build-arg VITE_API_URL= \
+            --build-arg VITE_GOOGLE_CLIENT_ID="${{ secrets.GOOGLE_CLIENT_ID }}" \
             -f pig-ai-watch/frontend/Dockerfile \
             -t "${FRONTEND_IMAGE}:latest" \
             -t "${FRONTEND_IMAGE}:sha-${SHORT_SHA}" \
