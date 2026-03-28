@@ -3,6 +3,7 @@ from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from datetime import timedelta
+import asyncio
 from google.oauth2 import id_token
 from google.auth.transport import requests as google_requests
 
@@ -68,12 +69,15 @@ async def google_login(
 ):
     """Authenticate or register user using Google ID token."""
     try:
-        # Verify the token with Google
-        # Note: In production you should pass your specific CLIENT_ID to verify
-        # id_token.verify_oauth2_token(token, google_requests.Request(), YOUR_CLIENT_ID)
-        idinfo = id_token.verify_oauth2_token(
+        # Verify the token with Google securely off the main thread to prevent event loop blocks
+        request_wrapper = google_requests.Request()
+        client_id_to_verify = settings.GOOGLE_CLIENT_ID if hasattr(settings, 'GOOGLE_CLIENT_ID') and settings.GOOGLE_CLIENT_ID else None
+        
+        idinfo = await asyncio.to_thread(
+            id_token.verify_oauth2_token,
             request.credential, 
-            google_requests.Request()
+            request_wrapper,
+            client_id_to_verify
         )
 
         email = idinfo.get('email')
@@ -83,7 +87,9 @@ async def google_login(
         if not email:
             raise ValueError("Token didn't contain an email")
 
-    except ValueError:
+    except Exception as e:
+        # Catch any exception: ValueError, google.auth.exceptions.GoogleAuthError, TransportError, etc.
+        print(f"Google login error: {e}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid Google token",

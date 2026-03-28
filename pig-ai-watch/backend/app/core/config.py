@@ -115,6 +115,10 @@ class Settings(BaseSettings):
     FCM_PROJECT_ID: Optional[str] = None
     FCM_SERVICE_ACCOUNT_JSON: Optional[str] = None
 
+    # Google Auth Settings
+    GOOGLE_CLIENT_ID: Optional[str] = None
+    GOOGLE_CLIENT_SECRET: Optional[str] = None
+
     # Cloudinary media storage
     CLOUDINARY_CLOUD_NAME: Optional[str] = None
     CLOUDINARY_API_KEY: Optional[str] = None
