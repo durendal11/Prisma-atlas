@@ -213,7 +213,8 @@ def upgrade() -> None:
                existing_server_default=sa.text('CURRENT_TIMESTAMP'))
     op.drop_index(op.f('ix_workflow_rules_trigger_event'), table_name='workflow_rules')
     op.create_index(op.f('ix_workflow_rules_id'), 'workflow_rules', ['id'], unique=False)
-    op.create_foreign_key(None, 'workflow_rules', 'task_templates', ['task_template_id'], ['id'])
+    # Drop the constraint adding if the column does not exist
+    # op.create_foreign_key(None, 'workflow_rules', 'task_templates', ['task_template_id'], ['id'])
     op.drop_column('workflow_rules', 'conditions')
     op.drop_column('workflow_rules', 'updated_at')
     # ### end Alembic commands ###
