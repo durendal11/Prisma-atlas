@@ -375,9 +375,16 @@ jobs:
             docker compose -f docker-compose.yml -f docker-compose.prod.yml \
               up -d backend frontend
 
-            # ── seed the database (creates admin user if not exists) ──
-            docker compose -f docker-compose.yml -f docker-compose.prod.yml \
-              --profile seed up seed || echo "⚠️ Seed script failed (may already exist)"
+            # ── optional seeding (disabled by default in production) ──
+            RUN_SEED='${{ secrets.RUN_SEED_ON_DEPLOY }}'
+            [ -z "$RUN_SEED" ] && RUN_SEED='false'
+
+            if [ "$RUN_SEED" = "true" ]; then
+              docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+                --profile seed up seed || echo "⚠️ Seed script failed"
+            else
+              echo "ℹ️ Skipping seed job (RUN_SEED_ON_DEPLOY is not true)"
+            fi
 
             # ── clean up dangling images ──────────────────────────
             docker image prune -f
