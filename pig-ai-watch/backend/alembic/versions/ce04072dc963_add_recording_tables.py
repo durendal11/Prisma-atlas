@@ -215,8 +215,9 @@ def upgrade() -> None:
     op.create_index(op.f('ix_workflow_rules_id'), 'workflow_rules', ['id'], unique=False)
     # Drop the constraint adding if the column does not exist
     # op.create_foreign_key(None, 'workflow_rules', 'task_templates', ['task_template_id'], ['id'])
-    op.drop_column('workflow_rules', 'conditions')
-    op.drop_column('workflow_rules', 'updated_at')
+    # Production already has schema drift; keep migration idempotent.
+    op.execute("ALTER TABLE workflow_rules DROP COLUMN IF EXISTS conditions")
+    op.execute("ALTER TABLE workflow_rules DROP COLUMN IF EXISTS updated_at")
     # ### end Alembic commands ###
 
 
