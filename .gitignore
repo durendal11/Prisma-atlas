@@ -14,3 +14,8 @@ dist/
 frontend-dist/
 node_modules/
 .DS_Store
+
+# Edge runtime offline buffer (SQLite)
+pig-ai-watch/edge/buffer.db
+pig-ai-watch/edge/buffer.db-shm
+pig-ai-watch/edge/buffer.db-wal
