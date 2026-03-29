@@ -1,0 +1,79 @@
+name: Backup - Droplet DB and Env
+
+on:
+  schedule:
+    - cron: '30 2 * * *'
+  workflow_dispatch:
+
+env:
+  BACKUP_RETENTION_DAYS: "14"
+
+jobs:
+  backup:
+    name: Create backup on droplet
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Run backup over SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.DROPLET_HOST }}
+          username: ${{ secrets.DROPLET_USER }}
+          key: ${{ secrets.DROPLET_SSH_KEY }}
+          script: |
+            set -euo pipefail
+
+            APP_DIR="${{ secrets.DROPLET_APP_DIR }}"
+            RETENTION_DAYS="14"
+
+            if [ -z "$APP_DIR" ]; then
+              echo "DROPLET_APP_DIR is required"
+              exit 1
+            fi
+
+            cd "$APP_DIR"
+
+            if [ ! -f .env ]; then
+              echo ".env not found in $APP_DIR"
+              exit 1
+            fi
+
+            existing_env() {
+              key="$1"
+              grep -E "^${key}=" .env | tail -n 1 | cut -d'=' -f2- || true
+            }
+
+            PGUSER="$(existing_env POSTGRES_USER)"
+            PGPASSWORD="$(existing_env POSTGRES_PASSWORD)"
+            PGDB="$(existing_env POSTGRES_DB)"
+
+            [ -z "$PGUSER" ] && PGUSER='postgres'
+            [ -z "$PGDB" ] && PGDB='pig_ai_watch'
+
+            TS="$(date -u +%Y%m%dT%H%M%SZ)"
+            BACKUP_DIR="$APP_DIR/backups"
+            TMP_DIR="$BACKUP_DIR/.tmp-$TS"
+
+            mkdir -p "$TMP_DIR"
+
+            echo "Creating database dump..."
+            docker exec -e PGPASSWORD="$PGPASSWORD" pig-ai-watch-db \
+              pg_dump -U "$PGUSER" "$PGDB" > "$TMP_DIR/postgres-$TS.sql"
+
+            echo "Saving app env and compose files..."
+            cp .env "$TMP_DIR/.env.backup"
+            [ -f docker-compose.yml ] && cp docker-compose.yml "$TMP_DIR/docker-compose.yml"
+            [ -f docker-compose.prod.yml ] && cp docker-compose.prod.yml "$TMP_DIR/docker-compose.prod.yml"
+
+            ARCHIVE="$BACKUP_DIR/prisma-atlas-backup-$TS.tar.gz"
+            tar -C "$TMP_DIR" -czf "$ARCHIVE" .
+            rm -rf "$TMP_DIR"
+
+            echo "Backup created: $ARCHIVE"
+
+            echo "Pruning backups older than $RETENTION_DAYS days..."
+            find "$BACKUP_DIR" -type f -name 'prisma-atlas-backup-*.tar.gz' -mtime +"$RETENTION_DAYS" -delete
+
+            echo "Done"

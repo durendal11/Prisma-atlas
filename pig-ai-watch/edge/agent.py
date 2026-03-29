@@ -71,6 +71,9 @@ HTTP_TIMEOUT = httpx.Timeout(
 )
 HTTP_CLIENT = httpx.Client(timeout=HTTP_TIMEOUT, follow_redirects=True)
 
+# Shared latest risk values keyed by pen_id, used by recording workers.
+EDGE_PEN_RISKS: Dict[str, float] = {}
+
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 _headers = {"X-Edge-Key": API_KEY}
@@ -158,6 +161,12 @@ def check_and_update_model():
         resp = _cloud_get("/api/edge/model/version")
         resp.raise_for_status()
         remote = resp.json()
+    except httpx.HTTPStatusError as exc:
+        if exc.response is not None and exc.response.status_code == 404:
+            logger.info("Cloud model endpoint unavailable (404), keeping current model")
+            return
+        logger.warning("Model version check failed (%s), keeping current model", exc)
+        return
     except Exception as exc:
         logger.warning("Model version check failed (%s), keeping current model", exc)
         return
@@ -200,8 +209,19 @@ def flush_buffer(buf: SyncBuffer):
     try:
         resp = _cloud_post("/api/edge/detections/batch", json={"detections": payloads})
         resp.raise_for_status()
-        buf.delete_ids(ids)
-        logger.info("Flushed %d buffered detections to cloud", len(ids))
+        data = resp.json() if resp.content else {}
+        stored = int(data.get("stored", 0)) if isinstance(data, dict) else 0
+        if stored > 0:
+            buf.delete_ids(ids[:stored])
+        if stored < len(ids):
+            logger.warning(
+                "Partial buffer flush: stored=%d total=%d (kept %d for retry)",
+                stored,
+                len(ids),
+                len(ids) - stored,
+            )
+        else:
+            logger.info("Flushed %d buffered detections to cloud", len(ids))
     except Exception as exc:
         logger.warning("Buffer flush failed (%s), will retry", exc)
 
@@ -304,10 +324,8 @@ def main():
     buf = SyncBuffer()
     
     # Store latest crushing risk for the RecordingWorker to consume globally
-    edge_pen_risks = {}
-    
     def on_status_update(pen_id: str, payload: dict):
-        edge_pen_risks[pen_id] = payload.get("crushing_risk", 0.0)
+        EDGE_PEN_RISKS[pen_id] = payload.get("crushing_risk", 0.0)
 
     workers: List[CameraWorker] = []
     for pen_id, url in cameras.items():
@@ -423,7 +441,7 @@ if __name__ == "__main__":
                         schedules=sched,
                         cloud_url=CLOUD_URL, 
                         api_key=API_KEY,
-                        get_risk_score=lambda pid=pen_id: edge_pen_risks.get(pid, 0.0)
+                        get_risk_score=lambda pid=pen_id: EDGE_PEN_RISKS.get(pid, 0.0)
                     )
                     rw.start()
                     recording_workers[pen_id] = rw

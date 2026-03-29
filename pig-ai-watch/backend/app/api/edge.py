@@ -19,7 +19,7 @@ from typing import List, Optional, Tuple
 from fastapi import APIRouter, Depends, HTTPException, Request, status, Header
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
@@ -128,8 +128,21 @@ async def push_detection(body: DetectionPush, db: AsyncSession = Depends(get_db)
         )
     except SQLAlchemyError as exc:
         await db.rollback()
-        logger.exception("Edge detection database error")
-        raise HTTPException(status_code=500, detail="Database error while storing detection")
+        logger.exception("Edge detection database error, trying legacy fallback")
+
+        # Compatibility fallback for drifted schemas in production.
+        # Stores the detection row with legacy-safe columns only.
+        try:
+            pen_id_int = _resolve_pen_id(body.pen_id)
+            await _insert_detection_legacy(db, body, pen_id_int)
+            await db.commit()
+            message, pen_id = _build_ws_message(body)
+            await _broadcast_detection(message, pen_id)
+            return {"status": "ok", "mode": "legacy_fallback"}
+        except Exception:
+            await db.rollback()
+            logger.exception("Legacy fallback insert failed")
+            raise HTTPException(status_code=500, detail="Database error while storing detection")
 
 
 # ── POST /detections/batch ───────────────────────────────────────────────────
@@ -165,7 +178,8 @@ async def push_detection_batch(body: DetectionBatch, db: AsyncSession = Depends(
                     active_alerts.append(alert)
                     
             pending_messages.append((message, pen_id))
-            stored += 1
+            if has_sow:
+                stored += 1
         except Exception as exc:
             logger.warning("Skipping duplicate/bad detection: %s", exc)
 
@@ -315,6 +329,62 @@ def _build_detection_payload(det: DetectionPush, has_sow: bool = True) -> Tuple[
     }
 
     return detection, event, alert, ws_message, det.pen_id
+
+
+def _build_ws_message(det: DetectionPush) -> Tuple[dict, str]:
+    ws_message = {
+        "type": "detection",
+        "pen_id": det.pen_id,
+        "data": {
+            "piglet_count": det.piglet_count,
+            "posture": det.sow_posture,
+            "risk_level": det.crushing_risk,
+            "bboxes": [b.model_dump() for b in det.bounding_boxes],
+            "timestamp": det.timestamp,
+            "processing_time_ms": det.processing_time_ms,
+            "source": "edge_device",
+        },
+    }
+    return ws_message, det.pen_id
+
+
+async def _insert_detection_legacy(db: AsyncSession, det: DetectionPush, pen_id_int: int) -> None:
+    ts = datetime.fromisoformat(det.timestamp.replace("Z", "+00:00"))
+    await db.execute(
+        text(
+            """
+            INSERT INTO detections (
+                pen_id,
+                piglet_count,
+                sow_posture,
+                crushing_risk,
+                bounding_boxes,
+                confidence_scores,
+                frame_timestamp,
+                processing_time_ms
+            ) VALUES (
+                :pen_id,
+                :piglet_count,
+                :sow_posture,
+                :crushing_risk,
+                :bounding_boxes,
+                :confidence_scores,
+                :frame_timestamp,
+                :processing_time_ms
+            )
+            """
+        ),
+        {
+            "pen_id": pen_id_int,
+            "piglet_count": det.piglet_count,
+            "sow_posture": det.sow_posture,
+            "crushing_risk": det.crushing_risk,
+            "bounding_boxes": json.dumps([b.model_dump() for b in det.bounding_boxes]),
+            "confidence_scores": json.dumps([b.confidence for b in det.bounding_boxes]),
+            "frame_timestamp": ts,
+            "processing_time_ms": det.processing_time_ms,
+        },
+    )
 
 
 async def _broadcast_detection(message: dict, pen_id: str):

@@ -2,10 +2,12 @@ from fastapi import APIRouter, Depends, Query, HTTPException, status
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from typing import List, Optional
 from pydantic import BaseModel
 import cv2
 import os
+import re
 
 from app.core.database import get_db
 from app.core.security import get_current_user
@@ -14,6 +16,28 @@ from app.models.pig import Pen
 from app.schemas.pig import PenCreate, PenResponse, PenUpdate
 
 router = APIRouter(prefix="/api/pens", tags=["Pens"])
+
+
+def _canonical_pen_name(name: str) -> str:
+    """Return a canonical key used for duplicate detection."""
+    cleaned = re.sub(r"[_\-]+", " ", name.strip().lower())
+    cleaned = re.sub(r"\s+", " ", cleaned)
+
+    # Treat pen_1, pen-1, pen 1, and Pen1 as the same logical pen.
+    match = re.fullmatch(r"pen\s*(\d+)", cleaned)
+    if match:
+        return f"pen {int(match.group(1))}"
+
+    return cleaned
+
+
+def _normalize_pen_name(name: str) -> str:
+    """Normalize user input into a consistent stored pen name."""
+    canonical = _canonical_pen_name(name)
+    match = re.fullmatch(r"pen\s(\d+)", canonical)
+    if match:
+        return f"Pen {int(match.group(1))}"
+    return re.sub(r"\s+", " ", name.strip())
 
 
 class CameraTestRequest(BaseModel):
@@ -55,9 +79,31 @@ async def create_pen(
     current_user: User = Depends(get_current_user)
 ):
     """Create a new pen."""
-    new_pen = Pen(**pen_data.model_dump())
+    normalized_name = _normalize_pen_name(pen_data.name)
+    canonical_name = _canonical_pen_name(normalized_name)
+
+    existing_result = await db.execute(select(Pen))
+    existing_pens = existing_result.scalars().all()
+    for existing_pen in existing_pens:
+        if _canonical_pen_name(existing_pen.name) == canonical_name:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f'Pen "{existing_pen.name}" already exists'
+            )
+
+    pen_payload = pen_data.model_dump()
+    pen_payload["name"] = normalized_name
+
+    new_pen = Pen(**pen_payload)
     db.add(new_pen)
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Pen name already exists"
+        )
     await db.refresh(new_pen)
     
     # If camera_source is set, register with MediaMTX
@@ -111,13 +157,35 @@ async def update_pen(
     # Update only provided fields
     update_data = pen_data.model_dump(exclude_unset=True)
     logger.info(f"🔍 PenUpdate for pen {pen_id}: raw={pen_data}, dumped={update_data}")
+    if "name" in update_data and update_data["name"] is not None:
+        normalized_name = _normalize_pen_name(update_data["name"])
+        canonical_name = _canonical_pen_name(normalized_name)
+
+        existing_result = await db.execute(select(Pen).where(Pen.id != pen_id))
+        existing_pens = existing_result.scalars().all()
+        for existing_pen in existing_pens:
+            if _canonical_pen_name(existing_pen.name) == canonical_name:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f'Pen "{existing_pen.name}" already exists'
+                )
+
+        update_data["name"] = normalized_name
+
     for field, value in update_data.items():
         logger.info(f"  Setting {field} = {repr(value)}")
         setattr(pen, field, value)
     
     # Force flush to generate UPDATE statement
     await db.flush()
-    await db.commit()
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Pen name already exists"
+        )
     await db.refresh(pen)
     logger.info(f"✅ Pen {pen_id} updated. camera_source = {pen.camera_source}")
     

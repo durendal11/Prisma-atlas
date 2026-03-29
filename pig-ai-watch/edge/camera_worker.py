@@ -299,6 +299,22 @@ class CameraWorker(threading.Thread):
                 resp.raise_for_status()
                 logger.debug("[%s] Pushed detection → cloud", self.pen_id)
                 return
+            except httpx.HTTPStatusError as exc:
+                last_exc = exc
+                status_code = exc.response.status_code if exc.response is not None else None
+                if status_code is not None and status_code >= 500 and attempt < EDGE_PUSH_RETRIES:
+                    time.sleep(min(1 * attempt, 3))
+                    continue
+                body_preview = ""
+                if exc.response is not None:
+                    body_preview = (exc.response.text or "")[:300]
+                logger.warning(
+                    "[%s] Cloud push HTTP error status=%s body=%s",
+                    self.pen_id,
+                    status_code,
+                    body_preview,
+                )
+                break
             except (httpx.ConnectTimeout, httpx.ReadTimeout, httpx.WriteTimeout) as exc:
                 last_exc = exc
                 if attempt < EDGE_PUSH_RETRIES:
