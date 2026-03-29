@@ -144,6 +144,41 @@ curl http://YOUR_DROPLET_IP:8000/health
 # - Or use nginx reverse proxy (port 80/443)
 ```
 
+### Repeated "timed out" warnings (cloud push / schedule fetch / buffer flush)
+
+**Problem:** Edge camera connects locally, but cloud calls intermittently time out.
+
+**Solution:**
+1. Use HTTPS endpoint (recommended):
+   - `CLOUD_API_URL=https://prisma-atlas.duckdns.org`
+2. Increase edge HTTP timeouts + retries in `edge/.env`:
+
+```env
+# Agent cloud calls (config/model/schedule/buffer flush)
+EDGE_HTTP_CONNECT_TIMEOUT=5
+EDGE_HTTP_READ_TIMEOUT=30
+EDGE_HTTP_WRITE_TIMEOUT=30
+EDGE_HTTP_POOL_TIMEOUT=5
+EDGE_HTTP_RETRIES=3
+
+# Per-frame detection push
+EDGE_PUSH_CONNECT_TIMEOUT=5
+EDGE_PUSH_READ_TIMEOUT=20
+EDGE_PUSH_WRITE_TIMEOUT=20
+EDGE_PUSH_POOL_TIMEOUT=5
+EDGE_PUSH_RETRIES=3
+```
+
+3. Restart the edge worker:
+
+```bash
+cd /Users/arcelmacasling/prisma-atlas/pig-ai-watch/edge
+source venv/bin/activate
+python agent.py
+```
+
+4. If using RTSP camera URLs, confirm subnet/IP typo (use `192.168.x.x`, not `92.168.x.x`).
+
 ### "Unauthorized" / 403 errors
 
 **Problem:** `EDGE_API_KEY` mismatch.
