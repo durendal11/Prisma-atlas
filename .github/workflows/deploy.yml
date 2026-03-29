@@ -316,6 +316,8 @@ jobs:
 
             FIREBASE_CREDS='${{ secrets.FIREBASE_CREDENTIALS_JSON }}'
             [ -z "$FIREBASE_CREDS" ] && FIREBASE_CREDS="$(existing_env FIREBASE_CREDENTIALS_JSON)"
+            # Flatten multiline JSON so docker-compose .env parser doesn't crash
+            FIREBASE_CREDS=$(echo "$FIREBASE_CREDS" | tr -d '\n')
 
             G_CLIENT_ID='${{ secrets.GOOGLE_CLIENT_ID }}'
             [ -z "$G_CLIENT_ID" ] && G_CLIENT_ID="$(existing_env GOOGLE_CLIENT_ID)"
@@ -333,7 +335,7 @@ jobs:
             DEBUG=$DEBUG_VALUE
             LOCAL_CAMERAS_ENABLED=$LOCAL_CAMERAS_VALUE
             MEDIAMTX_ENABLED=$MEDIAMTX_VALUE
-            FIREBASE_CREDENTIALS_JSON='$FIREBASE_CREDS'
+            FIREBASE_CREDENTIALS_JSON=$FIREBASE_CREDS
             GOOGLE_CLIENT_ID=$G_CLIENT_ID
             GOOGLE_CLIENT_SECRET=$G_CLIENT_SECRET
             EOF
