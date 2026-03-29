@@ -364,6 +364,23 @@ jobs:
             docker compose -f docker-compose.yml -f docker-compose.prod.yml \
               up -d --remove-orphans
 
+            # ── ensure firewall allows MediaMTX ingest/egress ports ─────
+            # Needed for edge publisher -> cloud RTSP (8554) and optional HLS/WebRTC.
+            if command -v ufw >/dev/null 2>&1; then
+              UFW_STATUS="$(ufw status 2>/dev/null || true)"
+              if echo "$UFW_STATUS" | grep -qi "Status: active"; then
+                ufw allow 8554/tcp || true
+                ufw allow 8888/tcp || true
+                ufw allow 8889/tcp || true
+                ufw allow 9997/tcp || true
+                echo "ℹ️ UFW rules ensured for MediaMTX ports"
+              else
+                echo "ℹ️ UFW installed but inactive; skipping port rule updates"
+              fi
+            else
+              echo "ℹ️ UFW not installed; skipping firewall rule updates"
+            fi
+
             # ── align DB role password with deployed .env to avoid auth drift ─
             # Existing postgres volumes keep old role passwords; this keeps DB + app env in sync.
             ESCAPED_PGPASSWORD=$(printf "%s" "$PGPASSWORD" | sed "s/'/''/g")
@@ -395,5 +412,10 @@ jobs:
             docker logs pig-ai-watch-backend --tail 50 || echo "Failed to get backend logs"
             echo "--- DB LOGS ---"
             docker logs pig-ai-watch-db --tail 20 || echo "Failed to get db logs"
+            echo "--- MEDIAMTX LOGS ---"
+            docker logs pig-ai-watch-mediamtx --tail 40 || echo "Failed to get mediamtx logs"
+
+            echo "--- LISTENING PORTS (8554/8888/8889/9997) ---"
+            ss -ltnp | grep -E ':8554|:8888|:8889|:9997' || echo "No expected MediaMTX listeners found"
 
             echo "✅ Deployment complete — $(date -u)"
