@@ -1,6 +1,7 @@
 import os
 import sys
 import time
+import socket
 import subprocess
 import threading
 try:
@@ -12,9 +13,24 @@ except ImportError:
 load_dotenv()
 
 CLOUD_IP = os.getenv("CLOUD_IP", "134.199.152.118")
+RTSP_PORT = int(os.getenv("CLOUD_RTSP_PORT", "8554"))
+PUBLISH_RETRY_SEC = int(os.getenv("PUBLISH_RETRY_SEC", "5"))
+TCP_CHECK_TIMEOUT_SEC = float(os.getenv("TCP_CHECK_TIMEOUT_SEC", "5"))
+
+
+def _tcp_port_open(host: str, port: int, timeout_sec: float) -> tuple[bool, str]:
+    s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    s.settimeout(timeout_sec)
+    try:
+        s.connect((host, port))
+        return True, "ok"
+    except Exception as exc:
+        return False, str(exc)
+    finally:
+        s.close()
 
 def push_stream(local_url, pen_path):
-    cloud_url = f"rtsp://{CLOUD_IP}:8554/{pen_path}"
+    cloud_url = f"rtsp://{CLOUD_IP}:{RTSP_PORT}/{pen_path}"
     print(f"[*] Starting proxy: {local_url} -> {cloud_url}")
     
     cmd = ["ffmpeg", "-y"]
@@ -24,12 +40,15 @@ def push_stream(local_url, pen_path):
         cmd.extend(["-rtsp_transport", "tcp"])
         
     cmd.extend([
-        "-re", # Read input at native frame rate (important for files)
+        "-re",  # Read input at native frame rate (important for files)
+        "-thread_queue_size", "512",
         "-i", local_url,
-        "-c:v", "libx264", # Transcode or copy. Using x264 ensures compatibility.
+        "-c:v", "libx264",  # Transcode to maximize cloud RTSP compatibility.
         "-preset", "ultrafast",
         "-tune", "zerolatency",
+        "-g", "30",
         "-an",
+        "-loglevel", "warning",
         "-f", "rtsp",
         "-rtsp_transport", "tcp",
         cloud_url
@@ -37,19 +56,28 @@ def push_stream(local_url, pen_path):
     
     while True:
         try:
+            ok, detail = _tcp_port_open(CLOUD_IP, RTSP_PORT, TCP_CHECK_TIMEOUT_SEC)
+            if not ok:
+                print(
+                    f"[!] Cannot reach cloud RTSP {CLOUD_IP}:{RTSP_PORT} ({detail}). "
+                    "Check firewall/NAT and MediaMTX listener."
+                )
+                time.sleep(PUBLISH_RETRY_SEC)
+                continue
+
             # check=False prevents it from throwing an exception if ffmpeg exits
             subprocess.run(cmd, check=False)
-            print(f"[!] Stream to {pen_path} disconnected. Reconnecting in 5s...")
-            time.sleep(5)
+            print(f"[!] Stream to {pen_path} disconnected. Reconnecting in {PUBLISH_RETRY_SEC}s...")
+            time.sleep(PUBLISH_RETRY_SEC)
         except KeyboardInterrupt:
             break
         except Exception as e:
             print(f"Error: {e}")
-            time.sleep(5)
+            time.sleep(PUBLISH_RETRY_SEC)
 
 def main():
     print(f"=== PRISMA ATLAS EDGE HEADLESS PROXY ===")
-    print(f"Pushing to Cloud IP: {CLOUD_IP}")
+    print(f"Pushing to Cloud RTSP: {CLOUD_IP}:{RTSP_PORT}")
     
     threads = []
     

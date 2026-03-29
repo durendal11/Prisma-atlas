@@ -1,0 +1,10 @@
+--- .github/workflows/deploy.yml
++++ .github/workflows/deploy.yml
+@@ -176,6 +176,9 @@
+             # ── clean up dangling images ──────────────────────────
+             docker image prune -f
+ 
++            echo "Backend logs:"
++            docker logs pig-ai-watch-backend --tail 50
++
+             echo "✅ Deployment complete — $(date -u)"

@@ -1,0 +1,5 @@
+services:
+  test:
+    image: alpine
+    env_file: .env
+    command: /bin/sh -c 'echo test=$$TEST'
