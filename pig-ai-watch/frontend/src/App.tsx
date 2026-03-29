@@ -49,8 +49,7 @@ function TokenHandler() {
       localStorage.setItem('access_token', token);
       
       // Fetch user info and set auth state
-      const apiBase = import.meta.env.VITE_API_URL || '';
-      fetch(`${apiBase}/api/auth/me`, {
+      fetch(`/api/auth/me`, {
         headers: { 'Authorization': `Bearer ${token}` }
       })
         .then(res => res.json())

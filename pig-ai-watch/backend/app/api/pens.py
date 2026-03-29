@@ -53,6 +53,23 @@ def _normalize_pen_name(name: str) -> str:
     return re.sub(r"\s+", " ", name.strip())
 
 
+async def _find_pen_by_canonical_name(
+    db: AsyncSession,
+    canonical_name: str,
+    exclude_id: Optional[int] = None,
+) -> Optional[Pen]:
+    query = select(Pen).execution_options(ignore_tenant=True)
+    if exclude_id is not None:
+        query = query.where(Pen.id != exclude_id)
+
+    result = await db.execute(query)
+    all_pens = result.scalars().all()
+    for existing_pen in all_pens:
+        if _canonical_pen_name(existing_pen.name) == canonical_name:
+            return existing_pen
+    return None
+
+
 class CameraTestRequest(BaseModel):
     rtsp_url: str
 
@@ -95,14 +112,24 @@ async def create_pen(
     normalized_name = _normalize_pen_name(pen_data.name)
     canonical_name = _canonical_pen_name(normalized_name)
 
-    existing_result = await db.execute(select(Pen))
-    existing_pens = existing_result.scalars().all()
-    for existing_pen in existing_pens:
-        if _canonical_pen_name(existing_pen.name) == canonical_name:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f'Pen "{existing_pen.name}" already exists'
-            )
+    existing_pen = await _find_pen_by_canonical_name(db, canonical_name)
+    if existing_pen is not None:
+        if existing_pen.owner_id in (None, current_user.id):
+            # Reclaim legacy unowned rows so users can recreate names after data drift.
+            pen_payload = pen_data.model_dump()
+            pen_payload["name"] = normalized_name
+            for field, value in pen_payload.items():
+                setattr(existing_pen, field, value)
+            existing_pen.owner_id = current_user.id
+            existing_pen.is_active = True
+            await db.commit()
+            await db.refresh(existing_pen)
+            return existing_pen
+
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Pen name already exists in another account"
+        )
 
     pen_payload = pen_data.model_dump()
     pen_payload["name"] = normalized_name
@@ -113,6 +140,17 @@ async def create_pen(
         await db.commit()
     except IntegrityError:
         await db.rollback()
+        conflict_pen = await _find_pen_by_canonical_name(db, canonical_name)
+        if conflict_pen is not None and conflict_pen.owner_id in (None, current_user.id):
+            pen_payload = pen_data.model_dump()
+            pen_payload["name"] = normalized_name
+            for field, value in pen_payload.items():
+                setattr(conflict_pen, field, value)
+            conflict_pen.owner_id = current_user.id
+            conflict_pen.is_active = True
+            await db.commit()
+            await db.refresh(conflict_pen)
+            return conflict_pen
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Pen name already exists"
@@ -174,14 +212,17 @@ async def update_pen(
         normalized_name = _normalize_pen_name(update_data["name"])
         canonical_name = _canonical_pen_name(normalized_name)
 
-        existing_result = await db.execute(select(Pen).where(Pen.id != pen_id))
-        existing_pens = existing_result.scalars().all()
-        for existing_pen in existing_pens:
-            if _canonical_pen_name(existing_pen.name) == canonical_name:
+        existing_pen = await _find_pen_by_canonical_name(db, canonical_name, exclude_id=pen_id)
+        if existing_pen is not None:
+            if existing_pen.owner_id in (None, current_user.id):
                 raise HTTPException(
                     status_code=status.HTTP_409_CONFLICT,
                     detail=f'Pen "{existing_pen.name}" already exists'
                 )
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Pen name already exists in another account"
+            )
 
         update_data["name"] = normalized_name
 

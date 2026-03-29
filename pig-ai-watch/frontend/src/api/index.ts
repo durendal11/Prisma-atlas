@@ -15,9 +15,21 @@ import type {
   AlertStats
 } from '@/types';
 
-// Always use relative URL so the Vite dev proxy (or nginx in prod) handles routing.
-// Direct absolute URLs bypass the proxy and trigger CORS errors.
-const API_BASE_URL = import.meta.env.VITE_API_URL || '';
+// Always prefer same-origin /api routing. If VITE_API_URL is absolute http:// while
+// the page is loaded on https://, upgrade it to https:// to avoid mixed-content blocks.
+const resolveApiBaseUrl = () => {
+  const raw = (import.meta.env.VITE_API_URL || '').trim();
+  if (!raw) return '';
+  if (typeof window === 'undefined') return raw;
+
+  const isHttpsPage = window.location.protocol === 'https:';
+  if (isHttpsPage && raw.startsWith('http://')) {
+    return raw.replace('http://', 'https://');
+  }
+  return raw;
+};
+
+const API_BASE_URL = resolveApiBaseUrl();
 const isLocalDev = ['localhost', '127.0.0.1'].includes(window.location.hostname);
 const LANDING_URL = isLocalDev ? 'http://localhost:3000' : '/';
 
