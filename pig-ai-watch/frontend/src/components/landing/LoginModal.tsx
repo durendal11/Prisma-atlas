@@ -21,6 +21,8 @@ interface Props {
 export default function LoginModal({ open, onClose }: Props) {
   const navigate = useNavigate();
   const setAuth = useAuthStore((s) => s.setAuth);
+  const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined;
+  const googleEnabled = !!googleClientId;
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -198,15 +200,21 @@ export default function LoginModal({ open, onClose }: Props) {
               </div>
 
               <div className="flex justify-center flex-col items-center">
-                <GoogleLogin
-                  onSuccess={handleGoogleSuccess}
-                  onError={() => {
-                    setError('Google sign-in failed');
-                  }}
-                  theme="filled_black"
-                  shape="rectangular"
-                  text="signin_with"
-                />
+                {googleEnabled ? (
+                  <GoogleLogin
+                    onSuccess={handleGoogleSuccess}
+                    onError={() => {
+                      setError('Google sign-in failed');
+                    }}
+                    theme="filled_black"
+                    shape="rectangular"
+                    text="signin_with"
+                  />
+                ) : (
+                  <div className="text-xs text-amber-300 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2 text-center">
+                    Google sign-in is not configured for this deployment.
+                  </div>
+                )}
               </div>
 
               <p className="text-center text-xs text-white/30 pt-2">
