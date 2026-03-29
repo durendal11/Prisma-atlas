@@ -49,6 +49,7 @@ import {
   Search,
   UserPlus,
   RefreshCw,
+  Trash2,
 } from 'lucide-react';
 import { RTSPVideoFeed, CrushingRiskGauge, type CameraConnectionStatus } from '@/components';
 import { AIPenAdvisoryCard } from '@/components/AIPenAdvisoryCard';
@@ -194,6 +195,7 @@ export default function PenMonitorPage() {
 
   const [activeTab, setActiveTab] = useState<Tab>('overview');
   const [loading, setLoading] = useState(true);
+  const [deletingPen, setDeletingPen] = useState(false);
   const [isInfoOpen, setIsInfoOpen] = useState(false);
 
   // Pen & sow data
@@ -580,6 +582,29 @@ export default function PenMonitorPage() {
     }
   };
 
+  const handleDeletePen = async () => {
+    if (!numericPenId || deletingPen) return;
+
+    const confirmed = confirm(
+      `Delete ${penName}? This action cannot be undone.\n\nYou must unassign any sow first.`
+    );
+    if (!confirmed) return;
+
+    setDeletingPen(true);
+    try {
+      await api.delete(`/api/pens/${numericPenId}`);
+      toast.success(`${penName} deleted`);
+      queryClient.invalidateQueries({ queryKey: ['pen-status'] });
+      queryClient.invalidateQueries({ queryKey: ['pens'] });
+      navigate('/monitoring');
+    } catch (err: any) {
+      const msg = err?.response?.data?.detail || 'Failed to delete pen';
+      toast.error(msg);
+    } finally {
+      setDeletingPen(false);
+    }
+  };
+
   const handleRecordFarrowing = async () => {
     if (!sow) {
       toast.error('No sow assigned to this pen');
@@ -718,6 +743,14 @@ export default function PenMonitorPage() {
             }`}
           >
             <Zap className={`h-5 w-5 ${isPowerSaving ? 'fill-current' : ''}`} />
+          </button>
+          <button
+            onClick={handleDeletePen}
+            disabled={deletingPen}
+            title="Delete this pen"
+            className="p-2 rounded-xl border border-red-200 dark:border-red-800 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors flex-shrink-0 disabled:opacity-60"
+          >
+            <Trash2 className="h-5 w-5" />
           </button>
           <div className="min-w-0">
             <div className="flex items-center gap-3">

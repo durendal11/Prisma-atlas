@@ -12,7 +12,7 @@ import re
 from app.core.database import get_db
 from app.core.security import get_current_user
 from app.models.user import User
-from app.models.pig import Pen
+from app.models.pig import Pen, Sow
 from app.schemas.pig import PenCreate, PenResponse, PenUpdate
 
 router = APIRouter(prefix="/api/pens", tags=["Pens"])
@@ -202,6 +202,46 @@ async def update_pen(
             await stream_manager.stop_stream(pen_name)
     
     return pen
+
+
+@router.delete("/{pen_id}")
+async def delete_pen(
+    pen_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Delete a pen when no sow is currently assigned to it."""
+    result = await db.execute(select(Pen).where(Pen.id == pen_id))
+    pen = result.scalar_one_or_none()
+
+    if not pen:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Pen not found"
+        )
+
+    sow_result = await db.execute(select(Sow).where(Sow.pen_id == pen_id, Sow.is_archived == False))
+    active_sow = sow_result.scalar_one_or_none()
+    if active_sow:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f'Cannot delete pen while sow "{active_sow.tag_id}" is assigned'
+        )
+
+    try:
+        from app.services import mediamtx
+        from app.services.camera_stream import stream_manager
+
+        pen_name = f"pen_{pen_id}"
+        await mediamtx.remove_camera(pen_name)
+        await stream_manager.stop_stream(pen_name)
+    except Exception:
+        # Stream/proxy cleanup should not block deletion.
+        pass
+
+    await db.delete(pen)
+    await db.commit()
+    return {"message": "Pen deleted successfully"}
 
 
 @router.post("/test-camera", response_model=CameraTestResponse)

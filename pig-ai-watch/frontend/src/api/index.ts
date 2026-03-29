@@ -298,6 +298,11 @@ export const pensApi = {
     return response.data;
   },
 
+  remove: async (id: number): Promise<{ message: string }> => {
+    const response = await api.delete(`/api/pens/${id}`);
+    return response.data;
+  },
+
   testCamera: async (rtspUrl: string): Promise<{ success: boolean; message: string; details?: any }> => {
     const response = await api.post('/api/pens/test-camera', { rtsp_url: rtspUrl }, { timeout: 30000 });
     return response.data;
