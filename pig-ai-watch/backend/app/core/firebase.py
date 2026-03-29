@@ -4,13 +4,28 @@ import os
 import json
 import logging
 import asyncio
+import base64
 
 logger = logging.getLogger(__name__)
 
 def init_firebase():
     """Initialize Firebase Admin SDK using structured env var or service account key file."""
     # First, try to load from an environment variable (best for Digital Ocean / Docker)
+    env_creds_b64 = os.getenv("FIREBASE_CREDENTIALS_B64")
     env_creds = os.getenv("FIREBASE_CREDENTIALS_JSON")
+    
+    if env_creds_b64:
+        try:
+            decoded = base64.b64decode(env_creds_b64).decode('utf-8')
+            cred_dict = json.loads(decoded)
+            cred = credentials.Certificate(cred_dict)
+            if not firebase_admin._apps:
+                firebase_admin.initialize_app(cred)
+            logger.info("Firebase Admin SDK initialized successfully from B64 ENV var")
+            return
+        except Exception as e:
+            logger.error(f"Failed to initialize Firebase from B64 ENV var: {e}")
+
     if env_creds:
         try:
             cred_dict = json.loads(env_creds)

@@ -316,8 +316,8 @@ jobs:
 
             FIREBASE_CREDS='${{ secrets.FIREBASE_CREDENTIALS_JSON }}'
             [ -z "$FIREBASE_CREDS" ] && FIREBASE_CREDS="$(existing_env FIREBASE_CREDENTIALS_JSON)"
-            # Flatten multiline JSON so docker-compose .env parser doesn't crash
-            FIREBASE_CREDS=$(echo "$FIREBASE_CREDS" | tr -d '\n')
+            # Use base64 encoding to entirely bypass docker-compose quote/space parsing issues
+            FIREBASE_B64=$(echo "$FIREBASE_CREDS" | base64 -w 0)
 
             G_CLIENT_ID='${{ secrets.GOOGLE_CLIENT_ID }}'
             [ -z "$G_CLIENT_ID" ] && G_CLIENT_ID="$(existing_env GOOGLE_CLIENT_ID)"
@@ -335,6 +335,8 @@ jobs:
             DEBUG=$DEBUG_VALUE
             LOCAL_CAMERAS_ENABLED=$LOCAL_CAMERAS_VALUE
             MEDIAMTX_ENABLED=$MEDIAMTX_VALUE
+            FIREBASE_CREDENTIALS_B64=$FIREBASE_B64
+            # Keep fallback for local testing if needed
             FIREBASE_CREDENTIALS_JSON='$FIREBASE_CREDS'
             GOOGLE_CLIENT_ID=$G_CLIENT_ID
             GOOGLE_CLIENT_SECRET=$G_CLIENT_SECRET
@@ -378,5 +380,12 @@ jobs:
 
             # ── clean up dangling images ──────────────────────────
             docker image prune -f
+
+            echo "🚀 Deployment Script Finished! Checking logs for backend crash..."
+            sleep 5
+            echo "--- BACKEND LOGS ---"
+            docker logs pig-ai-watch-backend --tail 50 || echo "Failed to get backend logs"
+            echo "--- DB LOGS ---"
+            docker logs pig-ai-watch-db --tail 20 || echo "Failed to get db logs"
 
             echo "✅ Deployment complete — $(date -u)"
