@@ -90,7 +90,8 @@ async def push_detection(body: DetectionPush, db: AsyncSession = Depends(get_db)
         if pen:
             db.info["tenant_id"] = pen.owner_id
 
-        has_sow = bool(pen and pen.current_sow_id)
+        # Pen model has no current_sow_id field; treat an existing pen as writable.
+        has_sow = bool(pen)
         detection, event, alert, message, pen_id = _build_detection_payload(body, has_sow=has_sow)
         
         if has_sow:
@@ -152,7 +153,8 @@ async def push_detection_batch(body: DetectionBatch, db: AsyncSession = Depends(
                 if pen:
                     db.info["tenant_id"] = pen.owner_id
                     
-            has_sow = bool(pen and pen.current_sow_id)
+            # Pen model has no current_sow_id field; treat an existing pen as writable.
+            has_sow = bool(pen)
             detection, event, alert, message, pen_id = _build_detection_payload(det, has_sow=has_sow)
             
             if has_sow:
