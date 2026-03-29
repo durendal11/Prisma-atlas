@@ -36,22 +36,39 @@ async def create_admin():
     async_session = sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
     
     async with async_session() as session:
-        # Delete existing admin to recreate with correct hash
-        await session.execute(text("DELETE FROM users WHERE username = 'admin'"))
-        
-        # Create admin user
         hashed_password = hash_password('admin123')
-        await session.execute(text('''
-            INSERT INTO users (username, email, hashed_password, full_name, role, is_active)
-            VALUES (:username, :email, :hashed_password, :full_name, :role, :is_active)
+
+        # Never delete admin because dependent rows (e.g. events.user_id) may exist.
+        # Update in place when present; otherwise create once.
+        updated = await session.execute(text('''
+            UPDATE users
+            SET email = :email,
+                hashed_password = :hashed_password,
+                full_name = :full_name,
+                role = :role,
+                is_active = :is_active
+            WHERE username = :username
         '''), {
             'username': 'admin',
             'email': 'admin@pigaiwatch.com',
             'hashed_password': hashed_password,
             'full_name': 'Administrator',
             'role': 'admin',
-            'is_active': True
+            'is_active': True,
         })
+
+        if updated.rowcount == 0:
+            await session.execute(text('''
+                INSERT INTO users (username, email, hashed_password, full_name, role, is_active)
+                VALUES (:username, :email, :hashed_password, :full_name, :role, :is_active)
+            '''), {
+                'username': 'admin',
+                'email': 'admin@pigaiwatch.com',
+                'hashed_password': hashed_password,
+                'full_name': 'Administrator',
+                'role': 'admin',
+                'is_active': True,
+            })
         await session.commit()
         print('✅ Admin user created!')
         print('   Username: admin')
