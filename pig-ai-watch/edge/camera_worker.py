@@ -289,7 +289,13 @@ class CameraWorker(threading.Thread):
         last_exc = None
         for attempt in range(1, EDGE_PUSH_RETRIES + 1):
             try:
-                resp = httpx.post(url, json=payload, headers=headers, timeout=EDGE_PUSH_TIMEOUT)
+                resp = httpx.post(
+                    url,
+                    json=payload,
+                    headers=headers,
+                    timeout=EDGE_PUSH_TIMEOUT,
+                    follow_redirects=True,
+                )
                 resp.raise_for_status()
                 logger.debug("[%s] Pushed detection → cloud", self.pen_id)
                 return

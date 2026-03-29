@@ -69,7 +69,7 @@ HTTP_TIMEOUT = httpx.Timeout(
     write=HTTP_WRITE_TIMEOUT,
     pool=HTTP_POOL_TIMEOUT,
 )
-HTTP_CLIENT = httpx.Client(timeout=HTTP_TIMEOUT)
+HTTP_CLIENT = httpx.Client(timeout=HTTP_TIMEOUT, follow_redirects=True)
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
