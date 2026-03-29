@@ -196,6 +196,7 @@ export default function PenMonitorPage() {
   const [activeTab, setActiveTab] = useState<Tab>('overview');
   const [loading, setLoading] = useState(true);
   const [deletingPen, setDeletingPen] = useState(false);
+  const [renamingPen, setRenamingPen] = useState(false);
   const [isInfoOpen, setIsInfoOpen] = useState(false);
 
   // Pen & sow data
@@ -605,6 +606,34 @@ export default function PenMonitorPage() {
     }
   };
 
+  const handleRenamePen = async () => {
+    if (!numericPenId || renamingPen) return;
+
+    const nextName = prompt('Enter new pen name', penName);
+    if (nextName === null) return;
+
+    const trimmed = nextName.trim();
+    if (!trimmed) {
+      toast.error('Pen name is required');
+      return;
+    }
+
+    setRenamingPen(true);
+    try {
+      const res = await api.put(`/api/pens/${numericPenId}`, { name: trimmed });
+      const updatedName = res?.data?.name || trimmed;
+      setPenName(updatedName);
+      toast.success(`Pen renamed to ${updatedName}`);
+      queryClient.invalidateQueries({ queryKey: ['pen-status'] });
+      queryClient.invalidateQueries({ queryKey: ['pens'] });
+    } catch (err: any) {
+      const msg = err?.response?.data?.detail || 'Failed to rename pen';
+      toast.error(msg);
+    } finally {
+      setRenamingPen(false);
+    }
+  };
+
   const handleRecordFarrowing = async () => {
     if (!sow) {
       toast.error('No sow assigned to this pen');
@@ -745,6 +774,14 @@ export default function PenMonitorPage() {
             <Zap className={`h-5 w-5 ${isPowerSaving ? 'fill-current' : ''}`} />
           </button>
           <button
+            onClick={handleRenamePen}
+            disabled={renamingPen}
+            title="Rename this pen"
+            className="p-2 rounded-xl border border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-colors flex-shrink-0 disabled:opacity-60"
+          >
+            <Edit3 className="h-5 w-5" />
+          </button>
+          <button
             onClick={handleDeletePen}
             disabled={deletingPen}
             title="Delete this pen"
@@ -766,6 +803,7 @@ export default function PenMonitorPage() {
             </div>
             <p className="text-xs sm:text-sm text-gray-500 dark:text-slate-400 truncate">
               {sow ? `Sow ${sow.tag_id}${sow.name ? ` — ${sow.name}` : ''} • Parity ${sow.parity}` : 'No sow assigned'}
+              <span className="ml-2 text-gray-400 dark:text-slate-500">Edge key: pen_{numericPenId}</span>
               {penStatus?.is_streaming && cameraConnectionStatus === 'connected' && (
                 <span className="ml-2 inline-flex items-center gap-1 text-green-600 dark:text-green-400">
                   <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />

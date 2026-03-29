@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, Query, HTTPException, status
 from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, delete, update
 from sqlalchemy.exc import IntegrityError
 from typing import List, Optional
 from pydantic import BaseModel
@@ -12,7 +12,20 @@ import re
 from app.core.database import get_db
 from app.core.security import get_current_user
 from app.models.user import User
-from app.models.pig import Pen, Sow
+from app.models.pig import (
+    Pen,
+    Sow,
+    Alert,
+    Event,
+    Detection,
+    BehaviorLog,
+    Task,
+    FarrowingRecord,
+    PigletRecord,
+    RecordingSchedule,
+    RecordingClip,
+    StorageStatus,
+)
 from app.schemas.pig import PenCreate, PenResponse, PenUpdate
 
 router = APIRouter(prefix="/api/pens", tags=["Pens"])
@@ -228,6 +241,7 @@ async def delete_pen(
             detail=f'Cannot delete pen while sow "{active_sow.tag_id}" is assigned'
         )
 
+    # Best-effort stream/proxy cleanup; do not block DB deletion.
     try:
         from app.services import mediamtx
         from app.services.camera_stream import stream_manager
@@ -236,12 +250,34 @@ async def delete_pen(
         await mediamtx.remove_camera(pen_name)
         await stream_manager.stop_stream(pen_name)
     except Exception:
-        # Stream/proxy cleanup should not block deletion.
         pass
 
-    await db.delete(pen)
-    await db.commit()
-    return {"message": "Pen deleted successfully"}
+    try:
+        # Keep historical/archived sows but detach from pen first.
+        await db.execute(update(Sow).where(Sow.pen_id == pen_id).values(pen_id=None))
+
+        # Delete dependent records that can block FK deletion of pens.
+        farrowing_ids = select(FarrowingRecord.id).where(FarrowingRecord.pen_id == pen_id)
+        await db.execute(delete(PigletRecord).where(PigletRecord.farrowing_record_id.in_(farrowing_ids)))
+        await db.execute(delete(FarrowingRecord).where(FarrowingRecord.pen_id == pen_id))
+        await db.execute(delete(Task).where(Task.pen_id == pen_id))
+        await db.execute(delete(BehaviorLog).where(BehaviorLog.pen_id == pen_id))
+        await db.execute(delete(Detection).where(Detection.pen_id == pen_id))
+        await db.execute(delete(Alert).where(Alert.pen_id == pen_id))
+        await db.execute(delete(Event).where(Event.pen_id == pen_id))
+        await db.execute(delete(RecordingSchedule).where(RecordingSchedule.pen_id == pen_id))
+        await db.execute(delete(RecordingClip).where(RecordingClip.pen_id == pen_id))
+        await db.execute(delete(StorageStatus).where(StorageStatus.pen_id == pen_id))
+
+        await db.delete(pen)
+        await db.commit()
+        return {"message": "Pen deleted successfully"}
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Pen could not be deleted due to related records. Please try again."
+        )
 
 
 @router.post("/test-camera", response_model=CameraTestResponse)
