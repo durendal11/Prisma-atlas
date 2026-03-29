@@ -25,6 +25,19 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
+EDGE_PUSH_CONNECT_TIMEOUT = float(os.getenv("EDGE_PUSH_CONNECT_TIMEOUT", "5"))
+EDGE_PUSH_READ_TIMEOUT = float(os.getenv("EDGE_PUSH_READ_TIMEOUT", "20"))
+EDGE_PUSH_WRITE_TIMEOUT = float(os.getenv("EDGE_PUSH_WRITE_TIMEOUT", "20"))
+EDGE_PUSH_POOL_TIMEOUT = float(os.getenv("EDGE_PUSH_POOL_TIMEOUT", "5"))
+EDGE_PUSH_RETRIES = int(os.getenv("EDGE_PUSH_RETRIES", "2"))
+
+EDGE_PUSH_TIMEOUT = httpx.Timeout(
+    connect=EDGE_PUSH_CONNECT_TIMEOUT,
+    read=EDGE_PUSH_READ_TIMEOUT,
+    write=EDGE_PUSH_WRITE_TIMEOUT,
+    pool=EDGE_PUSH_POOL_TIMEOUT,
+)
+
 SYSTEM_FFMPEG = shutil.which("ffmpeg")
 
 # ── FFmpeg-based RTSP capture (same as backend) ────────────────────────────
@@ -273,10 +286,20 @@ class CameraWorker(threading.Thread):
     def _push(self, payload: dict):
         url = f"{self.cloud_url}/api/edge/detections"
         headers = {"X-Edge-Key": self.api_key, "Content-Type": "application/json"}
-        try:
-            resp = httpx.post(url, json=payload, headers=headers, timeout=10)
-            resp.raise_for_status()
-            logger.debug("[%s] Pushed detection → cloud", self.pen_id)
-        except Exception as exc:
-            logger.warning("[%s] Cloud push failed (%s), buffering locally", self.pen_id, exc)
-            self.sync_buffer.insert(payload)
+        last_exc = None
+        for attempt in range(1, EDGE_PUSH_RETRIES + 1):
+            try:
+                resp = httpx.post(url, json=payload, headers=headers, timeout=EDGE_PUSH_TIMEOUT)
+                resp.raise_for_status()
+                logger.debug("[%s] Pushed detection → cloud", self.pen_id)
+                return
+            except (httpx.ConnectTimeout, httpx.ReadTimeout, httpx.WriteTimeout) as exc:
+                last_exc = exc
+                if attempt < EDGE_PUSH_RETRIES:
+                    time.sleep(min(1 * attempt, 3))
+            except Exception as exc:
+                last_exc = exc
+                break
+
+        logger.warning("[%s] Cloud push failed (%s), buffering locally", self.pen_id, last_exc)
+        self.sync_buffer.insert(payload)

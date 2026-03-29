@@ -56,17 +56,48 @@ FRAME_H         = int(os.getenv("FRAME_HEIGHT", "720"))
 FRAME_FPS       = int(os.getenv("FRAME_FPS", "15"))
 CONF_THRESH     = float(os.getenv("CONFIDENCE_THRESHOLD", "0.5"))
 
+# Cloud HTTP tuning (override in edge/.env when needed)
+HTTP_CONNECT_TIMEOUT = float(os.getenv("EDGE_HTTP_CONNECT_TIMEOUT", "5"))
+HTTP_READ_TIMEOUT = float(os.getenv("EDGE_HTTP_READ_TIMEOUT", "25"))
+HTTP_WRITE_TIMEOUT = float(os.getenv("EDGE_HTTP_WRITE_TIMEOUT", "25"))
+HTTP_POOL_TIMEOUT = float(os.getenv("EDGE_HTTP_POOL_TIMEOUT", "5"))
+HTTP_RETRIES = int(os.getenv("EDGE_HTTP_RETRIES", "2"))
+
+HTTP_TIMEOUT = httpx.Timeout(
+    connect=HTTP_CONNECT_TIMEOUT,
+    read=HTTP_READ_TIMEOUT,
+    write=HTTP_WRITE_TIMEOUT,
+    pool=HTTP_POOL_TIMEOUT,
+)
+HTTP_CLIENT = httpx.Client(timeout=HTTP_TIMEOUT)
+
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
 _headers = {"X-Edge-Key": API_KEY}
 
 
 def _cloud_get(path: str, **kwargs) -> httpx.Response:
-    return httpx.get(f"{CLOUD_URL}{path}", headers=_headers, timeout=15, **kwargs)
+    last_exc = None
+    for attempt in range(1, HTTP_RETRIES + 1):
+        try:
+            return HTTP_CLIENT.get(f"{CLOUD_URL}{path}", headers=_headers, **kwargs)
+        except (httpx.ConnectTimeout, httpx.ReadTimeout, httpx.WriteTimeout) as exc:
+            last_exc = exc
+            if attempt < HTTP_RETRIES:
+                time.sleep(min(2 * attempt, 5))
+    raise last_exc
 
 
 def _cloud_post(path: str, **kwargs) -> httpx.Response:
-    return httpx.post(f"{CLOUD_URL}{path}", headers=_headers, timeout=15, **kwargs)
+    last_exc = None
+    for attempt in range(1, HTTP_RETRIES + 1):
+        try:
+            return HTTP_CLIENT.post(f"{CLOUD_URL}{path}", headers=_headers, **kwargs)
+        except (httpx.ConnectTimeout, httpx.ReadTimeout, httpx.WriteTimeout) as exc:
+            last_exc = exc
+            if attempt < HTTP_RETRIES:
+                time.sleep(min(2 * attempt, 5))
+    raise last_exc
 
 
 # ── 1. Pull Config ──────────────────────────────────────────────────────────
