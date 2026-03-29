@@ -253,11 +253,12 @@ jobs:
           host: ${{ secrets.DROPLET_HOST }}
           username: ${{ secrets.DROPLET_USER }}
           key: ${{ secrets.DROPLET_SSH_KEY }}
-          envs: BACKEND_IMAGE,FRONTEND_IMAGE
+          envs: BACKEND_IMAGE,FRONTEND_IMAGE,GITHUB_SHA
           script: |
             set -e
 
             APP_DIR="${{ secrets.DROPLET_APP_DIR }}"
+            SHORT_SHA="${GITHUB_SHA::7}"
 
             # Helper: read KEY=value from existing .env (if present)
             existing_env() {
@@ -348,11 +349,11 @@ jobs:
             cat > docker-compose.prod.yml <<OVERRIDE
             services:
               backend:
-                image: ${BACKEND_IMAGE}:latest
+                image: ${BACKEND_IMAGE}:sha-${SHORT_SHA}
               frontend:
-                image: ${FRONTEND_IMAGE}:latest
+                image: ${FRONTEND_IMAGE}:sha-${SHORT_SHA}
               seed:
-                image: ${BACKEND_IMAGE}:latest
+                image: ${BACKEND_IMAGE}:sha-${SHORT_SHA}
             OVERRIDE
 
             # ── pull new images ───────────────────────────────────
