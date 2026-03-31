@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import {
   Play,
   Pause,
@@ -24,6 +25,14 @@ import {
 } from 'recharts';
 
 type PlaybackSpeed = 1 | 2 | 4 | 8;
+
+function parsePenFromQuery(value: string | null): number | null {
+  if (!value) return null;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return null;
+  const pen = Math.floor(parsed);
+  return pen >= 1 ? pen : null;
+}
 
 // --- Helper Component: Recordings Tab ---
 function RecordingsTab({ penId }: { penId: number }) {
@@ -142,15 +151,23 @@ function RecordingsTab({ penId }: { penId: number }) {
 }
 
 export default function ReplayPage() {
+  const [searchParams] = useSearchParams();
   const [activeTab, setActiveTab] = useState<'simulation' | 'recordings'>('simulation');
   const [showInfo, setShowInfo] = useState(false);
 
   // ── Data state ──
-  const [penId, setPenId] = useState(1);
+  const [penId, setPenId] = useState(() => parsePenFromQuery(searchParams.get('pen')) ?? 1);
   const [hours, setHours] = useState(24);
   const [replay, setReplay] = useState<ReplayData | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [fetching, setFetching] = useState(false);
+
+  useEffect(() => {
+    const penFromQuery = parsePenFromQuery(searchParams.get('pen'));
+    if (penFromQuery && penFromQuery !== penId) {
+      setPenId(penFromQuery);
+    }
+  }, [searchParams, penId]);
 
   // ── Playback state ──
   const [frameIdx, setFrameIdx] = useState(0);
