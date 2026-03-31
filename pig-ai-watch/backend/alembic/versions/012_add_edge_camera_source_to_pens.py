@@ -1,6 +1,6 @@
 """add edge_camera_source to pens
 
-Revision ID: 012_add_edge_camera_source_to_pens
+Revision ID: 012_edge_cam_src
 Revises: 405b0069f573
 Create Date: 2026-03-31
 """
@@ -10,14 +10,15 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision = "012_add_edge_camera_source_to_pens"
+revision = "012_edge_cam_src"
 down_revision = "405b0069f573"
 branch_labels = None
 depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column("pens", sa.Column("edge_camera_source", sa.String(length=255), nullable=True))
+    # Use IF NOT EXISTS to allow safe re-run when hotfix SQL was already applied.
+    op.execute("ALTER TABLE pens ADD COLUMN IF NOT EXISTS edge_camera_source VARCHAR(255)")
 
 
 def downgrade() -> None:
