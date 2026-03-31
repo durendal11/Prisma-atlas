@@ -8,6 +8,7 @@ class PenBase(BaseModel):
     name: str
     location: Optional[str] = None
     camera_source: Optional[str] = None
+    edge_camera_source: Optional[str] = None
     is_active: bool = True
 
 
@@ -19,6 +20,7 @@ class PenUpdate(BaseModel):
     name: Optional[str] = None
     location: Optional[str] = None
     camera_source: Optional[str] = None
+    edge_camera_source: Optional[str] = None
     is_active: Optional[bool] = None
     cleaning_interval_hours: Optional[int] = None
 

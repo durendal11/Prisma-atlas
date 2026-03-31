@@ -148,6 +148,7 @@ export interface Pen {
   name: string;
   location: string | null;
   camera_source: string | null;
+  edge_camera_source: string | null;
   is_active: boolean;
   created_at: string;
 }

@@ -220,7 +220,7 @@ async def get_edge_config(db: AsyncSession = Depends(get_db)):
     cameras = [
         CameraConfig(
             pen_id=f"pen_{p.id}",
-            camera_url=p.camera_source,
+            camera_url=p.edge_camera_source or p.camera_source,
             thresholds={"crushing_risk": settings.CRUSHING_RISK_THRESHOLD},
         )
         for p in pens

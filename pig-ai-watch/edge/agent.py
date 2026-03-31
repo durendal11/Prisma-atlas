@@ -327,8 +327,9 @@ def main():
     def on_status_update(pen_id: str, payload: dict):
         EDGE_PEN_RISKS[pen_id] = payload.get("crushing_risk", 0.0)
 
-    workers: List[CameraWorker] = []
-    for pen_id, url in cameras.items():
+    workers: Dict[str, CameraWorker] = {}
+
+    def _start_worker(pen_id: str, url: str):
         w = CameraWorker(
             pen_id=pen_id,
             camera_url=url,
@@ -340,11 +341,52 @@ def main():
             frame_w=FRAME_W,
             frame_h=FRAME_H,
             frame_fps=FRAME_FPS,
-            status_callback=on_status_update
+            status_callback=on_status_update,
         )
         w.start()
-        workers.append(w)
+        workers[pen_id] = w
+        logger.info("Started camera worker for %s", pen_id)
+
+    def _stop_worker(pen_id: str):
+        w = workers.get(pen_id)
+        if not w:
+            return
+        w.stop()
+        w.join(timeout=5)
+        workers.pop(pen_id, None)
+        EDGE_PEN_RISKS.pop(pen_id, None)
+        logger.info("Stopped camera worker for %s", pen_id)
+
+    for pen_id, url in cameras.items():
+        _start_worker(pen_id, url)
     logger.info("Started %d camera worker(s)", len(workers))
+
+    current_camera_map = dict(cameras)
+    last_config_refresh = 0.0
+    CONFIG_REFRESH_INTERVAL = max(10.0, float(os.getenv("EDGE_CONFIG_REFRESH_SEC", "30")))
+
+    def _sync_workers_from_cloud():
+        nonlocal current_camera_map
+        latest = fetch_camera_config()
+
+        # Remove workers for pens deleted/disabled in cloud.
+        for pen_id in list(workers.keys()):
+            if pen_id not in latest or not latest.get(pen_id):
+                _stop_worker(pen_id)
+
+        # Add new workers or restart workers with changed camera URLs.
+        for pen_id, url in latest.items():
+            if not url:
+                continue
+            if pen_id not in workers:
+                _start_worker(pen_id, url)
+                continue
+            if current_camera_map.get(pen_id) != url:
+                logger.info("Camera URL changed for %s; restarting worker", pen_id)
+                _stop_worker(pen_id)
+                _start_worker(pen_id, url)
+
+        current_camera_map = dict(latest)
 
     # ── graceful shutdown
     stop = False
@@ -367,6 +409,13 @@ def main():
         except Exception as exc:
             logger.error("Flush error: %s", exc)
 
+        if time.time() - last_config_refresh > CONFIG_REFRESH_INTERVAL:
+            try:
+                _sync_workers_from_cloud()
+                last_config_refresh = time.time()
+            except Exception as exc:
+                logger.warning("Camera config refresh failed: %s", exc)
+
         # Periodic model update check
         if time.time() - last_model_check > MODEL_CHECK_INTERVAL:
             check_and_update_model()
@@ -379,10 +428,8 @@ def main():
             time.sleep(1)
 
     # ── teardown
-    for w in workers:
-        w.stop()
-    for w in workers:
-        w.join(timeout=5)
+    for pen_id in list(workers.keys()):
+        _stop_worker(pen_id)
     logger.info("Edge agent stopped")
 
 
@@ -391,6 +438,7 @@ if __name__ == "__main__":
     
     # Track recording workers separate from camera workers
     recording_workers = {}
+    recording_stream_map: Dict[str, str] = {}
     
     def fetch_recording_schedules() -> Dict[str, dict]:
         """GET /api/edge/recording-schedule -> {pen_id: schedule_list}"""
@@ -445,8 +493,21 @@ if __name__ == "__main__":
                     )
                     rw.start()
                     recording_workers[pen_id] = rw
+                    recording_stream_map[pen_id] = url
                 else:
+                    if recording_stream_map.get(pen_id) != url:
+                        recording_workers[pen_id].update_stream_url(url)
+                        recording_stream_map[pen_id] = url
                     recording_workers[pen_id].update_schedules(sched)
+
+            # Stop recording workers whose pens were removed/disabled in cloud config.
+            for pen_id in list(recording_workers.keys()):
+                if pen_id not in cameras or not cameras.get(pen_id):
+                    try:
+                        recording_workers[pen_id].stop()
+                    finally:
+                        recording_workers.pop(pen_id, None)
+                        recording_stream_map.pop(pen_id, None)
                     
             time.sleep(15 * 60)  # Sleep 15 mins
             

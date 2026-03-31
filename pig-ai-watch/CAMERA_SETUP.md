@@ -2,6 +2,86 @@
 
 This guide will help you connect wireless IP cameras or CCTV systems to the Pig AI Watch monitoring system.
 
+## Cloud-First Setup (Recommended)
+
+Use this if you only know:
+
+- camera brand
+- camera IP address
+- username
+- password
+
+### Step-by-step
+
+1. Open Dashboard -> Camera Setup -> Add New Camera.
+2. Choose the target pen.
+3. Select camera brand.
+4. Enter IP, username, password.
+5. Click Test Connection.
+   - The wizard now auto-tries common RTSP paths for custom cameras when a full path is unknown.
+6. Click Save Camera.
+7. Open Monitoring for that pen and confirm video stream is live.
+
+Important:
+
+- For direct IP camera mode, you do not need to edit edge `.env` per camera.
+- Camera source is stored in cloud DB (`pens.camera_source`) from the dashboard.
+
+## When You Still Need Edge .env Updates
+
+You only need to edit edge env camera entries when using Edge Node Stream proxy mode.
+
+- Example: `FARM_CAM_1`, `FARM_CAM_2` in `edge/headless_proxy/.env`
+- Then dashboard camera path should be `pen_1`, `pen_2`, etc.
+
+This is required because the edge node must know which local LAN camera feed to publish.
+
+## Edge Node Stream Without Editing Edge .env Per Camera
+
+New behavior:
+
+- Dashboard now stores two values per pen:
+   - cloud stream path (`camera_source`) for dashboard playback (example `rtsp://mediamtx:8554/pen_2`)
+   - edge local source (`edge_camera_source`) built from IP/username/password/path
+- Edge agent pulls config from cloud and auto-manages workers:
+   - add worker when a camera is added in cloud
+   - restart worker when source changes
+   - stop/remove worker when camera is removed from cloud
+
+### Cloud-only steps for Edge Node mode
+
+1. Open Camera Setup in dashboard.
+2. Select `Edge Node Stream`.
+3. Enter stream path (`pen_1`, `pen_2`, etc.).
+4. Enter local camera details once:
+    - Camera IP
+    - Username
+    - Password
+    - Local RTSP Path (`stream1` default)
+5. Save camera.
+6. Repeat for additional cameras; no edge `.env` camera edits required.
+
+### Remove/replace camera from cloud
+
+1. Disconnect camera in dashboard (or replace source and save).
+2. Edge agent will detect config change and stop/restart the corresponding worker automatically.
+3. This prevents stale worker conflicts when replacing camera info.
+
+## Headless Old Laptop Operation (No Keyboard/Monitor)
+
+Yes, this is supported with proper startup setup.
+
+1. Enable BIOS/UEFI option: "Power On After AC Loss".
+2. Install edge services with `Restart=always`.
+3. Enable services at boot (`systemctl enable ...`).
+4. Keep remote access service available (SSH/Tailscale/AnyDesk).
+
+Expected behavior:
+
+- If power is interrupted, laptop reboots automatically.
+- Edge services start automatically.
+- Publishing resumes without local user interaction.
+
 ## Quick Start
 
 ### 1. Find Your Camera's RTSP URL

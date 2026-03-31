@@ -56,6 +56,7 @@ interface CameraConfig {
   username: string;
   password: string;
   rtspPath: string;
+  edgeLocalPath: string;
   rtspUrl: string;
   connectionStatus: 'untested' | 'testing' | 'connected' | 'failed' | 'waiting';
   isStaticIP: boolean;
@@ -178,6 +179,47 @@ function buildRtspUrl(config: CameraConfig): string {
     .replace('{rtspPath}', config.rtspPath || 'pen_1');
 }
 
+function buildEdgeLocalRtspUrl(config: CameraConfig): string {
+  const user = config.username || 'admin';
+  const pass = config.password || 'password';
+  const ip = config.ipAddress || '';
+  const port = String(config.port || 554);
+  if (!ip) return '';
+
+  const normalizedPath = (config.edgeLocalPath || 'stream1').replace(/^\/+/, '');
+  return `rtsp://${user}:${pass}@${ip}:${port}/${normalizedPath}`;
+}
+
+function buildRtspCandidates(config: CameraConfig): string[] {
+  const fromTemplate = buildRtspUrl(config);
+  const user = config.username || 'admin';
+  const pass = config.password || 'password';
+  const ip = config.ipAddress || '192.168.1.100';
+  const port = String(config.port || 554);
+
+  const commonPaths = [
+    '/stream1',
+    '/stream2',
+    '/Streaming/Channels/101',
+    '/Streaming/Channels/102',
+    '/h264Preview_01_main',
+    '/h264Preview_01_sub',
+    '/cam/realmonitor?channel=1&subtype=0',
+    '/cam/realmonitor?channel=1&subtype=1',
+    '/axis-media/media.amp',
+    '/onvif1',
+    '/live',
+    '/',
+  ];
+
+  const generated = commonPaths.map(
+    (path) => `rtsp://${user}:${pass}@${ip}:${port}${path}`,
+  );
+
+  const merged = [fromTemplate, ...generated, config.rtspUrl].filter(Boolean);
+  return [...new Set(merged)];
+}
+
 function createEmptyConfig(pen?: Pen): CameraConfig {
   return {
     id: generateId(),
@@ -191,6 +233,7 @@ function createEmptyConfig(pen?: Pen): CameraConfig {
     username: 'admin',
     password: '',
     rtspPath: '',
+    edgeLocalPath: 'stream1',
     rtspUrl: '',
     connectionStatus: 'untested',
     isStaticIP: true,
@@ -328,8 +371,16 @@ export default function CameraSetupPage() {
     switch (currentStep) {
       case 1: return activeCamera.brand !== '';
       case 2: return activeCamera.supportsRTSP;
-      case 3: return isEdgeOrCustom || (activeCamera.username !== '' && activeCamera.password !== '');
-      case 4: return isEdgeOrCustom || activeCamera.ipAddress !== '';
+      case 3:
+        if (activeCamera.brand === 'Edge Node Stream') {
+          return activeCamera.rtspPath.trim() !== '';
+        }
+        return isEdgeOrCustom || (activeCamera.username !== '' && activeCamera.password !== '');
+      case 4:
+        if (activeCamera.brand === 'Edge Node Stream') {
+          return activeCamera.ipAddress.trim() !== '' && activeCamera.username.trim() !== '' && activeCamera.password.trim() !== '';
+        }
+        return isEdgeOrCustom || activeCamera.ipAddress !== '';
       case 5: return activeCamera.penId !== null;
       case 6: return true;
       default: return false;
@@ -391,36 +442,56 @@ export default function CameraSetupPage() {
     }
 
     try {
-      toast.loading('Step 1/3: Checking if camera is on the network...', { id: 'cam-test' });
-      
-      // Call backend to do real ping + TCP + RTSP test
-      const result = await pensApi.testCamera(rtspUrl);
-      
-      if (result.success) {
-        updateCamera({ connectionStatus: 'connected' });
-        const details = result.details;
-        const resolution = details ? `${details.width}x${details.height}` : '';
-        toast.success(
-          `Camera connected! ${resolution ? `Resolution: ${resolution}` : ''}`,
-          { id: 'cam-test' }
+      const shouldAutoDetectPath = activeCamera.brand === 'Other / Custom' && !activeCamera.rtspUrl?.trim();
+      const candidates = shouldAutoDetectPath ? buildRtspCandidates(activeCamera) : [rtspUrl];
+      let lastFailure: any = null;
+
+      for (let idx = 0; idx < candidates.length; idx += 1) {
+        const candidate = candidates[idx];
+        toast.loading(
+          shouldAutoDetectPath
+            ? `Trying RTSP format ${idx + 1}/${candidates.length}...`
+            : 'Step 1/3: Checking if camera is on the network...',
+          { id: 'cam-test' },
+        );
+
+        const result = await pensApi.testCamera(candidate);
+        if (result.success) {
+          updateCamera({
+            connectionStatus: 'connected',
+            rtspUrl: candidate,
+            notes: shouldAutoDetectPath
+              ? `Auto-detected RTSP path: ${candidate.replace(/.*@[^/]+/, '<hidden-host>')}`
+              : activeCamera.notes,
+          });
+          const details = result.details;
+          const resolution = details ? `${details.width}x${details.height}` : '';
+          toast.success(
+            `Camera connected! ${resolution ? `Resolution: ${resolution}` : ''}`,
+            { id: 'cam-test' },
+          );
+          return;
+        }
+        lastFailure = result;
+      }
+
+      updateCamera({ connectionStatus: 'failed' });
+      const step = lastFailure?.details?.step;
+      if (step === 'network_check') {
+        toast.error(
+          `Camera at ${activeCamera.ipAddress} is offline — check power and WiFi connection.`,
+          { id: 'cam-test', duration: 6000 },
+        );
+      } else if (step === 'port_check') {
+        toast.error(
+          `Camera is online but RTSP port ${activeCamera.port} is not responding. Camera may be rebooting.`,
+          { id: 'cam-test', duration: 6000 },
         );
       } else {
-        updateCamera({ connectionStatus: 'failed' });
-        // Show specific error based on which step failed
-        const step = result.details?.step;
-        if (step === 'network_check') {
-          toast.error(
-            `Camera at ${activeCamera.ipAddress} is offline — check power and WiFi connection.`,
-            { id: 'cam-test', duration: 6000 }
-          );
-        } else if (step === 'port_check') {
-          toast.error(
-            `Camera is online but RTSP port ${activeCamera.port} is not responding. Camera may be rebooting.`,
-            { id: 'cam-test', duration: 6000 }
-          );
-        } else {
-          toast.error(result.message, { id: 'cam-test', duration: 6000 });
-        }
+        toast.error(lastFailure?.message || 'No compatible RTSP path found.', {
+          id: 'cam-test',
+          duration: 6000,
+        });
       }
     } catch (error: any) {
       updateCamera({ connectionStatus: 'failed' });
@@ -439,11 +510,13 @@ export default function CameraSetupPage() {
     try {
       const rtspUrl = buildRtspUrl(activeCamera);
       const isEdgeStream = activeCamera.brand === 'Edge Node Stream';
+      const edgeLocalRtspUrl = isEdgeStream ? buildEdgeLocalRtspUrl(activeCamera) : '';
       const shouldKeepWaiting = isEdgeStream && activeCamera.connectionStatus === 'waiting';
       if (activeCamera.penId) {
         // Update existing pen's camera_source via PUT
         await pensApi.update(activeCamera.penId, {
           camera_source: rtspUrl,
+          edge_camera_source: edgeLocalRtspUrl || null,
         });
         // Restart the stream so backend picks up the new URL
         try {
@@ -486,7 +559,7 @@ export default function CameraSetupPage() {
         // Might not be running, that's ok
       }
       // Clear camera_source in DB
-      const updated = await pensApi.update(pen.id, { camera_source: null });
+      const updated = await pensApi.update(pen.id, { camera_source: null, edge_camera_source: null });
       
       // Verify the update actually cleared the camera
       if (updated.camera_source) {
@@ -737,6 +810,87 @@ export default function CameraSetupPage() {
             <p className="text-xs text-gray-500 mt-2">
               Make sure this matches the path your edge worker pushes to (e.g. rtsp://&lt;cloud-ip&gt;:8554/<strong>pen_1</strong>).
             </p>
+          </div>
+
+          <div className="bg-white dark:bg-slate-800/50 rounded-xl border border-gray-200 dark:border-slate-700/50 p-5 space-y-4">
+            <div>
+              <h4 className="font-medium text-gray-900 dark:text-white">Edge Local Camera Source</h4>
+              <p className="text-sm text-gray-500 dark:text-slate-400 mt-1">
+                This is what the edge laptop will pull from cloud config. Fill this once so you no longer edit edge `.env` per camera.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">
+                  Camera IP <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={activeCamera.ipAddress}
+                  onChange={e => updateCamera({ ipAddress: e.target.value })}
+                  placeholder="192.168.5.192"
+                  className="w-full px-4 py-2.5 rounded-lg border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-slate-500 focus:ring-2 focus:ring-primary-500 transition-all"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">
+                  RTSP Port
+                </label>
+                <input
+                  type="number"
+                  value={activeCamera.port}
+                  onChange={e => updateCamera({ port: parseInt(e.target.value, 10) || 554 })}
+                  placeholder="554"
+                  className="w-full px-4 py-2.5 rounded-lg border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-slate-500 focus:ring-2 focus:ring-primary-500 transition-all"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">
+                  Username <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={activeCamera.username}
+                  onChange={e => updateCamera({ username: e.target.value })}
+                  placeholder="admin"
+                  className="w-full px-4 py-2.5 rounded-lg border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-slate-500 focus:ring-2 focus:ring-primary-500 transition-all"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">
+                  Password <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="password"
+                  value={activeCamera.password}
+                  onChange={e => updateCamera({ password: e.target.value })}
+                  placeholder="camera password"
+                  className="w-full px-4 py-2.5 rounded-lg border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-slate-500 focus:ring-2 focus:ring-primary-500 transition-all"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">
+                Local RTSP Path
+              </label>
+              <input
+                type="text"
+                value={activeCamera.edgeLocalPath}
+                onChange={e => updateCamera({ edgeLocalPath: e.target.value })}
+                placeholder="stream1"
+                className="w-full px-4 py-2.5 rounded-lg border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-slate-500 focus:ring-2 focus:ring-primary-500 transition-all"
+              />
+              <p className="text-xs text-gray-500 mt-2">
+                Common values: <strong>stream1</strong>, <strong>Streaming/Channels/101</strong>, <strong>h264Preview_01_main</strong>.
+              </p>
+            </div>
+
+            <div className="rounded-lg bg-gray-50 dark:bg-slate-900/40 border border-gray-200 dark:border-slate-700 p-3">
+              <p className="text-xs text-gray-500 dark:text-slate-400 mb-1">Edge local URL preview</p>
+              <code className="text-xs break-all text-gray-800 dark:text-slate-200">{buildEdgeLocalRtspUrl(activeCamera) || 'Fill IP, username, and password to generate URL'}</code>
+            </div>
           </div>
         </div>
       );

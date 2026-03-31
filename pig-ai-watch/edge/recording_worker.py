@@ -50,6 +50,11 @@ class RecordingWorker:
     def update_schedules(self, new_schedules: list):
         self.schedules = new_schedules
 
+    def update_stream_url(self, new_stream_url: str):
+        if new_stream_url and new_stream_url != self.stream_url:
+            logger.info("Updating stream URL for %s", self.pen_id)
+            self.stream_url = new_stream_url
+
     def get_current_mode(self) -> str:
         # Determine continuous, detection, or none based on current time
         now = datetime.now()

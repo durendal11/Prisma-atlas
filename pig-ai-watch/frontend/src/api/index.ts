@@ -300,12 +300,12 @@ export const pensApi = {
     return response.data;
   },
   
-  create: async (data: { name: string; location?: string; camera_source?: string }): Promise<Pen> => {
+  create: async (data: { name: string; location?: string; camera_source?: string; edge_camera_source?: string | null }): Promise<Pen> => {
     const response = await api.post('/api/pens', data);
     return response.data;
   },
 
-  update: async (id: number, data: { name?: string; location?: string; camera_source?: string | null; is_active?: boolean }): Promise<Pen> => {
+  update: async (id: number, data: { name?: string; location?: string; camera_source?: string | null; edge_camera_source?: string | null; is_active?: boolean }): Promise<Pen> => {
     const response = await api.put(`/api/pens/${id}`, data);
     return response.data;
   },
