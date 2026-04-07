@@ -130,6 +130,14 @@ active → pregnant → farrowing → lactating → weaned → active
 Instead of continuous cloud recording, the system utilizes "Smart Edge Recording". Video chunking runs natively on edge devices and triggers **only** when crushing risk spikes (>= 40%) are detected by the dual-pipeline ONNX YOLO worker. 
 - **Local Storage:** Chunks (.mp4) are saved directly on the edge, bypassing heavy cloud/VRAM bandwidth.
 - **UI Gating:** Frontend continuous recording functionality has been deprecated explicitly in favor of "Detection Only" to maximize disk retention dynamically.
+- **Cloud Model Sync:** Edge checks `/api/edge/model/version` and downloads from `/api/edge/model/download` when the model MD5 changes.
+- **Version Tracking on Edge:** The active model version is persisted locally (`model_version.json`), defaults to `pig-ai-watch-alpha`, and is logged at startup.
+- **Periodic Update Loop:** Edge re-checks for model updates hourly to keep deployments aligned with the latest cloud-uploaded model.
+
+### Recording Schedule UX
+
+- **Responsive schedule grid:** Desktop uses horizontal-hour / vertical-day layout, while mobile uses vertical-hour / horizontal-day layout.
+- **Drag-to-paint interaction:** Click-and-drag editing for the full 168-cell weekly matrix remains supported across both layouts.
 
 ## 7. Live Multi-Camera Monitoring
 
@@ -149,6 +157,7 @@ Instead of continuous cloud recording, the system utilizes "Smart Edge Recording
 - Connection testing with status indicators (`untested` → `testing` → `connected` / `failed`)
 - Camera-to-pen assignment
 - Network camera auto-scanning (`scan_cameras.py`)
+- Edge stream-path onboarding with a dedicated visual explainer modal for Camera -> Edge Node -> Cloud flow
 
 ### Supported Camera Types
 
@@ -192,6 +201,7 @@ Instead of continuous cloud recording, the system utilizes "Smart Edge Recording
 - **Rolling chart**: health, risk, and piglet count in a ±25 frame window around the current position
 - **Configurable**: pen selection, 6h–168h window
 - **API**: `GET /api/farrowing/replay/{pen_id}?hours=24`
+- Built-in localized Replay help modal with architecture and operator workflow guidance
 
 ---
 
@@ -240,6 +250,7 @@ Instead of continuous cloud recording, the system utilizes "Smart Edge Recording
 ## 12. Real-Time Alerts & Events
 
 - **WebSocket-based** push notifications (`/ws/detections`, `/ws/detections/{pen_id}`)
+- **Per-user localized push payloads** via Firebase using each user's stored language preference (`en`/`fil`)
 - Alert types:
   - 🔴 Crushing risk
   - 🟠 Prolonged inactivity (no posture change >45 min)
@@ -248,6 +259,7 @@ Instead of continuous cloud recording, the system utilizes "Smart Edge Recording
   -  Posture switching anomaly (>6 changes in 30 min)
 - Event logging with type classification
 - Configurable alert thresholds via environment variables
+- Guided, localized info modals added to key operational pages (Alerts, Farrowing, Replay, Recording Schedule)
 
 ---
 
@@ -269,6 +281,8 @@ Instead of continuous cloud recording, the system utilizes "Smart Edge Recording
   - Alert text and severity levels
   - Farrowing likelihood descriptions
   - Health and cleanliness scores
+- Expanded translation coverage for page-level educational modals (Camera Setup, Alerts, Farrowing, Replay, Recording Scheduler)
+- Backend translation utility now supports localized push alert title/body mapping for edge-to-cloud alert delivery
 
 ---
 
@@ -294,7 +308,7 @@ Instead of continuous cloud recording, the system utilizes "Smart Edge Recording
 
 - Persistent volumes: `postgres_data` (DB), `model_cache` (YOLO weights)
 - Health-check dependencies, `restart: unless-stopped`
-- **Alembic migrations** for schema management (6 versions)
+- **Alembic migrations** for schema management (including user language preference support for localized alert delivery)
 
 ### Manual Start
 
@@ -425,6 +439,18 @@ The algorithms and heuristics in Pig AI Watch are based on established veterinar
 |----------|------------------------------|--------------------------|
 | WS       | `/ws/detections`             | All real-time detections |
 | WS       | `/ws/detections/{pen_id}`    | Per-pen detections       |
+
+### Edge Device Integration
+| Method | Endpoint                      | Description                                   |
+|--------|-------------------------------|-----------------------------------------------|
+| POST   | `/api/edge/detections`        | Single detection payload from edge            |
+| POST   | `/api/edge/detections/batch`  | Offline-sync detection batch push             |
+| GET    | `/api/edge/config`            | Edge camera/pen configuration                 |
+| GET    | `/api/edge/model/version`     | Current cloud model metadata (filename + md5) |
+| GET    | `/api/edge/model/download`    | Download latest model file for edge           |
+| GET    | `/api/edge/recording-schedule`| Fetch per-pen recording schedules             |
+| POST   | `/api/edge/recordings`        | Upload edge recording metadata                |
+| POST   | `/api/edge/storage-status`    | Report edge storage health/capacity           |
 
 ### Tasks & Cleaning
 | Method | Endpoint                                           | Description                  |
