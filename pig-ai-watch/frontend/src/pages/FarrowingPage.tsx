@@ -21,6 +21,8 @@ import {
   LineChart, Line, ReferenceLine,
 } from 'recharts';
 import { OverdueBanner } from '@/components/OverdueBanner';
+import { PageInfoButton } from '@/components/ui/PageInfoModal';
+import { Share2, Activity, PlaySquare, FileText, ChevronRight, X, ChevronDown } from 'lucide-react';
 
 interface DueSow {
   id: number;
@@ -74,8 +76,10 @@ const urgencyColors = {
   normal: 'bg-blue-100 text-blue-700 border-blue-300 dark:bg-blue-900/40 dark:text-blue-300 dark:border-blue-700/50',
 };
 
+import { useTranslation } from '@/hooks/useTranslation';
+
 export default function FarrowingPage() {
-  // const { t } = useTranslation();
+  const { t } = useTranslation();
   const api = useApi();
   
   const [dueSows, setDueSows] = useState<{ sows: DueSow[]; critical_count: number; high_count: number; watch_count: number }>({ sows: [], critical_count: 0, high_count: 0, watch_count: 0 });
@@ -89,6 +93,7 @@ export default function FarrowingPage() {
   const [comparisonSowId, setComparisonSowId] = useState<number | null>(null);
   const [comparison, setComparison] = useState<PrePostComparison | null>(null);
   const [compLoading, setCompLoading] = useState(false);
+  const [showInfo, setShowInfo] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -186,7 +191,10 @@ export default function FarrowingPage() {
             <HeartIcon className="w-8 h-8 text-pink-600 dark:text-pink-400" />
           </div>
           <div>
-            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Farrowing Management</h1>
+            <div className="flex items-center gap-2">
+              <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Farrowing Management</h1>
+              <PageInfoButton onClick={() => setShowInfo(true)} />
+            </div>
             <p className="text-gray-500 dark:text-slate-400">Track sow farrowing and piglet records</p>
           </div>
         </div>
@@ -782,6 +790,146 @@ export default function FarrowingPage() {
           <p className="text-center py-6 text-gray-400 dark:text-slate-500 text-sm">{comparison.message}</p>
         )}
       </div>
+
+      {/* ── Info Modal ── */}
+      {showInfo && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in overflow-y-auto">
+          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-xl border border-gray-200 dark:border-slate-700 w-full max-w-4xl overflow-hidden animate-scale-in my-8 relative">
+            <div className="sticky top-0 z-20 flex items-center justify-between p-5 border-b border-gray-100 dark:border-slate-700/50 bg-white/95 dark:bg-slate-800/95 backdrop-blur">
+              <div className="flex items-center gap-3 text-pink-600 dark:text-pink-400 font-bold text-lg">
+                <HeartIcon className="w-6 h-6" />
+                <h2 dangerouslySetInnerHTML={{ __html: t('farrowingModalTitle') }} />
+              </div>
+              <button 
+                onClick={() => setShowInfo(false)}
+                className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="p-6 overflow-y-auto max-h-[70vh]">
+              {/* Animation Container */}
+              <div className="relative flex flex-col md:flex-row items-center justify-between mb-10 py-12 px-4 sm:px-8 bg-pink-600 rounded-2xl overflow-hidden shadow-inner min-h-[220px] w-full">
+                
+                <style>{`
+                  @keyframes flowRightFade {
+                    0% { transform: translateX(-10px); opacity: 0; }
+                    20% { opacity: 1; }
+                    80% { opacity: 1; }
+                    100% { transform: translateX(20px); opacity: 0; }
+                  }
+                  .animate-flow-right-fade { animation: flowRightFade 1.5s linear infinite; }
+                  .delay-75 { animation-delay: 0.75s; }
+                `}</style>
+
+                {/* Background stars/dots */}
+                <div className="absolute top-1/4 left-1/4 w-1.5 h-1.5 bg-white/70 rounded-full animate-pulse" />
+                <div className="absolute top-3/4 right-1/4 w-2 h-2 bg-white/50 rounded-full animate-[pulse_3s_ease-in-out_infinite]" />
+                <div className="absolute top-1/3 right-[15%] w-1 h-1 bg-white/80 rounded-full animate-[pulse_2s_ease-in-out_infinite]" />
+                <div className="absolute bottom-[15%] left-[20%] w-1.5 h-1.5 bg-white/60 rounded-full animate-[pulse_4s_ease-in-out_infinite]" />
+                <div className="absolute inset-0 bg-gradient-to-r from-pink-600/50 to-purple-600/50 mix-blend-overlay"></div>
+                
+                {/* Step 1: AI Sensing */}
+                <div className="relative z-10 flex flex-col items-center flex-shrink-0 mb-6 md:mb-0 group">
+                  <div className="w-16 h-16 sm:w-20 sm:h-20 bg-white shadow-xl rounded-2xl flex items-center justify-center border-2 border-pink-100 relative group-hover:-translate-y-1 transition-transform">
+                    <Activity className="w-8 h-8 sm:w-10 sm:h-10 text-pink-500 animate-pulse" strokeWidth={2} />
+                    <div className="absolute inset-0 rounded-2xl shadow-[inset_0_0_15px_rgba(236,72,153,0.1)] pointer-events-none"></div>
+                  </div>
+                  <span className="absolute -bottom-8 text-xs font-bold text-white uppercase tracking-wider whitespace-nowrap bg-black/20 px-2 py-1 rounded-md backdrop-blur-sm">AI Sensing</span>
+                </div>
+
+                {/* Flow 1 */}
+                <div className="relative flex-1 flex items-center justify-center px-1 sm:px-3 mx-1 hidden md:flex">
+                  <div className="absolute w-full border-t-[3px] border-dotted border-white/40" />
+                  <div className="relative w-full flex justify-center gap-2 overflow-hidden py-4">
+                    <ChevronRight className="w-6 h-6 text-pink-200 animate-flow-right-fade drop-shadow-md" strokeWidth={3} />
+                    <ChevronRight className="w-6 h-6 text-pink-200 animate-flow-right-fade delay-75 drop-shadow-md" strokeWidth={3} />
+                  </div>
+                </div>
+                
+                {/* Mobile Flow Indicator */}
+                <div className="md:hidden py-4 text-white/50"><ChevronDown className="w-6 h-6 animate-bounce" /></div>
+
+                {/* Step 2: Live Tracking */}
+                <div className="relative z-10 flex flex-col items-center flex-shrink-0 mb-6 md:mb-0 group">
+                  <div className="w-16 h-16 sm:w-20 sm:h-20 bg-white/10 backdrop-blur-md rounded-full flex items-center justify-center shadow-[0_8px_30px_rgba(0,0,0,0.2)] border-2 border-white/30 relative group-hover:bg-white/20 transition-all">
+                     <PlaySquare className="w-8 h-8 sm:w-10 sm:h-10 text-white" strokeWidth={1.5} />
+                     {/* Radar ping effect */}
+                     <div className="absolute w-full h-full border border-white/50 rounded-full animate-ping"></div>
+                  </div>
+                  <span className="absolute -bottom-8 text-xs font-bold text-white uppercase tracking-wider whitespace-nowrap bg-black/20 px-2 py-1 rounded-md backdrop-blur-sm">Status Match</span>
+                </div>
+
+                {/* Flow 2 */}
+                <div className="relative flex-1 flex items-center justify-center px-1 sm:px-3 mx-1 hidden md:flex">
+                  <div className="absolute w-full border-t-[3px] border-dotted border-white/40" />
+                  <div className="relative w-full flex justify-center gap-2 overflow-hidden py-4">
+                    <ChevronRight className="w-6 h-6 text-pink-200 animate-flow-right-fade drop-shadow-md" strokeWidth={3} />
+                    <ChevronRight className="w-6 h-6 text-pink-200 animate-flow-right-fade delay-75 drop-shadow-md" strokeWidth={3} />
+                  </div>
+                </div>
+                
+                {/* Mobile Flow Indicator */}
+                <div className="md:hidden py-4 text-white/50"><ChevronDown className="w-6 h-6 animate-bounce" /></div>
+
+                {/* Step 3: Clinical Report */}
+                <div className="relative z-10 flex flex-col items-center flex-shrink-0 group">
+                  <div className="w-16 h-16 sm:w-20 sm:h-20 bg-white shadow-xl rounded-lg flex items-center justify-center border-l-4 border-pink-400 relative group-hover:rotate-2 transition-transform">
+                    <FileText className="w-8 h-8 sm:w-10 sm:h-10 text-slate-700" strokeWidth={1.5} />
+                    {/* Mock checklist items */}
+                    <div className="absolute top-4 right-4 w-2 h-2 bg-green-400 rounded-full"></div>
+                    <div className="absolute top-8 right-4 w-2 h-2 bg-pink-400 rounded-full"></div>
+                  </div>
+                  <span className="absolute -bottom-8 text-xs font-bold text-white uppercase tracking-wider whitespace-nowrap bg-black/20 px-2 py-1 rounded-md backdrop-blur-sm">Clinical Log</span>
+                </div>
+              </div>
+
+              {/* Explanations */}
+              <div className="space-y-8">
+                <div className="grid md:grid-cols-3 gap-6">
+                  <div className="bg-slate-50 dark:bg-slate-800/50 p-5 rounded-xl border border-slate-100 dark:border-slate-700">
+                    <div className="w-10 h-10 rounded-full bg-pink-100 dark:bg-pink-900/50 flex items-center justify-center text-pink-600 dark:text-pink-400 mb-3 font-bold text-lg">1</div>
+                    <h3 className="font-bold text-gray-900 dark:text-white mb-2">{t('farrowingModalStep1Title')}</h3>
+                    <p className="text-sm text-gray-600 dark:text-slate-400 leading-relaxed" dangerouslySetInnerHTML={{ __html: t('farrowingModalStep1Desc') }} />
+                  </div>
+                  
+                  <div className="bg-slate-50 dark:bg-slate-800/50 p-5 rounded-xl border border-slate-100 dark:border-slate-700">
+                    <div className="w-10 h-10 rounded-full bg-purple-100 dark:bg-purple-900/50 flex items-center justify-center text-purple-600 dark:text-purple-400 mb-3 font-bold text-lg">2</div>
+                    <h3 className="font-bold text-gray-900 dark:text-white mb-2">{t('farrowingModalStep2Title')}</h3>
+                    <p className="text-sm text-gray-600 dark:text-slate-400 leading-relaxed" dangerouslySetInnerHTML={{ __html: t('farrowingModalStep2Desc') }} />
+                  </div>
+
+                  <div className="bg-slate-50 dark:bg-slate-800/50 p-5 rounded-xl border border-slate-100 dark:border-slate-700">
+                    <div className="w-10 h-10 rounded-full bg-blue-100 dark:bg-blue-900/50 flex items-center justify-center text-blue-600 dark:text-blue-400 mb-3 font-bold text-lg">3</div>
+                    <h3 className="font-bold text-gray-900 dark:text-white mb-2">{t('farrowingModalStep3Title')}</h3>
+                    <p className="text-sm text-gray-600 dark:text-slate-400 leading-relaxed" dangerouslySetInnerHTML={{ __html: t('farrowingModalStep3Desc') }} />
+                  </div>
+                </div>
+
+                <div className="bg-indigo-50 dark:bg-indigo-900/20 p-5 rounded-xl border border-indigo-100 dark:border-indigo-800/50 flex gap-4">
+                  <div className="shrink-0 mt-1">
+                    <Share2 className="w-6 h-6 text-indigo-500" />
+                  </div>
+                  <div>
+                    <h4 className="font-semibold text-indigo-900 dark:text-indigo-300 mb-1">{t('farrowingModalToolTitle')}</h4>
+                    <p className="text-sm text-indigo-700 dark:text-indigo-400 leading-relaxed" dangerouslySetInnerHTML={{ __html: t('farrowingModalToolDesc') }} />
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <div className="p-4 bg-gray-50 dark:bg-slate-800/80 border-t border-gray-100 dark:border-slate-700/50 flex justify-end shrink-0">
+              <button 
+                onClick={() => setShowInfo(false)}
+                className="px-6 py-2.5 bg-pink-600 hover:bg-pink-700 text-white text-sm font-medium rounded-lg transition-colors shadow-md shadow-pink-500/20"
+              >
+                {t('farrowingModalCloseButton') || 'I Understand'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

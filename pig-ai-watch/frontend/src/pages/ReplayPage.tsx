@@ -16,10 +16,14 @@ import {
   X,
   Video,
   Download,
-  HardDrive
+  HardDrive,
+  ChevronRight,
+  Database,
+  MonitorPlay
 } from 'lucide-react';
 import { getReplayData, ReplayData, ReplayFrame } from '@/services/behaviorLogger';
 import { recordingApi } from '@/api';
+import { useTranslation } from '@/hooks/useTranslation';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine,
 } from 'recharts';
@@ -151,6 +155,7 @@ function RecordingsTab({ penId }: { penId: number }) {
 }
 
 export default function ReplayPage() {
+  const { t } = useTranslation();
   const [searchParams] = useSearchParams();
   const [activeTab, setActiveTab] = useState<'simulation' | 'recordings'>('simulation');
   const [showInfo, setShowInfo] = useState(false);
@@ -488,7 +493,7 @@ export default function ReplayPage() {
             <div className="flex items-center justify-between p-4 border-b border-gray-100 dark:border-slate-700/50">
               <div className="flex items-center gap-2 text-indigo-600 dark:text-indigo-400 font-semibold">
                 <Info className="w-5 h-5" />
-                <h2>About Replay Mode</h2>
+                <h2>{t('replayModalTitle')}</h2>
               </div>
               <button 
                 onClick={() => setShowInfo(false)}
@@ -501,35 +506,68 @@ export default function ReplayPage() {
             
             <div className="p-5 space-y-4 max-h-[80vh] overflow-y-auto">
               <div className="text-sm text-gray-600 dark:text-slate-300 leading-relaxed space-y-3">
-                <p>
-                  The <strong className="text-gray-900 dark:text-white">Replay Mode</strong> allows you to review historical behavior, metrics, and risk factors for a specific pen over a past timeframe. It simulates real-time data playback to help you retrospectively analyze events.
-                </p>
+                <p dangerouslySetInnerHTML={{ __html: t('replayModalIntro') }} />
                 <div className="bg-indigo-50 dark:bg-indigo-900/30 p-3 rounded-lg border border-indigo-100 dark:border-indigo-800/50">
-                  <strong className="text-indigo-800 dark:text-indigo-300 flex items-center gap-1.5 mb-1">
-                    Storage Architecture
-                  </strong>
-                  Video recordings and telemetry logs are securely fetched from <strong className="text-gray-900 dark:text-white">local drive storage</strong>. By not relying on cloud or temporary session storage, Replay Mode ensures fast, offline playback while keeping your farm's data completely private.
+                  <strong className="text-indigo-800 dark:text-indigo-300 flex items-center gap-1.5 mb-1" dangerouslySetInnerHTML={{ __html: t('replayModalArchitectureTitle') }} />
+                  <span dangerouslySetInnerHTML={{ __html: t('replayModalArchitectureDesc') }} />
                 </div>
               </div>
               
+              {/* Animation Container */}
+              <div className="relative flex flex-row items-center justify-between my-6 py-10 px-2 sm:px-6 bg-indigo-600 rounded-2xl overflow-hidden shadow-inner min-h-[200px] w-full">
+                
+                <style>{`
+                  @keyframes flowRight {
+                    0% { transform: translateX(-10px); opacity: 0; }
+                    20% { opacity: 1; }
+                    80% { opacity: 1; }
+                    100% { transform: translateX(20px); opacity: 0; }
+                  }
+                  .animate-flow-right { animation: flowRight 1.5s linear infinite; }
+                  .delay-75 { animation-delay: 0.75s; }
+                `}</style>
+
+                {/* Background stars/dots */}
+                <div className="absolute top-1/4 left-1/4 w-1.5 h-1.5 bg-white/70 rounded-full animate-pulse" />
+                <div className="absolute top-3/4 right-1/4 w-2 h-2 bg-white/50 rounded-full animate-[pulse_3s_ease-in-out_infinite]" />
+                <div className="absolute top-1/3 right-[15%] w-1 h-1 bg-white/80 rounded-full animate-[pulse_2s_ease-in-out_infinite]" />
+                <div className="absolute bottom-[15%] left-[20%] w-1.5 h-1.5 bg-white/60 rounded-full animate-[pulse_4s_ease-in-out_infinite]" />
+                
+                {/* Left: Edge Storage */}
+                <div className="relative z-10 flex flex-col items-center flex-shrink-0 group">
+                  <div className="w-16 h-16 sm:w-20 sm:h-20 bg-[#2d3748] rounded-xl flex items-center justify-center shadow-[0_8px_30px_rgba(0,0,0,0.5)] border-[3px] border-[#1a202c] relative z-10">
+                     <Database className="w-8 h-8 sm:w-10 sm:h-10 text-indigo-400 group-hover:text-indigo-300 transition-colors animate-pulse" strokeWidth={1.5} />
+                     <div className="absolute inset-0 rounded-xl shadow-[inset_0_0_15px_rgba(99,102,241,0.2)] pointer-events-none"></div>
+                  </div>
+                  <span className="absolute -bottom-8 text-[10px] sm:text-xs font-bold text-white/95 uppercase tracking-wide whitespace-nowrap">Local Drive</span>
+                </div>
+
+                {/* Flow: Data fetch */}
+                <div className="relative flex-1 flex items-center justify-center px-1 sm:px-3 mx-1">
+                  <div className="absolute w-full border-t-2 border-dashed border-white/30" />
+                  <div className="relative w-full flex justify-center gap-0 sm:gap-2 overflow-hidden py-4">
+                    <ChevronRight className="w-5 h-5 text-indigo-300 animate-flow-right drop-shadow-md" strokeWidth={3} />
+                    <ChevronRight className="w-5 h-5 text-indigo-300 animate-flow-right delay-75 drop-shadow-md hidden sm:block" strokeWidth={3} />
+                  </div>
+                </div>
+
+                {/* Right: Dashboard / Display */}
+                <div className="relative z-10 flex flex-col items-center flex-shrink-0">
+                  <div className="w-16 h-16 sm:w-20 sm:h-20 bg-white rounded-xl flex items-center justify-center shadow-[0_8px_30px_rgba(0,0,0,0.4)] border-2 border-gray-100 relative z-10">
+                    <MonitorPlay className="w-8 h-8 sm:w-10 sm:h-10 text-indigo-600" strokeWidth={1.5} />
+                  </div>
+                  <span className="absolute -bottom-8 text-[10px] sm:text-xs font-bold text-white/95 uppercase tracking-wide">Replay Dashboard</span>
+                </div>
+              </div>
+
               <div>
-                <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">Step-by-step Guide</h3>
+                <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-3">{t('replayModalGuideTitle')}</h3>
                 <ol className="list-decimal list-inside space-y-3 text-sm text-gray-600 dark:text-slate-300 ml-1">
-                  <li>
-                    <strong className="text-gray-800 dark:text-slate-200">Load Data:</strong> Select the Pen ID and amount of past hours you want to analyze, then click "Load".
-                  </li>
-                  <li>
-                    <strong className="text-gray-800 dark:text-slate-200">Timeline Scrubbing:</strong> Use the range slider below the timeline to jump directly to any specific timestamp within your loaded data.
-                  </li>
-                  <li>
-                    <strong className="text-gray-800 dark:text-slate-200">Playback Controls:</strong> Play, pause, or step frame-by-frame forward or backward using the buttons. You can also adjust the playback speed (1x up to 8x).
-                  </li>
-                  <li>
-                    <strong className="text-gray-800 dark:text-slate-200">Monitor Metrics:</strong> The metric cards (Posture, Piglets, Crush Risk, Health, etc.) update live during playback to reflect the system's analysis at that exact moment in time.
-                  </li>
-                  <li>
-                    <strong className="text-gray-800 dark:text-slate-200">Analyze Trends:</strong> The rolling chart at the bottom visualizes Health and Risk data surrounding the current frame (±25 frames), allowing you to spot anomalies leading up to an event.
-                  </li>
+                  <li dangerouslySetInnerHTML={{ __html: t('replayModalStep1') }} />
+                  <li dangerouslySetInnerHTML={{ __html: t('replayModalStep2') }} />
+                  <li dangerouslySetInnerHTML={{ __html: t('replayModalStep3') }} />
+                  <li dangerouslySetInnerHTML={{ __html: t('replayModalStep4') }} />
+                  <li dangerouslySetInnerHTML={{ __html: t('replayModalStep5') }} />
                 </ol>
               </div>
             </div>
@@ -539,7 +577,7 @@ export default function ReplayPage() {
                 onClick={() => setShowInfo(false)}
                 className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-lg transition-colors"
               >
-                Got it
+                {t('replayModalCloseButton') || "Got it"}
               </button>
             </div>
           </div>

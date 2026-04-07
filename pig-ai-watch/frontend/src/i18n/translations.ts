@@ -68,6 +68,65 @@ export const translations = {
     theme: 'Theme',
     light: 'Light',
     dark: 'Dark',
+
+    // Modals
+    cameraModalTitle: 'Understanding Camera Setup pipeline',
+    cameraModalIntro: 'The Pig-AI Watch uses Real-Time Streaming Protocol (<b>RTSP</b>) to capture live video directly from your NVR or IP Camera systems.',
+    cameraModalStep1Title: 'Adding the Stream',
+    cameraModalStep1Desc: 'Find your camera manufacturer\'s standard RTSP link formats. Usually formatted as <code class="bg-slate-200 dark:bg-slate-700 px-1 py-0.5 rounded text-xs">rtsp://user:pass@IP:554/stream</code>. The backend verifies the stream\'s availability.',
+    cameraModalStep2Title: 'Automatic Allocation',
+    cameraModalStep2Desc: 'Once you bind the setup camera link, MediaMTX handles the WebRTC proxy to expose video locally without latency, while the <b>YOLOv8 Edge Models</b> tap into the RTSP frames to search for farrowing behavior.',
+    cameraModalWarningTitle: 'Device Connectivity Notes',
+    cameraModalWarningDesc: 'You must be deployed on the <b>same local area network</b> as the cameras. If your network partitions the IoT devices on a different VLAN, this system requires routing setup to view streams.',
+    
+    // Default Button
+    modalBtnUnderstand: 'I Understand',
+    modalBtnGotIt: 'Got it',
+    
+    // Replay Modal
+    replayModalTitle: 'About Replay Mode',
+    replayModalIntro: 'The <strong>Replay Mode</strong> allows you to review historical behavior, metrics, and risk factors for a specific pen over a past timeframe. It simulates real-time data playback to help you retrospectively analyze events.',
+    replayModalArchitectureTitle: 'Storage Architecture',
+    replayModalArchitectureDesc: 'Video recordings and telemetry logs are securely fetched from <strong>local drive storage</strong>. By not relying on cloud or temporary session storage, Replay Mode ensures fast, offline playback while keeping your farm\'s data completely private.',
+    replayModalGuideTitle: 'Step-by-step Guide',
+    replayModalStep1: '<strong>Load Data:</strong> Select the Pen ID and amount of past hours you want to analyze, then click "Load".',
+    replayModalStep2: '<strong>Timeline Scrubbing:</strong> Use the range slider below the timeline to jump directly to any specific timestamp within your loaded data.',
+    replayModalStep3: '<strong>Playback Controls:</strong> Play, pause, or step frame-by-frame forward or backward using the buttons. You can also adjust the playback speed (1x up to 8x).',
+    replayModalStep4: '<strong>Monitor Metrics:</strong> The metric cards (Posture, Piglets, Crush Risk, Health, etc.) update live during playback to reflect the system\'s analysis at that exact moment in time.',
+    replayModalStep5: '<strong>Analyze Trends:</strong> The rolling chart at the bottom visualizes Health and Risk data surrounding the current frame (±25 frames), allowing you to spot anomalies leading up to an event.',
+    replayModalCloseButton: 'Got it',
+
+    // Farrowing Modal
+    farrowingModalTitle: 'How Farrowing Tracking Works',
+    farrowingModalStep1Title: 'Automated Sensing',
+    farrowingModalStep1Desc: 'PrismaAtlas\'s AI constantly watches the pens to track piglet ejections, duration of labor, stillness intervals, and maternal distress automatically without human interference.',
+    farrowingModalStep2Title: 'Pre/Post Matching',
+    farrowingModalStep2Desc: 'The system links the live camera behavior telemetry against the sow’s Expected Farrowing Date, isolating "Pre" and "Post" birthing phases for accurate analytics.',
+    farrowingModalStep3Title: 'Clinical Interpretation',
+    farrowingModalStep3Desc: 'Intervals and risk factors are automatically compiled into a Clinical Interpretation text summary, generating readable, actionable health logs instantly for farmers.',
+    farrowingModalToolTitle: 'Timeline Comparison Tool',
+    farrowingModalToolDesc: 'Scroll down to the <b>Pre/Post Farrowing Comparison</b> section. By selecting a previously recorded sow, you can view granular charts comparing exactly how her stress, posture, and crushing risk shifted before vs. after delivering piglets.',
+    farrowingModalCloseButton: 'I Understand',
+
+    // Alerts Modal
+    alertsModalTitle: 'Understanding Rules & Automations',
+    alertsModalStep1Title: 'Automated Rules',
+    alertsModalStep1Desc: 'The AI constantly evaluates rules like severe piglet crushing, posture distress, and birth events directly at the edge layer to avoid camera lagging.',
+    alertsModalStep2Title: 'Central Triage',
+    alertsModalStep2Desc: 'System logic tags events by severity. Critical alerts (like active crushing risk) are pushed instantly up to the server to wake up related UI and background tasks.',
+    alertsModalStep3Title: 'Multi-Platform Delivery',
+    alertsModalStep3Desc: 'From the app inbox directly to your phone. Use filters below to search by critical needs, or resolve alerts you\'ve processed and sorted.',
+    alertsModalWarningTitle: 'Push Notifications Warning',
+    alertsModalWarningDesc: 'You can receive immediate browser or mobile push alerts for Critical Tasks and Alarms. <b>You must actively go to your System Settings page and click "Enable Push Notifications" for this device!</b> If notifications aren\'t showing up, ensure your browser/mobile operating system hasn\'t blocked notifications for this site.',
+
+    // Recording Schedule Modal
+    scheduleModalTitle: 'How to use the Recording Scheduler',
+    scheduleModalStep1Title: 'Painting Schedules',
+    scheduleModalStep1Desc: 'Don\'t click individual blocks! <b>Click and drag your mouse across multiple hours</b> to paint or erase recording times rapidly.',
+    scheduleModalStep2Title: 'Military Time (24h)',
+    scheduleModalStep2Desc: 'The grid runs from 00:00 (12:00 AM Midnight) to 23:00 (11:00 PM) in 1-hour chunks. 08:00 is 8 AM, 15:00 is 3 PM.',
+    scheduleModalStep3Title: 'Processing Impact',
+    scheduleModalStep3Desc: 'Full 24/7 continuous recording maximizes hard-drive usage and heavily taxes the Edge Device CPU. Only record chunks where farrowing is likely (e.g. overnight).',
   },
   fil: {
     // Dashboard
@@ -136,6 +195,65 @@ export const translations = {
     theme: 'Tema',
     light: 'Maliwanag',
     dark: 'Madilim',
+
+    // Modals
+    cameraModalTitle: 'Pag-intindi sa Proseso ng Pag-setup ng Camera',
+    cameraModalIntro: 'Ginagamit ng Pig-AI Watch ang Real-Time Streaming Protocol (<b>RTSP</b>) para direktang kumuha ng live video mula sa iyong NVR o IP Camera systems.',
+    cameraModalStep1Title: 'Pagdadagdag ng Stream',
+    cameraModalStep1Desc: 'Hanapin ang mga karaniwang format ng RTSP link ng manufacturer ng iyong camera. Kadalasan ay may format na <code class="bg-slate-200 dark:bg-slate-700 px-1 py-0.5 rounded text-xs">rtsp://user:pass@IP:554/stream</code>. Bine-verify ng backend ang availability ng stream.',
+    cameraModalStep2Title: 'Awtomatikong Alokasyon',
+    cameraModalStep2Desc: 'Kapag naiugnay mo na ang setup camera link, pinangangasiwaan ng MediaMTX ang WebRTC proxy para ipakita ang video nang lokal nang walang latency, habang tinitingnan ng <b>YOLOv8 Edge Models</b> ang RTSP frames para maghanap ng aktibidad ng panganganak.',
+    cameraModalWarningTitle: 'Mga Tala sa Device Connectivity',
+    cameraModalWarningDesc: 'Dapat naka-deploy ka sa <b>parehong local area network</b> kung saan nandoon ang mga camera. Kung hinihiwalay ng iyong network ang mga IoT device sa ibang VLAN, nangangailangan ang system na ito ng routing setup para matingnan ang mga stream.',
+    
+    // Default Button
+    modalBtnUnderstand: 'Naiintindihan Ko',
+    modalBtnGotIt: 'Kuha ko',
+    
+    // Replay Modal
+    replayModalTitle: 'Tungkol sa Replay Mode',
+    replayModalIntro: 'Pinapayagan ka ng <strong>Replay Mode</strong> na suriin ang naging pag-uugali, metrics, at risk factors para sa isang partikular na kulungan para sa isang nakalipas na timeframe. Ginagaya nito ang real-time data playback para matulungan kang suriin ang mga nakaraang kaganapan.',
+    replayModalArchitectureTitle: 'Storage Architecture',
+    replayModalArchitectureDesc: 'Ang mga video recordings at telemetry logs ay ligtas na kinukuha mula sa <strong>local drive storage</strong>. Sa pamamagitan ng pag-iwas na umasa sa cloud o temporary session storage, sinisiguro ng Replay Mode ang mabilis at offline na playback habang pinapanatiling ganap na pribado ang data ng iyong farm.',
+    replayModalGuideTitle: 'Sunud-sunod na Gabay',
+    replayModalStep1: '<strong>Load Data:</strong> Piliin ang Pen ID at ang dami ng nakalipas na oras na gusto mong suriin, pagkatapos ay i-click ang "Load".',
+    replayModalStep2: '<strong>Timeline Scrubbing:</strong> Gamitin ang range slider sa ilalim ng timeline upang direktang lumaktaw sa anumang partikular na timestamp sa loob ng iyong loaded na data.',
+    replayModalStep3: '<strong>Playback Controls:</strong> Mag-play, i-pause, o lumaktaw nang frame-by-frame paabante o pabalik gamit ang mga button. Pwede mo ring i-adjust ang playback speed (1x hanggang 8x).',
+    replayModalStep4: '<strong>Monitor Metrics:</strong> Ang mga metric cards (Posture, Piglets, Crush Risk, Health, atbp.) ay awtomatikong nagre-update habang nagpi-playback para ipakita ang pagsusuri ng system sa eksaktong sandali na yon.',
+    replayModalStep5: '<strong>Analyze Trends:</strong> Ipinapakita ng rolling chart sa ibaba ang Health at Risk data na nakapaligid sa kasalukuyang frame (±25 frames), upang matukoy mo ang mga iregularidad na humahantong sa isang kaganapan.',
+    replayModalCloseButton: 'Kuha ko',
+
+    // Farrowing Modal
+    farrowingModalTitle: 'Paano Gumagana ang Farrowing Tracking',
+    farrowingModalStep1Title: 'Awtomatikong Pagsusuri',
+    farrowingModalStep1Desc: 'Ang AI ng PrismaAtlas ay patuloy na nagbabantay sa mga kulungan upang i-track ang paglabas ng biik, haba ng paggawa (labor), mga oras ng pananahimik, at pagod ng inahin na awtomatiko at walang kailangang gawin ang tao.',
+    farrowingModalStep2Title: 'Pre/Post Matching',
+    farrowingModalStep2Desc: 'Iniuugnay ng system ang live camera behavior telemetry sa Inaasahang Araw ng Panganganak (Expected Farrowing Date) ng inahin, na naghihiwalay sa "Pre" at "Post" farrowing phases para sa tumpak na analytics.',
+    farrowingModalStep3Title: 'Clinical Interpretation',
+    farrowingModalStep3Desc: 'Ang mga patlang at mga risk factors ay awtomatikong cinocompile at ginagawang text na summary bilang Clinical Interpretation, bumubuo agad ito ng nababasa at nagbibigkis na mga health logs para sa mga magsasaka.',
+    farrowingModalToolTitle: 'Timeline Comparison Tool',
+    farrowingModalToolDesc: 'Mag-scroll pababa sa seksyong <b>Pre/Post Farrowing Comparison</b>. Sa pagpili ng dati nang nai-record na inahin, makikita mo ang malinaw na charts na nagkukumpara kung paano iniba ang antas ng kanyang stress, tindig, at panganib ng pag-ipit ng biik bago kumpara sa pagkatapos manganganak.',
+    farrowingModalCloseButton: 'Naiintindihan Ko',
+
+    // Alerts Modal
+    alertsModalTitle: 'Pag-intindi sa mga Rules at Automations',
+    alertsModalStep1Title: 'Mga Awtomatikong Patakaran (Rules)',
+    alertsModalStep1Desc: 'Patuloy na sinusuri ng AI ang mga rules tulad ng matinding pagka-ipit ng biik, problema sa postura, at mga kaganapan sa panganganak, nang direkta sa edge layer para iwasan ang camera lagging.',
+    alertsModalStep2Title: 'Sentralisadong Pagsusuri',
+    alertsModalStep2Desc: 'Ta-tag ng system dalian ang kasanayan ang mga kaganapan batay sa lala. Ang mga kritikal na alerto (gaya ng aktibong panganib ng pagka-ipit) ay agad iniaakyat sa server para i-trigger ng mga kaukulang UI at background tasks.',
+    alertsModalStep3Title: 'Multi-Platform Delivery',
+    alertsModalStep3Desc: 'Mula sa app inbox nang direkta patungo sa iyong telepono. Gamitin ang filters sa ibaba para maghanap ayon sa kritikal na pangangailangan, o resolbahin ang mga alerts na nasuri at nai-sort mo na.',
+    alertsModalWarningTitle: 'Babala sa mga Push Notifications',
+    alertsModalWarningDesc: 'Maaari kang makatanggap kaagad ng mga alerto sa browser o mobile para sa mga Kritikal na Tasks at Alarms. <b>Dapat kang pumunta sa iyong pahina ng System Settings at i-click ang "Enable Push Notifications" para sa device na ito!</b> Kung hindi lumalabas ang mga notifications, tiyaking hindi hinarang ng iyong browser o mobile operating system ang mga notification para sa site na ito.',
+
+    // Recording Schedule Modal
+    scheduleModalTitle: 'Paano gamitin ang Recording Scheduler',
+    scheduleModalStep1Title: 'Pagpipinta ng Schedule',
+    scheduleModalStep1Desc: 'Huwag i-click ang paisa-isang block! <b>I-click at i-drag ang mouse sa maraming oras</b> para mabilis na markahan o burahin ang oras ng recording.',
+    scheduleModalStep2Title: 'Military Time (24 na Oras)',
+    scheduleModalStep2Desc: 'Mula 00:00 (12:00 AM Hatinggabi) hanggang 23:00 (11:00 PM) ang takbo ng grid nang tig-1 oras. Ang 08:00 ay 8 AM, at ang 15:00 ay 3 PM.',
+    scheduleModalStep3Title: 'Epekto sa CPU',
+    scheduleModalStep3Desc: 'Ang buo at 24/7 na continuous recording ay napakalaki ang pangangailangan sa hard-drive at nagdudulot ng matinding load sa CPU ng iyong Edge Device. Mag-record lang sana sa mga oras na malamang na may panganganak (hal. magdamag).',
   },
 } as const;
 

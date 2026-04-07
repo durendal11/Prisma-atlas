@@ -1,15 +1,23 @@
 import { useState } from 'react';
+import { useTranslation } from '@/hooks/useTranslation';
 import { useNavigate } from 'react-router-dom';
 import { AlertCard } from '@/components';
 import { useAlerts, useAlertStats, useUpdateAlert, useMarkAllAlertsRead } from '@/hooks';
 import { PageSkeleton, useLoading } from '@/components/ui/Skeleton';
-import { PageInfoButton, PageInfoModal } from '@/components/ui/PageInfoModal';
+import { PageInfoButton } from '@/components/ui/PageInfoModal';
 import { 
   Filter, 
   CheckCircle, 
   Bell, 
   AlertTriangle,
-  RefreshCw
+  RefreshCw,
+  X,
+  Smartphone,
+  Server,
+  CloudLightning,
+  ChevronRight,
+  ShieldAlert,
+  ChevronDown
 } from 'lucide-react';
 import clsx from 'clsx';
 import toast from 'react-hot-toast';
@@ -18,6 +26,7 @@ const severityOptions = ['all', 'critical', 'high', 'medium', 'low'];
 const typeOptions = ['all', 'crushing_risk', 'posture_change', 'piglet_count_change', 'system'];
 
 export default function AlertsPage() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const [severity, setSeverity] = useState('all');
   const [type, setType] = useState('all');
@@ -237,18 +246,144 @@ export default function AlertsPage() {
         )}
       </div>
 
-      <PageInfoModal 
-        isOpen={isInfoOpen}
-        onClose={() => setIsInfoOpen(false)}
-        title="Alerts Interface"
-        section="alerts"
-        steps={[
-          "Global Event Inbox: View all urgent engine events across every active stream and pen.",
-          "Categorizations: Filter alerts explicitly by operational urgency (e.g., Critical vs Warning) or origin type.",
-          "Dismissal: Mark read, bulk select, or definitively resolve historical alerting traces.",
-          "Real-time: Stream directly synchronized against engine WebSocket data."
-        ]}
-      />
+      {/* Info Modal */}
+      {isInfoOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in overflow-y-auto">
+          <div className="bg-white dark:bg-slate-800 rounded-2xl shadow-xl border border-gray-200 dark:border-slate-700 w-full max-w-4xl overflow-hidden animate-scale-in my-8 relative">
+            <div className="sticky top-0 z-20 flex items-center justify-between p-5 border-b border-gray-100 dark:border-slate-700/50 bg-white/95 dark:bg-slate-800/95 backdrop-blur">
+              <div className="flex items-center gap-3 text-red-600 dark:text-red-400 font-bold text-lg">
+                <Bell className="w-6 h-6" />
+                <h2>{t('alertsModalTitle')}</h2>
+              </div>
+              <button 
+                onClick={() => setIsInfoOpen(false)}
+                className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            <div className="p-6 overflow-y-auto max-h-[70vh]">
+              {/* Animation Container */}
+              <div className="relative flex flex-col md:flex-row items-center justify-between mb-10 py-12 px-4 sm:px-8 bg-gradient-to-r from-red-600 via-rose-500 to-orange-500 rounded-2xl overflow-hidden shadow-inner min-h-[220px] w-full">
+                
+                <style>{`
+                  @keyframes flowRightFade {
+                    0% { transform: translateX(-10px); opacity: 0; }
+                    20% { opacity: 1; }
+                    80% { opacity: 1; }
+                    100% { transform: translateX(20px); opacity: 0; }
+                  }
+                  @keyframes alertPing {
+                    0% { transform: scale(1); opacity: 0.8; }
+                    80% { transform: scale(1.5); opacity: 0; }
+                    100% { transform: scale(1.5); opacity: 0; }
+                  }
+                  .animate-flow-right-fade { animation: flowRightFade 1.5s linear infinite; }
+                  .animate-alert-ping { animation: alertPing 2s cubic-bezier(0, 0, 0.2, 1) infinite; }
+                  .delay-75 { animation-delay: 0.75s; }
+                `}</style>
+
+                {/* Background stars/dots */}
+                <div className="absolute top-1/4 left-1/4 w-1.5 h-1.5 bg-white/70 rounded-full animate-pulse" />
+                <div className="absolute top-3/4 right-1/4 w-2 h-2 bg-white/50 rounded-full animate-[pulse_3s_ease-in-out_infinite]" />
+                <div className="absolute top-1/3 right-[15%] w-1 h-1 bg-white/80 rounded-full animate-[pulse_2s_ease-in-out_infinite]" />
+                
+                {/* Step 1: AI Edge Engine */}
+                <div className="relative z-10 flex flex-col items-center flex-shrink-0 mb-6 md:mb-0 group">
+                  <div className="w-16 h-16 sm:w-20 sm:h-20 bg-white shadow-xl rounded-2xl flex items-center justify-center border-2 border-red-100 relative group-hover:-translate-y-1 transition-transform">
+                    <Server className="w-8 h-8 sm:w-10 sm:h-10 text-red-500" strokeWidth={1.5} />
+                    <div className="absolute -top-1 -right-1 w-4 h-4 bg-red-500 rounded-full border-2 border-white"></div>
+                  </div>
+                  <span className="absolute -bottom-8 text-xs font-bold text-white uppercase tracking-wider whitespace-nowrap bg-black/20 px-2 py-1 rounded-md backdrop-blur-sm">Edge AI Detection</span>
+                </div>
+
+                {/* Flow 1 */}
+                <div className="relative flex-1 flex items-center justify-center px-1 sm:px-3 mx-1 hidden md:flex">
+                  <div className="absolute w-full border-t-[3px] border-dotted border-white/40" />
+                  <div className="relative w-full flex justify-center gap-2 overflow-hidden py-4">
+                    <ChevronRight className="w-6 h-6 text-red-200 animate-flow-right-fade drop-shadow-md" strokeWidth={3} />
+                    <ChevronRight className="w-6 h-6 text-red-200 animate-flow-right-fade delay-75 drop-shadow-md" strokeWidth={3} />
+                  </div>
+                </div>
+                
+                <div className="md:hidden py-4 text-white/50"><ChevronDown className="w-6 h-6 animate-bounce" /></div>
+
+                {/* Step 2: System Cloud Processing */}
+                <div className="relative z-10 flex flex-col items-center flex-shrink-0 mb-6 md:mb-0 group">
+                  <div className="w-16 h-16 sm:w-20 sm:h-20 bg-white/10 backdrop-blur-md rounded-full flex items-center justify-center shadow-[0_8px_30px_rgba(0,0,0,0.2)] border-2 border-white/30 relative group-hover:bg-white/20 transition-all">
+                     <CloudLightning className="w-8 h-8 sm:w-10 sm:h-10 text-white" strokeWidth={1.5} />
+                     <div className="absolute w-full h-full rounded-full animate-alert-ping bg-red-400/30"></div>
+                  </div>
+                  <span className="absolute -bottom-8 text-xs font-bold text-white uppercase tracking-wider whitespace-nowrap bg-black/20 px-2 py-1 rounded-md backdrop-blur-sm">System Database</span>
+                </div>
+
+                {/* Flow 2 */}
+                <div className="relative flex-1 flex items-center justify-center px-1 sm:px-3 mx-1 hidden md:flex">
+                  <div className="absolute w-full border-t-[3px] border-dotted border-white/40" />
+                  <div className="relative w-full flex justify-center gap-2 overflow-hidden py-4">
+                    <ChevronRight className="w-6 h-6 text-red-200 animate-flow-right-fade drop-shadow-md" strokeWidth={3} />
+                    <ChevronRight className="w-6 h-6 text-red-200 animate-flow-right-fade delay-75 drop-shadow-md" strokeWidth={3} />
+                  </div>
+                </div>
+                
+                <div className="md:hidden py-4 text-white/50"><ChevronDown className="w-6 h-6 animate-bounce" /></div>
+
+                {/* Step 3: Mobile Phone/Desktop Alert */}
+                <div className="relative z-10 flex flex-col items-center flex-shrink-0 group">
+                  <div className="w-16 h-16 sm:w-20 sm:h-20 bg-white shadow-xl rounded-[1.5rem] flex items-center justify-center border-b-4 border-orange-400 relative group-hover:scale-105 transition-transform">
+                    <Smartphone className="w-8 h-8 sm:w-10 sm:h-10 text-slate-700" strokeWidth={1.5} />
+                    <div className="absolute top-0 right-0 -mt-2 -mr-2 bg-red-500 text-white text-[10px] sm:text-xs font-bold w-6 h-6 sm:w-7 sm:h-7 rounded-full flex items-center justify-center border-2 border-white shadow-sm animate-bounce">1</div>
+                  </div>
+                  <span className="absolute -bottom-8 text-xs font-bold text-white uppercase tracking-wider whitespace-nowrap bg-black/20 px-2 py-1 rounded-md backdrop-blur-sm">Alert Dashboard</span>
+                </div>
+              </div>
+
+              {/* Explanations */}
+              <div className="space-y-8">
+                <div className="grid md:grid-cols-3 gap-6">
+                  <div className="bg-slate-50 dark:bg-slate-800/50 p-5 rounded-xl border border-slate-100 dark:border-slate-700">
+                    <div className="w-10 h-10 rounded-full bg-red-100 dark:bg-red-900/50 flex items-center justify-center text-red-600 dark:text-red-400 mb-3 font-bold text-lg">1</div>
+                    <h3 className="font-bold text-gray-900 dark:text-white mb-2">{t('alertsModalStep1Title')}</h3>
+                    <p className="text-sm text-gray-600 dark:text-slate-400 leading-relaxed" dangerouslySetInnerHTML={{ __html: t('alertsModalStep1Desc') }}></p>
+                  </div>
+                  
+                  <div className="bg-slate-50 dark:bg-slate-800/50 p-5 rounded-xl border border-slate-100 dark:border-slate-700">
+                    <div className="w-10 h-10 rounded-full bg-rose-100 dark:bg-rose-900/50 flex items-center justify-center text-rose-600 dark:text-rose-400 mb-3 font-bold text-lg">2</div>
+                    <h3 className="font-bold text-gray-900 dark:text-white mb-2">{t('alertsModalStep2Title')}</h3>
+                    <p className="text-sm text-gray-600 dark:text-slate-400 leading-relaxed" dangerouslySetInnerHTML={{ __html: t('alertsModalStep2Desc') }}></p>
+                  </div>
+
+                  <div className="bg-slate-50 dark:bg-slate-800/50 p-5 rounded-xl border border-slate-100 dark:border-slate-700">
+                    <div className="w-10 h-10 rounded-full bg-orange-100 dark:bg-orange-900/50 flex items-center justify-center text-orange-600 dark:text-orange-400 mb-3 font-bold text-lg">3</div>
+                    <h3 className="font-bold text-gray-900 dark:text-white mb-2">{t('alertsModalStep3Title')}</h3>
+                    <p className="text-sm text-gray-600 dark:text-slate-400 leading-relaxed" dangerouslySetInnerHTML={{ __html: t('alertsModalStep3Desc') }}></p>
+                  </div>
+                </div>
+
+                <div className="bg-orange-50 dark:bg-orange-900/20 p-5 rounded-xl border border-orange-100 dark:border-orange-800/50 flex gap-4">
+                  <div className="shrink-0 mt-1">
+                    <ShieldAlert className="w-6 h-6 text-orange-500" />
+                  </div>
+                  <div>
+                    <h4 className="font-semibold text-orange-900 dark:text-orange-300 mb-1">{t('alertsModalWarningTitle')}</h4>
+                    <p className="text-sm text-orange-700 dark:text-orange-400 leading-relaxed" dangerouslySetInnerHTML={{ __html: t('alertsModalWarningDesc') }}></p>
+                  </div>
+                </div>
+              </div>
+            </div>
+            
+            <div className="p-4 bg-gray-50 dark:bg-slate-800/80 border-t border-gray-100 dark:border-slate-700/50 flex justify-end shrink-0">
+              <button 
+                onClick={() => setIsInfoOpen(false)}
+                className="px-6 py-2.5 bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-lg transition-colors shadow-md shadow-red-500/20"
+              >
+                {t('modalBtnUnderstand')}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
