@@ -3,15 +3,27 @@ import { Sparkles } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { advisoryApi } from '../api';
 
-type BriefingMode = 'morning' | 'night';
+type BriefingMode = 'morning' | 'afternoon' | 'night';
 
 const getBriefingMode = (date: Date): BriefingMode => {
   const hour = date.getHours();
-  return hour >= 18 || hour < 5 ? 'night' : 'morning';
+  if (hour >= 18 || hour < 5) {
+    return 'night';
+  }
+  if (hour >= 12) {
+    return 'afternoon';
+  }
+  return 'morning';
 };
 
 const getBriefingTitle = (mode: BriefingMode): string => {
-  return mode === 'night' ? 'Night Briefing' : 'Morning Briefing';
+  if (mode === 'night') {
+    return 'Night Briefing';
+  }
+  if (mode === 'afternoon') {
+    return 'Afternoon Briefing';
+  }
+  return 'Morning Briefing';
 };
 
 const GeneratingAnimation = () => (

@@ -1,0 +1,17 @@
+[Unit]
+Description=PRISMA ATLAS Edge RTSP Pusher (Pig AI Watch)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/prisma-atlas/pig-ai-watch/edge/headless_proxy
+ExecStart=/home/pi/prisma-atlas/.venv/bin/python edge_pusher.py
+Restart=always
+RestartSec=10
+Environment=PYTHONUNBUFFERED=1
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+[Install]
+WantedBy=multi-user.target

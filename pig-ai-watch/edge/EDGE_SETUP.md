@@ -9,6 +9,7 @@ Quick guide to start the edge agent and simulate edge-to-cloud detections with R
 1. ✅ Backend deployed and running on your server
 2. ✅ YOLO model downloaded at `/Users/arcelmacasling/prisma-atlas/models/pig_detection.pt`
 3. ✅ Python 3.11+ with virtualenv
+4. ✅ `ffmpeg` installed (required for RTSP publishing via `edge_pusher.py`)
 
 ---
 
@@ -222,25 +223,75 @@ ls -lh /Users/arcelmacasling/prisma-atlas/models/pig_detection.pt
 The edge node also houses the `recording_worker.py`. This worker no longer records continuously to prevent drive bloat. When the `agent.py` processes an ONNX risk frame with `crushing_risk >= 0.4`, a callback activates the worker to encode a 300-second (5 minute) `ffmpeg` slice out of the RTSP buffer. The files are securely stashed locally on the edge disk. Users download them remotely via the cloud dashboard using `X-Edge-Key` file proxies.
 
 
+## Production Auto-Start (No Manual `./start-edge.sh`)
 
-For production (Raspberry Pi or edge device):
+Run both edge processes as OS-managed background services:
+
+- `agent.py` for detection, schedule sync, and recording control
+- `headless_proxy/edge_pusher.py` for RTSP publishing to cloud
+
+### macOS Laptop (recommended for your current setup)
+
+Use the bundled installer to register LaunchAgents for both processes:
 
 ```bash
-# Copy the service file
-sudo cp edge-agent.service /etc/systemd/system/
+cd /Users/arcelmacasling/prisma-atlas/pig-ai-watch/edge
+./setup-macos-launchd.sh
+```
 
-# Edit paths in the service file
+Optional (non-technical client control app):
+
+```bash
+cd /Users/arcelmacasling/prisma-atlas/pig-ai-watch/edge
+./install-edge-control-app.sh
+```
+
+This installs a clickable app at:
+
+- `~/Applications/PRISMA Edge Control.app`
+
+The app has simple buttons for:
+
+- Start Edge
+- Stop Edge
+- Status
+- Open Logs
+
+Verify:
+
+```bash
+launchctl list | grep com.prisma.edge
+tail -f /Users/arcelmacasling/prisma-atlas/pig-ai-watch/edge/logs/edge-agent.out.log
+tail -f /Users/arcelmacasling/prisma-atlas/pig-ai-watch/edge/logs/edge-pusher.out.log
+```
+
+Notes:
+
+- These LaunchAgents auto-start at user login and auto-restart on crash.
+- Set macOS power settings to prevent sleep while on charger.
+
+### Linux / Raspberry Pi (systemd)
+
+```bash
+cd /path/to/prisma-atlas/pig-ai-watch/edge
+
+# Install both service units
+sudo cp edge-agent.service /etc/systemd/system/
+sudo cp edge-pusher.service /etc/systemd/system/
+
+# Update paths/user in both files for your machine
 sudo nano /etc/systemd/system/edge-agent.service
+sudo nano /etc/systemd/system/edge-pusher.service
 
 # Enable and start
-sudo systemctl enable edge-agent
-sudo systemctl start edge-agent
+sudo systemctl daemon-reload
+sudo systemctl enable --now edge-agent edge-pusher
 
 # Check status
-sudo systemctl status edge-agent
+sudo systemctl status edge-agent edge-pusher
 
 # View logs
-sudo journalctl -u edge-agent -f
+sudo journalctl -u edge-agent -u edge-pusher -f
 ```
 
 ---

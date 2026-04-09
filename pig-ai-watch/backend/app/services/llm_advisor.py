@@ -211,6 +211,9 @@ def generate_daily_digest(data: Dict[str, Any]) -> str:
     if briefing_mode == 'night':
         briefing_title = 'Night Briefing'
         time_focus = 'night monitoring priorities, overnight risks, and next-shift actions'
+    elif briefing_mode == 'afternoon':
+        briefing_title = 'Afternoon Briefing'
+        time_focus = 'midday performance review, remainder-of-day priorities, and shift handoff readiness'
     else:
         briefing_title = 'Morning Briefing'
         time_focus = 'start-of-day planning and immediate daytime priorities'

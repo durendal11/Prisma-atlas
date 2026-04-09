@@ -1,1 +1,10 @@
 serviceAccountKey.json
+
+# Edge runtime artifacts
+edge/logs/
+edge/local_recordings/
+edge/*.db
+
+# Local edge secrets
+edge/.env
+edge/headless_proxy/.env

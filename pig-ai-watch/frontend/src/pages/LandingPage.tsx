@@ -19,6 +19,11 @@ import LoginModal from '@/components/landing/LoginModal';
 
 const ThreeBackground = lazy(() => import('@/components/landing/ThreeBackground'));
 
+type InstallPromptEvent = Event & {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: 'accepted' | 'dismissed'; platform: string }>;
+};
+
 /* ─── Helpers ────────────────────────────────────────────────────────────── */
 
 function Section({ children, id, className = '' }: { children: React.ReactNode; id?: string; className?: string }) {
@@ -160,6 +165,9 @@ export default function LandingPage() {
   const [loginOpen, setLoginOpen] = useState(false);
   const [mobileMenu, setMobileMenu] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  const [deferredInstallPrompt, setDeferredInstallPrompt] = useState<InstallPromptEvent | null>(null);
+  const [installMessage, setInstallMessage] = useState('');
+  const [appInstalled, setAppInstalled] = useState(false);
 
   /* Navbar scroll */
   useEffect(() => {
@@ -168,11 +176,60 @@ export default function LandingPage() {
     return () => window.removeEventListener('scroll', onScroll);
   }, []);
 
+  useEffect(() => {
+    const inStandaloneMode =
+      window.matchMedia('(display-mode: standalone)').matches ||
+      (window.navigator as Navigator & { standalone?: boolean }).standalone === true;
+    setAppInstalled(inStandaloneMode);
+
+    const onBeforeInstallPrompt = (event: Event) => {
+      event.preventDefault();
+      setDeferredInstallPrompt(event as InstallPromptEvent);
+    };
+
+    const onInstalled = () => {
+      setAppInstalled(true);
+      setDeferredInstallPrompt(null);
+      setInstallMessage('PRISMA ATLAS installed. Open it from your apps list to use it like a native app.');
+    };
+
+    window.addEventListener('beforeinstallprompt', onBeforeInstallPrompt as EventListener);
+    window.addEventListener('appinstalled', onInstalled);
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', onBeforeInstallPrompt as EventListener);
+      window.removeEventListener('appinstalled', onInstalled);
+    };
+  }, []);
+
   /* Parallax */
   const { scrollYProgress } = useScroll();
   const heroY = useTransform(scrollYProgress, [0, 0.3], [0, -120]);
 
   const goToDashboard = () => navigate('/');
+
+  const handleInstallApp = async () => {
+    if (appInstalled) {
+      setInstallMessage('PRISMA ATLAS is already installed on this device.');
+      return;
+    }
+
+    if (!deferredInstallPrompt) {
+      setInstallMessage("Use your browser menu and choose 'Install App' or 'Add to Home Screen'.");
+      return;
+    }
+
+    await deferredInstallPrompt.prompt();
+    const { outcome } = await deferredInstallPrompt.userChoice;
+
+    if (outcome === 'accepted') {
+      setInstallMessage('Installing PRISMA ATLAS...');
+    } else {
+      setInstallMessage('Install canceled. You can install anytime from this page.');
+    }
+
+    setDeferredInstallPrompt(null);
+  };
 
   return (
     <div className="relative min-h-screen text-white overflow-x-hidden">
@@ -194,7 +251,7 @@ export default function LandingPage() {
 
           {/* Desktop links */}
           <ul className="hidden md:flex items-center gap-8 text-sm text-white/60">
-            {['Features', 'Demo', 'How It Works', 'About'].map((s) => (
+            {['Install App', 'Features', 'Demo', 'How It Works', 'About'].map((s) => (
               <li key={s}>
                 <a href={`#${s.toLowerCase().replace(/ /g, '-')}`} className="hover:text-white transition">{s}</a>
               </li>
@@ -227,7 +284,7 @@ export default function LandingPage() {
             exit={{ opacity: 0, height: 0 }}
             className="md:hidden bg-slate-900/95 backdrop-blur-md border-t border-white/5 px-6 py-4 space-y-3"
           >
-            {['Features', 'Demo', 'How It Works', 'About'].map((s) => (
+            {['Install App', 'Features', 'Demo', 'How It Works', 'About'].map((s) => (
               <a key={s} href={`#${s.toLowerCase().replace(/ /g, '-')}`} onClick={() => setMobileMenu(false)} className="block text-white/60 hover:text-white py-2">{s}</a>
             ))}
             {token ? (
@@ -271,13 +328,19 @@ export default function LandingPage() {
 
           {/* CTAs */}
           <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.85 }} className="flex flex-wrap gap-3 justify-center lg:justify-start mb-10">
-            <button onClick={() => {}} className="flex items-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-400 hover:to-purple-500 text-white font-semibold transition shadow-lg shadow-indigo-500/25">
-              <Download size={18} /> Download App
+            <button onClick={handleInstallApp} className="flex items-center gap-2 px-6 py-3 rounded-xl bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-400 hover:to-purple-500 text-white font-semibold transition shadow-lg shadow-indigo-500/25">
+              <Download size={18} /> {appInstalled ? 'App Installed' : 'Install App'}
             </button>
             <button onClick={() => setLoginOpen(true)} className="flex items-center gap-2 px-6 py-3 rounded-xl border border-white/20 hover:bg-white/5 text-white font-medium transition">
               <Globe size={18} /> Web Dashboard
             </button>
           </motion.div>
+
+          {installMessage && (
+            <motion.p initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-xs text-indigo-200/90 mb-6 max-w-md mx-auto lg:mx-0">
+              {installMessage}
+            </motion.p>
+          )}
 
           {/* Stats */}
           <motion.div initial={{ opacity: 0, y: 30 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.95 }} className="flex justify-center lg:justify-start gap-8">
@@ -307,6 +370,97 @@ export default function LandingPage() {
           <span className="text-xs">Scroll to explore</span>
         </motion.div>
       </motion.section>
+
+      {/* ── Install App ─────────────────────────────────────────────────── */}
+      <Section id="install-app">
+        <SectionHeader
+          tag="Install"
+          title="Install"
+          highlight="PRISMA App"
+          description="Built for non-technical users: install once, then use it like a normal desktop app."
+        />
+
+        <div className="grid lg:grid-cols-2 gap-6">
+          <FadeInCard>
+            <div className="h-full rounded-2xl bg-white/[0.03] border border-white/[0.06] p-7">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-11 h-11 rounded-xl bg-indigo-500/15 border border-indigo-400/30 flex items-center justify-center">
+                  <Download size={18} className="text-indigo-300" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-white">Dashboard App (Client)</h3>
+                  <p className="text-xs text-white/40">Install from browser and launch from your app list.</p>
+                </div>
+              </div>
+
+              <div className="space-y-2 mb-5 text-sm text-white/65">
+                <p>1. Click Install App below.</p>
+                <p>2. Accept install prompt.</p>
+                <p>3. Open PRISMA ATLAS from desktop/start menu.</p>
+              </div>
+
+              <button
+                onClick={handleInstallApp}
+                className="w-full flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-gradient-to-r from-indigo-500 to-purple-600 hover:from-indigo-400 hover:to-purple-500 text-white font-semibold transition shadow-lg shadow-indigo-500/25"
+              >
+                <Download size={17} /> {appInstalled ? 'Already Installed' : 'Install Dashboard App'}
+              </button>
+
+              <p className="text-xs text-white/35 mt-3">
+                If no prompt appears, use your browser menu and choose Install App or Add to Home Screen.
+              </p>
+            </div>
+          </FadeInCard>
+
+          <FadeInCard delay={0.1}>
+            <div className="h-full rounded-2xl bg-white/[0.03] border border-white/[0.06] p-7">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-11 h-11 rounded-xl bg-emerald-500/15 border border-emerald-400/30 flex items-center justify-center">
+                  <ShieldCheck size={18} className="text-emerald-300" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-white">Edge Service Installer (macOS + Windows)</h3>
+                  <p className="text-xs text-white/40">Download the installer for your laptop OS, then run it once.</p>
+                </div>
+              </div>
+
+              <div className="space-y-2 mb-5 text-sm text-white/65">
+                <p>1. Download the installer for macOS or Windows.</p>
+                <p>2. Run it and point to your pig-ai-watch/edge folder.</p>
+                <p>3. Use PRISMA Edge Control app/shortcut to Start, Stop, and check Status.</p>
+              </div>
+
+              <div className="grid sm:grid-cols-2 gap-3">
+                <a
+                  href="/downloads/edge/install-edge-control-macos.sh"
+                  download
+                  className="flex items-center justify-center gap-2 px-5 py-3 rounded-xl border border-white/20 hover:bg-white/5 text-white font-medium transition"
+                >
+                  <Download size={17} /> Download macOS Installer
+                </a>
+                <a
+                  href="/downloads/edge/install-edge-control-windows.ps1"
+                  download
+                  className="flex items-center justify-center gap-2 px-5 py-3 rounded-xl border border-white/20 hover:bg-white/5 text-white font-medium transition"
+                >
+                  <Download size={17} /> Download Windows Installer
+                </a>
+              </div>
+
+              <button
+                onClick={() => token ? goToDashboard() : setLoginOpen(true)}
+                className="w-full mt-3 flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-emerald-600/20 border border-emerald-400/30 hover:bg-emerald-500/25 text-emerald-100 font-medium transition"
+              >
+                <Globe size={17} /> Open Dashboard
+              </button>
+
+              <p className="text-xs text-white/35 mt-3">
+                Windows note: right-click the .ps1 file and run with PowerShell.
+              </p>
+            </div>
+          </FadeInCard>
+        </div>
+      </Section>
 
       {/* ── Features ──────────────────────────────────────────────────────── */}
       <Section id="features">
