@@ -163,7 +163,10 @@ try {
     $pusherLoopBat = Join-Path $controlDir "run-pusher-loop.bat"
     $startBackgroundBat = Join-Path $controlDir "Start-Edge-Background.bat"
     $stopBackgroundBat = Join-Path $controlDir "Stop-Edge-Background.bat"
+    $statusBat = Join-Path $controlDir "Status-Edge-Background.bat"
     $controlBat = Join-Path $controlDir "PRISMA-Edge-Control.bat"
+    $agentWindowTitle = "PRISMA_EDGE_AGENT_$taskSuffix"
+    $pusherWindowTitle = "PRISMA_EDGE_PUSHER_$taskSuffix"
 
     New-Item -ItemType Directory -Path $controlDir -Force | Out-Null
     New-Item -ItemType Directory -Path $logsDir -Force | Out-Null
@@ -188,7 +191,31 @@ goto loop
 "@
     Set-Content -Path $pusherLoopBat -Value $pusherLoopContent -Encoding ASCII
 
-    $startBackgroundContent = @"
+    $agentTaskCmd = '"' + $agentLoopBat + '"'
+    $pusherTaskCmd = '"' + $pusherLoopBat + '"'
+
+    $installMode = "task-scheduler"
+    $taskSetupWarning = ""
+    try {
+        Invoke-Schtasks -Arguments @("/Create", "/F", "/SC", "ONLOGON", "/RL", "LIMITED", "/TN", $agentTaskName, "/TR", $agentTaskCmd) | Out-Null
+        Invoke-Schtasks -Arguments @("/Create", "/F", "/SC", "ONLOGON", "/RL", "LIMITED", "/TN", $pusherTaskName, "/TR", $pusherTaskCmd) | Out-Null
+
+        Invoke-Schtasks -Arguments @("/Run", "/TN", $agentTaskName) | Out-Null
+        Invoke-Schtasks -Arguments @("/End", "/TN", $pusherTaskName) -AllowFailure | Out-Null
+    }
+    catch {
+        $schedulerError = ($_.Exception.Message | Out-String).Trim()
+        if ($schedulerError -match "Access is denied") {
+            $installMode = "startup-fallback"
+            $taskSetupWarning = $schedulerError
+        }
+        else {
+            throw
+        }
+    }
+
+    if ($installMode -eq "task-scheduler") {
+        $startBackgroundContent = @"
 @echo off
 if /I "%~1"=="full" (
     schtasks /Run /TN "$agentTaskName" >nul 2>&1
@@ -201,16 +228,92 @@ if /I "%~1"=="full" (
 )
 timeout /t 2 >nul
 "@
-    Set-Content -Path $startBackgroundBat -Value $startBackgroundContent -Encoding ASCII
+        Set-Content -Path $startBackgroundBat -Value $startBackgroundContent -Encoding ASCII
 
-    $stopBackgroundContent = @"
+        $stopBackgroundContent = @"
 @echo off
 schtasks /End /TN "$agentTaskName" >nul 2>&1
 schtasks /End /TN "$pusherTaskName" >nul 2>&1
 echo Edge background tasks stopped.
 timeout /t 2 >nul
 "@
-    Set-Content -Path $stopBackgroundBat -Value $stopBackgroundContent -Encoding ASCII
+        Set-Content -Path $stopBackgroundBat -Value $stopBackgroundContent -Encoding ASCII
+
+        $statusContent = @"
+@echo off
+echo Agent Task:
+schtasks /Query /TN "$agentTaskName" /V /FO LIST | findstr /I "Status:"
+echo.
+echo Pusher Task:
+schtasks /Query /TN "$pusherTaskName" /V /FO LIST | findstr /I "Status:"
+"@
+        Set-Content -Path $statusBat -Value $statusContent -Encoding ASCII
+    }
+    else {
+        $startBackgroundContent = @"
+@echo off
+set "AGENT_TITLE=$agentWindowTitle"
+set "PUSHER_TITLE=$pusherWindowTitle"
+
+if /I "%~1"=="full" (
+    call :start_proc "%AGENT_TITLE%" "$agentLoopBat"
+    call :start_proc "%PUSHER_TITLE%" "$pusherLoopBat"
+    echo Edge started in background (Detection + Stream Proxy).
+) else (
+    call :start_proc "%AGENT_TITLE%" "$agentLoopBat"
+    call :stop_proc "%PUSHER_TITLE%"
+    echo Edge started in background (Detection Only).
+)
+timeout /t 2 >nul
+exit /b 0
+
+:start_proc
+set "TITLE=%~1"
+set "BAT=%~2"
+tasklist /v /fo list | findstr /I /C:"Window Title: %TITLE%" >nul 2>&1
+if errorlevel 1 (
+    start "%TITLE%" /MIN cmd /c ""%BAT%""
+)
+exit /b 0
+
+:stop_proc
+set "TITLE=%~1"
+taskkill /F /FI "WINDOWTITLE eq %TITLE%" >nul 2>&1
+exit /b 0
+"@
+        Set-Content -Path $startBackgroundBat -Value $startBackgroundContent -Encoding ASCII
+
+        $stopBackgroundContent = @"
+@echo off
+set "AGENT_TITLE=$agentWindowTitle"
+set "PUSHER_TITLE=$pusherWindowTitle"
+taskkill /F /FI "WINDOWTITLE eq %AGENT_TITLE%" >nul 2>&1
+taskkill /F /FI "WINDOWTITLE eq %PUSHER_TITLE%" >nul 2>&1
+echo Edge background processes stopped.
+timeout /t 2 >nul
+"@
+        Set-Content -Path $stopBackgroundBat -Value $stopBackgroundContent -Encoding ASCII
+
+        $statusContent = @"
+@echo off
+echo Agent Process:
+tasklist /v /fo list | findstr /I /C:"Window Title: $agentWindowTitle" >nul 2>&1
+if errorlevel 1 (
+    echo Status: Stopped
+) else (
+    echo Status: Running
+)
+echo.
+echo Pusher Process:
+tasklist /v /fo list | findstr /I /C:"Window Title: $pusherWindowTitle" >nul 2>&1
+if errorlevel 1 (
+    echo Status: Stopped
+) else (
+    echo Status: Running
+)
+"@
+        Set-Content -Path $statusBat -Value $statusContent -Encoding ASCII
+    }
 
     $controlBatContent = @"
 @echo off
@@ -259,11 +362,7 @@ goto :menu
 :status
 echo YOLO Model: $yoloModelVersion
 echo.
-echo Agent Task:
-schtasks /Query /TN "$agentTaskName" /V /FO LIST | findstr /I "Status:"
-echo.
-echo Pusher Task:
-schtasks /Query /TN "$pusherTaskName" /V /FO LIST | findstr /I "Status:"
+call "$statusBat"
 echo.
 pause
 goto :menu
@@ -276,15 +375,6 @@ goto :menu
 exit /b 0
 "@
     Set-Content -Path $controlBat -Value $controlBatContent -Encoding ASCII
-
-    $agentTaskCmd = '"' + $agentLoopBat + '"'
-    $pusherTaskCmd = '"' + $pusherLoopBat + '"'
-
-    Invoke-Schtasks -Arguments @("/Create", "/F", "/SC", "ONLOGON", "/RL", "LIMITED", "/TN", $agentTaskName, "/TR", $agentTaskCmd) | Out-Null
-    Invoke-Schtasks -Arguments @("/Create", "/F", "/SC", "ONLOGON", "/RL", "LIMITED", "/TN", $pusherTaskName, "/TR", $pusherTaskCmd) | Out-Null
-
-    Invoke-Schtasks -Arguments @("/Run", "/TN", $agentTaskName) | Out-Null
-    Invoke-Schtasks -Arguments @("/End", "/TN", $pusherTaskName) -AllowFailure | Out-Null
 
     $desktopPath = [Environment]::GetFolderPath("Desktop")
     $shortcutPath = Join-Path $desktopPath "PRISMA Edge Control.lnk"
@@ -310,11 +400,33 @@ exit /b 0
     $stopShortcut.IconLocation = "$env:SystemRoot\System32\shell32.dll,131"
     $stopShortcut.Save()
 
+    $startupShortcutPath = Join-Path ([Environment]::GetFolderPath("Startup")) "PRISMA Edge Auto Start.lnk"
+    if ($installMode -eq "startup-fallback") {
+        $autoStartShortcut = $shell.CreateShortcut($startupShortcutPath)
+        $autoStartShortcut.TargetPath = $startBackgroundBat
+        $autoStartShortcut.WorkingDirectory = $controlDir
+        $autoStartShortcut.IconLocation = "$env:SystemRoot\System32\shell32.dll,221"
+        $autoStartShortcut.Save()
+
+        # Start detection mode immediately after install in startup fallback mode.
+        & cmd.exe /c ('"' + $startBackgroundBat + '"') | Out-Null
+    }
+
     Write-Host "Windows Edge Control installed." -ForegroundColor Green
     Write-Host "Control panel shortcut: $shortcutPath"
     Write-Host "Background start shortcut: $backgroundShortcutPath"
     Write-Host "Background stop shortcut: $stopShortcutPath"
-    Write-Host "Task names: $agentTaskName, $pusherTaskName"
+    if ($installMode -eq "task-scheduler") {
+        Write-Host "Install mode: Task Scheduler" -ForegroundColor Green
+        Write-Host "Task names: $agentTaskName, $pusherTaskName"
+    }
+    else {
+        Write-Host "Install mode: Startup Fallback" -ForegroundColor Yellow
+        Write-Host "Auto-start shortcut: $startupShortcutPath"
+        if ($taskSetupWarning) {
+            Write-Host "Task scheduler warning: $taskSetupWarning" -ForegroundColor Yellow
+        }
+    }
     Write-Host "YOLO model version: $yoloModelVersion"
     Write-Host "Default mode started: Detection Only"
 }
