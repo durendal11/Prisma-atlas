@@ -1,5 +1,6 @@
 param(
     [string]$EdgeDir = "",
+    [string]$TaskNameSuffix = "",
     [switch]$NoPause
 )
 
@@ -11,6 +12,48 @@ function Wait-BeforeExit {
     if (-not $SkipPause) {
         Write-Host ""
         [void](Read-Host "Press Enter to close")
+    }
+}
+
+function Get-SafeTaskSuffix {
+    param([string]$RawValue)
+
+    $fallback = "user"
+    if (-not $RawValue) {
+        return $fallback
+    }
+
+    $clean = ($RawValue -replace "[^a-zA-Z0-9_-]", "-").Trim('-')
+    if (-not $clean) {
+        return $fallback
+    }
+
+    if ($clean.Length -gt 24) {
+        return $clean.Substring(0, 24)
+    }
+
+    return $clean
+}
+
+function Invoke-Schtasks {
+    param(
+        [string[]]$Arguments,
+        [switch]$AllowFailure
+    )
+
+    $output = & schtasks.exe @Arguments 2>&1
+    $exitCode = $LASTEXITCODE
+    if ($exitCode -ne 0 -and -not $AllowFailure) {
+        $details = ($output | Out-String).Trim()
+        if (-not $details) {
+            $details = "schtasks failed (exit code $exitCode)"
+        }
+        throw $details
+    }
+
+    return @{
+        Output = $output
+        ExitCode = $exitCode
     }
 }
 
@@ -81,8 +124,11 @@ try {
     $pythonExe = Find-PythonExe -ResolvedEdgeDir $resolvedEdgeDir
     $yoloModelVersion = "pig-ai-watch alpha"
 
-    $agentTaskName = "PRISMA-Edge-Agent"
-    $pusherTaskName = "PRISMA-Edge-Pusher"
+    $taskSuffixSource = if ($TaskNameSuffix) { $TaskNameSuffix } else { $env:USERNAME }
+    $taskSuffix = Get-SafeTaskSuffix -RawValue $taskSuffixSource
+
+    $agentTaskName = "PRISMA-Edge-Agent-$taskSuffix"
+    $pusherTaskName = "PRISMA-Edge-Pusher-$taskSuffix"
 
     $controlDir = Join-Path $resolvedEdgeDir "windows_control"
     $logsDir = Join-Path $resolvedEdgeDir "logs"
@@ -207,11 +253,11 @@ exit /b 0
     $agentTaskCmd = '"' + $agentLoopBat + '"'
     $pusherTaskCmd = '"' + $pusherLoopBat + '"'
 
-    & schtasks.exe /Create /F /SC ONLOGON /RL LIMITED /TN $agentTaskName /TR $agentTaskCmd | Out-Null
-    & schtasks.exe /Create /F /SC ONLOGON /RL LIMITED /TN $pusherTaskName /TR $pusherTaskCmd | Out-Null
+    Invoke-Schtasks -Arguments @("/Create", "/F", "/SC", "ONLOGON", "/RL", "LIMITED", "/TN", $agentTaskName, "/TR", $agentTaskCmd) | Out-Null
+    Invoke-Schtasks -Arguments @("/Create", "/F", "/SC", "ONLOGON", "/RL", "LIMITED", "/TN", $pusherTaskName, "/TR", $pusherTaskCmd) | Out-Null
 
-    & schtasks.exe /Run /TN $agentTaskName | Out-Null
-    & schtasks.exe /End /TN $pusherTaskName 2>$null | Out-Null
+    Invoke-Schtasks -Arguments @("/Run", "/TN", $agentTaskName) | Out-Null
+    Invoke-Schtasks -Arguments @("/End", "/TN", $pusherTaskName) -AllowFailure | Out-Null
 
     $desktopPath = [Environment]::GetFolderPath("Desktop")
     $shortcutPath = Join-Path $desktopPath "PRISMA Edge Control.lnk"
@@ -241,12 +287,20 @@ exit /b 0
     Write-Host "Control panel shortcut: $shortcutPath"
     Write-Host "Background start shortcut: $backgroundShortcutPath"
     Write-Host "Background stop shortcut: $stopShortcutPath"
+    Write-Host "Task names: $agentTaskName, $pusherTaskName"
     Write-Host "YOLO model version: $yoloModelVersion"
     Write-Host "Default mode started: Detection Only"
 }
 catch {
     Write-Host ""
     Write-Host "Installation failed: $($_.Exception.Message)" -ForegroundColor Red
+    if ($_.Exception.Message -match "Access is denied") {
+        Write-Host ""
+        Write-Host "Task registration was denied by Windows." -ForegroundColor Yellow
+        Write-Host "Run once in Administrator PowerShell to delete old tasks:" -ForegroundColor Yellow
+        Write-Host "schtasks /Delete /TN \"PRISMA-Edge-Agent\" /F"
+        Write-Host "schtasks /Delete /TN \"PRISMA-Edge-Pusher\" /F"
+    }
     Write-Host ""
     Write-Host "Try running in PowerShell:" -ForegroundColor Yellow
     Write-Host "powershell -ExecutionPolicy Bypass -File .\install-edge-control-windows.ps1"

@@ -439,11 +439,11 @@ export default function LandingPage() {
                   <Download size={17} /> Download macOS Installer
                 </a>
                 <a
-                  href="/downloads/edge/install-edge-control-windows.ps1"
+                  href="/downloads/edge/install-edge-control-windows.cmd"
                   download
                   className="flex items-center justify-center gap-2 px-5 py-3 rounded-xl border border-white/20 hover:bg-white/5 text-white font-medium transition"
                 >
-                  <Download size={17} /> Download Windows Installer
+                  <Download size={17} /> Download Windows One-Click Installer
                 </a>
               </div>
 
@@ -455,7 +455,7 @@ export default function LandingPage() {
               </button>
 
               <p className="text-xs text-white/35 mt-3">
-                Windows note: right-click the .ps1 file and run with PowerShell.
+                Windows note: double-click the .cmd file. It auto-fetches the PowerShell installer if needed. If SmartScreen prompts, click More info then Run anyway.
               </p>
             </div>
           </FadeInCard>
