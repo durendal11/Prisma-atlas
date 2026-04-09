@@ -16,6 +16,7 @@ import {
   X,
   Video,
   Download,
+  Trash2,
   HardDrive,
   ChevronRight,
   Database,
@@ -42,6 +43,7 @@ function parsePenFromQuery(value: string | null): number | null {
 function RecordingsTab({ penId }: { penId: number }) {
   const [recordings, setRecordings] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [deletingClipId, setDeletingClipId] = useState<string | null>(null);
   const [storageInfo, setStorageInfo] = useState<{total: number, used: number, free: number, storage_path?: string | null} | null>(null);
 
   const inferredSavePath = useMemo(() => {
@@ -60,27 +62,41 @@ function RecordingsTab({ penId }: { penId: number }) {
     return null;
   }, [recordings, storageInfo]);
 
-  useEffect(() => {
-    let mounted = true;
-    const fetchRecordings = async () => {
-      setLoading(true);
-      try {
-        const data = await recordingApi.getRecordings(penId);
-        if (mounted) {
-          setRecordings(data.recordings || []);
-          if (data.storage) {
-            setStorageInfo(data.storage);
-          }
-        }
-      } catch (err) {
-        console.error("Failed to load recordings", err);
-      } finally {
-        if (mounted) setLoading(false);
+  const fetchRecordings = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await recordingApi.getRecordings(penId);
+      setRecordings(data.recordings || []);
+      if (data.storage) {
+        setStorageInfo(data.storage);
       }
-    };
-    fetchRecordings();
-    return () => { mounted = false; };
+    } catch (err) {
+      console.error("Failed to load recordings", err);
+    } finally {
+      setLoading(false);
+    }
   }, [penId]);
+
+  useEffect(() => {
+    fetchRecordings();
+  }, [fetchRecordings]);
+
+  const handleDeleteRecording = useCallback(async (clip: any) => {
+    const clipLabel = clip?.filename || clip?.id || "this clip";
+    const ok = window.confirm(`Delete ${clipLabel}? This will remove the saved video file and cannot be undone.`);
+    if (!ok) return;
+
+    setDeletingClipId(clip.id);
+    try {
+      await recordingApi.deleteRecording(String(clip.id));
+      await fetchRecordings();
+    } catch (err) {
+      console.error("Failed to delete recording", err);
+      window.alert("Failed to delete recording. Please try again.");
+    } finally {
+      setDeletingClipId(null);
+    }
+  }, [fetchRecordings]);
 
   return (
     <div className="space-y-6">
@@ -123,8 +139,8 @@ function RecordingsTab({ penId }: { penId: number }) {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 dark:divide-slate-700/50">
-              {recordings.map((rec, i) => (
-                <tr key={i} className="hover:bg-gray-50 dark:hover:bg-slate-800/30 transition-colors">
+              {recordings.map((rec) => (
+                <tr key={rec.id} className="hover:bg-gray-50 dark:hover:bg-slate-800/30 transition-colors">
                   <td className="px-4 py-3 text-gray-700 dark:text-slate-300">
                     <div className="font-medium">{new Date(rec.start_time).toLocaleDateString()}</div>
                     <div className="text-xs text-gray-500">{new Date(rec.start_time).toLocaleTimeString()}</div>
@@ -146,15 +162,27 @@ function RecordingsTab({ penId }: { penId: number }) {
                     </div>
                   </td>
                   <td className="px-4 py-3">
-                    <a 
-                      href={`/api/recording/download/${rec.id}`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      title="Download Video File"
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-900/30 dark:text-indigo-400 dark:hover:bg-indigo-900/50 rounded-lg transition-colors border border-transparent hover:border-indigo-200 dark:hover:border-indigo-700/50 shadow-sm hover:shadow"
-                    >
-                      <Download className="w-4 h-4" /> Download
-                    </a>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <a 
+                        href={`/api/recording/download/${rec.id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title="Download Video File"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-900/30 dark:text-indigo-400 dark:hover:bg-indigo-900/50 rounded-lg transition-colors border border-transparent hover:border-indigo-200 dark:hover:border-indigo-700/50 shadow-sm hover:shadow"
+                      >
+                        <Download className="w-4 h-4" /> Download
+                      </a>
+                      <button
+                        type="button"
+                        title="Delete Video File"
+                        onClick={() => handleDeleteRecording(rec)}
+                        disabled={deletingClipId === rec.id}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium text-red-600 bg-red-50 hover:bg-red-100 disabled:opacity-60 disabled:cursor-not-allowed dark:bg-red-900/30 dark:text-red-300 dark:hover:bg-red-900/50 rounded-lg transition-colors border border-transparent hover:border-red-200 dark:hover:border-red-700/50 shadow-sm hover:shadow"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                        {deletingClipId === rec.id ? 'Deleting...' : 'Delete'}
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))}

@@ -180,6 +180,56 @@ async def download_recording(clip_id: str, db: AsyncSession = Depends(get_db)):
         filename=os.path.basename(clip.file_path)
     )
 
+
+@router.delete("/clips/{clip_id}")
+async def delete_recording_clip(
+    clip_id: str,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    clip_result = await db.execute(
+        select(RecordingClip).where(RecordingClip.id == clip_id).execution_options(ignore_tenant=True)
+    )
+    clip = clip_result.scalar_one_or_none()
+
+    if not clip:
+        raise HTTPException(status_code=404, detail="Clip not found")
+
+    pen_result = await db.execute(
+        select(Pen).where(Pen.id == clip.pen_id).execution_options(ignore_tenant=True)
+    )
+    pen = pen_result.scalar_one_or_none()
+
+    if not pen or pen.owner_id not in (None, current_user.id):
+        raise HTTPException(status_code=404, detail="Clip not found")
+
+    if pen.owner_id is None:
+        pen.owner_id = current_user.id
+    if clip.owner_id is None:
+        clip.owner_id = current_user.id
+
+    file_deleted = False
+    file_missing = False
+    if clip.file_path:
+        if os.path.exists(clip.file_path):
+            try:
+                os.remove(clip.file_path)
+                file_deleted = True
+            except OSError as exc:
+                raise HTTPException(status_code=500, detail=f"Failed to delete video file: {exc}")
+        else:
+            file_missing = True
+
+    await db.delete(clip)
+    await db.commit()
+
+    return {
+        "status": "deleted",
+        "clip_id": clip_id,
+        "file_deleted": file_deleted,
+        "file_missing": file_missing,
+    }
+
 @router.get("/storage")
 async def get_all_storage_status(
     current_user: User = Depends(get_current_user),

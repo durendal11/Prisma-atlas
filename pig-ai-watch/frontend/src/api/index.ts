@@ -474,6 +474,10 @@ export const recordingApi = {
     const response = await api.get(`/api/recording/storage`);
     return response.data;
   },
+  deleteRecording: async (clipId: string) => {
+    const response = await api.delete(`/api/recording/clips/${clipId}`);
+    return response.data;
+  },
 };
 
 export default api;

@@ -1,8 +1,18 @@
 param(
-    [string]$EdgeDir = ""
+    [string]$EdgeDir = "",
+    [switch]$NoPause
 )
 
 $ErrorActionPreference = "Stop"
+
+function Wait-BeforeExit {
+    param([switch]$SkipPause)
+
+    if (-not $SkipPause) {
+        Write-Host ""
+        [void](Read-Host "Press Enter to close")
+    }
+}
 
 function Test-EdgeFolder {
     param([string]$Path)
@@ -66,22 +76,25 @@ function Find-PythonExe {
     throw "Python executable not found. Install Python or create a virtual environment first."
 }
 
-$resolvedEdgeDir = Resolve-EdgeFolder -Candidate $EdgeDir
-$pythonExe = Find-PythonExe -ResolvedEdgeDir $resolvedEdgeDir
+try {
+    $resolvedEdgeDir = Resolve-EdgeFolder -Candidate $EdgeDir
+    $pythonExe = Find-PythonExe -ResolvedEdgeDir $resolvedEdgeDir
 
-$agentTaskName = "PRISMA-Edge-Agent"
-$pusherTaskName = "PRISMA-Edge-Pusher"
+    $agentTaskName = "PRISMA-Edge-Agent"
+    $pusherTaskName = "PRISMA-Edge-Pusher"
 
-$controlDir = Join-Path $resolvedEdgeDir "windows_control"
-$logsDir = Join-Path $resolvedEdgeDir "logs"
-$agentLoopBat = Join-Path $controlDir "run-agent-loop.bat"
-$pusherLoopBat = Join-Path $controlDir "run-pusher-loop.bat"
-$controlBat = Join-Path $controlDir "PRISMA-Edge-Control.bat"
+    $controlDir = Join-Path $resolvedEdgeDir "windows_control"
+    $logsDir = Join-Path $resolvedEdgeDir "logs"
+    $agentLoopBat = Join-Path $controlDir "run-agent-loop.bat"
+    $pusherLoopBat = Join-Path $controlDir "run-pusher-loop.bat"
+    $startBackgroundBat = Join-Path $controlDir "Start-Edge-Background.bat"
+    $stopBackgroundBat = Join-Path $controlDir "Stop-Edge-Background.bat"
+    $controlBat = Join-Path $controlDir "PRISMA-Edge-Control.bat"
 
-New-Item -ItemType Directory -Path $controlDir -Force | Out-Null
-New-Item -ItemType Directory -Path $logsDir -Force | Out-Null
+    New-Item -ItemType Directory -Path $controlDir -Force | Out-Null
+    New-Item -ItemType Directory -Path $logsDir -Force | Out-Null
 
-$agentLoopContent = @"
+    $agentLoopContent = @"
 @echo off
 cd /d "$resolvedEdgeDir"
 :loop
@@ -89,9 +102,9 @@ cd /d "$resolvedEdgeDir"
 timeout /t 5 /nobreak >nul
 goto loop
 "@
-Set-Content -Path $agentLoopBat -Value $agentLoopContent -Encoding ASCII
+    Set-Content -Path $agentLoopBat -Value $agentLoopContent -Encoding ASCII
 
-$pusherLoopContent = @"
+    $pusherLoopContent = @"
 @echo off
 cd /d "$resolvedEdgeDir\headless_proxy"
 :loop
@@ -99,9 +112,33 @@ cd /d "$resolvedEdgeDir\headless_proxy"
 timeout /t 5 /nobreak >nul
 goto loop
 "@
-Set-Content -Path $pusherLoopBat -Value $pusherLoopContent -Encoding ASCII
+    Set-Content -Path $pusherLoopBat -Value $pusherLoopContent -Encoding ASCII
 
-$controlBatContent = @"
+    $startBackgroundContent = @"
+@echo off
+if /I "%~1"=="full" (
+    schtasks /Run /TN "$agentTaskName" >nul 2>&1
+    schtasks /Run /TN "$pusherTaskName" >nul 2>&1
+    echo Edge started in background (Detection + Stream Proxy).
+) else (
+    schtasks /Run /TN "$agentTaskName" >nul 2>&1
+    schtasks /End /TN "$pusherTaskName" >nul 2>&1
+    echo Edge started in background (Detection Only).
+)
+timeout /t 2 >nul
+"@
+    Set-Content -Path $startBackgroundBat -Value $startBackgroundContent -Encoding ASCII
+
+    $stopBackgroundContent = @"
+@echo off
+schtasks /End /TN "$agentTaskName" >nul 2>&1
+schtasks /End /TN "$pusherTaskName" >nul 2>&1
+echo Edge background tasks stopped.
+timeout /t 2 >nul
+"@
+    Set-Content -Path $stopBackgroundBat -Value $stopBackgroundContent -Encoding ASCII
+
+    $controlBatContent = @"
 @echo off
 title PRISMA Edge Control
 
@@ -126,22 +163,19 @@ if errorlevel 2 goto :startfull
 if errorlevel 1 goto :startdet
 
 :startdet
-schtasks /Run /TN "$agentTaskName" >nul 2>&1
-schtasks /End /TN "$pusherTaskName" >nul 2>&1
+call "$startBackgroundBat"
 echo Detection mode started.
 timeout /t 2 >nul
 goto :menu
 
 :startfull
-schtasks /Run /TN "$agentTaskName" >nul 2>&1
-schtasks /Run /TN "$pusherTaskName" >nul 2>&1
+call "$startBackgroundBat" full
 echo Detection + stream proxy started.
 timeout /t 2 >nul
 goto :menu
 
 :stop
-schtasks /End /TN "$agentTaskName" >nul 2>&1
-schtasks /End /TN "$pusherTaskName" >nul 2>&1
+call "$stopBackgroundBat"
 echo Edge services stopped.
 timeout /t 2 >nul
 goto :menu
@@ -164,26 +198,55 @@ goto :menu
 :end
 exit /b 0
 "@
-Set-Content -Path $controlBat -Value $controlBatContent -Encoding ASCII
+    Set-Content -Path $controlBat -Value $controlBatContent -Encoding ASCII
 
-$agentTaskCmd = '"' + $agentLoopBat + '"'
-$pusherTaskCmd = '"' + $pusherLoopBat + '"'
+    $agentTaskCmd = '"' + $agentLoopBat + '"'
+    $pusherTaskCmd = '"' + $pusherLoopBat + '"'
 
-& schtasks.exe /Create /F /SC ONLOGON /RL LIMITED /TN $agentTaskName /TR $agentTaskCmd | Out-Null
-& schtasks.exe /Create /F /SC ONLOGON /RL LIMITED /TN $pusherTaskName /TR $pusherTaskCmd | Out-Null
+    & schtasks.exe /Create /F /SC ONLOGON /RL LIMITED /TN $agentTaskName /TR $agentTaskCmd | Out-Null
+    & schtasks.exe /Create /F /SC ONLOGON /RL LIMITED /TN $pusherTaskName /TR $pusherTaskCmd | Out-Null
 
-& schtasks.exe /Run /TN $agentTaskName | Out-Null
-& schtasks.exe /End /TN $pusherTaskName 2>$null | Out-Null
+    & schtasks.exe /Run /TN $agentTaskName | Out-Null
+    & schtasks.exe /End /TN $pusherTaskName 2>$null | Out-Null
 
-$desktopPath = [Environment]::GetFolderPath("Desktop")
-$shortcutPath = Join-Path $desktopPath "PRISMA Edge Control.lnk"
-$shell = New-Object -ComObject WScript.Shell
-$shortcut = $shell.CreateShortcut($shortcutPath)
-$shortcut.TargetPath = $controlBat
-$shortcut.WorkingDirectory = $controlDir
-$shortcut.IconLocation = "$env:SystemRoot\System32\shell32.dll,221"
-$shortcut.Save()
+    $desktopPath = [Environment]::GetFolderPath("Desktop")
+    $shortcutPath = Join-Path $desktopPath "PRISMA Edge Control.lnk"
+    $backgroundShortcutPath = Join-Path $desktopPath "Start PRISMA Edge (Background).lnk"
+    $stopShortcutPath = Join-Path $desktopPath "Stop PRISMA Edge.lnk"
+    $shell = New-Object -ComObject WScript.Shell
 
-Write-Host "Windows Edge Control installed." -ForegroundColor Green
-Write-Host "Control panel shortcut: $shortcutPath"
-Write-Host "Default mode started: Detection Only"
+    $shortcut = $shell.CreateShortcut($shortcutPath)
+    $shortcut.TargetPath = $controlBat
+    $shortcut.WorkingDirectory = $controlDir
+    $shortcut.IconLocation = "$env:SystemRoot\System32\shell32.dll,221"
+    $shortcut.Save()
+
+    $startShortcut = $shell.CreateShortcut($backgroundShortcutPath)
+    $startShortcut.TargetPath = $startBackgroundBat
+    $startShortcut.WorkingDirectory = $controlDir
+    $startShortcut.IconLocation = "$env:SystemRoot\System32\shell32.dll,221"
+    $startShortcut.Save()
+
+    $stopShortcut = $shell.CreateShortcut($stopShortcutPath)
+    $stopShortcut.TargetPath = $stopBackgroundBat
+    $stopShortcut.WorkingDirectory = $controlDir
+    $stopShortcut.IconLocation = "$env:SystemRoot\System32\shell32.dll,131"
+    $stopShortcut.Save()
+
+    Write-Host "Windows Edge Control installed." -ForegroundColor Green
+    Write-Host "Control panel shortcut: $shortcutPath"
+    Write-Host "Background start shortcut: $backgroundShortcutPath"
+    Write-Host "Background stop shortcut: $stopShortcutPath"
+    Write-Host "Default mode started: Detection Only"
+}
+catch {
+    Write-Host ""
+    Write-Host "Installation failed: $($_.Exception.Message)" -ForegroundColor Red
+    Write-Host ""
+    Write-Host "Try running in PowerShell:" -ForegroundColor Yellow
+    Write-Host "powershell -ExecutionPolicy Bypass -File .\install-edge-control-windows.ps1"
+    exit 1
+}
+finally {
+    Wait-BeforeExit -SkipPause:$NoPause
+}
