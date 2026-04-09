@@ -150,7 +150,7 @@ const CAMERA_BRANDS: CameraBrand[] = [
     logo: '☁️',
     supportsRTSP: true,
     rtspTemplate: 'rtsp://mediamtx:8554/{rtspPath}',
-    defaultPort: 8554,
+    defaultPort: 554,
     notes: 'Receives video pushed over the internet from an Edge Worker on the farm network.',
   },
   {
@@ -225,6 +225,16 @@ function buildRtspCandidates(config: CameraConfig): string[] {
   return [...new Set(merged)];
 }
 
+function inferGatewayFromIp(ip: string): string {
+  const m = ip.trim().match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.\d{1,3}$/);
+  if (!m) return '';
+
+  const octets = [Number(m[1]), Number(m[2]), Number(m[3])];
+  if (octets.some((o) => Number.isNaN(o) || o < 0 || o > 255)) return '';
+
+  return `${octets[0]}.${octets[1]}.${octets[2]}.1`;
+}
+
 function createEmptyConfig(pen?: Pen): CameraConfig {
   return {
     id: generateId(),
@@ -243,7 +253,7 @@ function createEmptyConfig(pen?: Pen): CameraConfig {
     connectionStatus: 'untested',
     isStaticIP: true,
     subnetMask: '255.255.255.0',
-    gateway: '192.168.1.1',
+    gateway: '',
     notes: '',
   };
 }
@@ -855,6 +865,9 @@ export default function CameraSetupPage() {
                   placeholder="554"
                   className="w-full px-4 py-2.5 rounded-lg border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-slate-500 focus:ring-2 focus:ring-primary-500 transition-all"
                 />
+                <p className="text-xs text-gray-500 mt-2">
+                  Local camera port on farm LAN. Most cameras use <strong>554</strong>. Cloud stream path still uses <strong>mediamtx:8554</strong>.
+                </p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">
@@ -993,6 +1006,7 @@ export default function CameraSetupPage() {
 
   const renderStep4 = () => {
     if (activeCamera.brand === 'Edge Node Stream') {
+      const suggestedGateway = inferGatewayFromIp(activeCamera.ipAddress);
       return (
         <div className="space-y-6 animate-fade-in">
           <div>
@@ -1000,16 +1014,59 @@ export default function CameraSetupPage() {
               Network Configuration
             </h3>
             <p className="text-sm text-gray-500 dark:text-slate-400">
-              For an Edge Node Stream, static IP configurations are managed by the edge worker on your farm network. No IP setup is needed here.
+              Set subnet and gateway for your local camera network details. These values are for setup reference and validation.
             </p>
           </div>
-          <div className="rounded-xl border border-blue-200 dark:border-blue-800/50 p-5 bg-blue-50 dark:bg-blue-900/20">
-            <div className="flex items-center gap-2 mb-2">
-              <Globe className="h-5 w-5 text-blue-500" />
-              <h4 className="font-medium text-blue-800 dark:text-blue-300">Cloud Proxy Ready</h4>
+
+          <div className="bg-white dark:bg-slate-800/50 rounded-xl border border-gray-200 dark:border-slate-700/50 p-5 space-y-4">
+            <div className="flex items-center gap-2 mb-1">
+              <Globe className="h-5 w-5 text-primary-500" />
+              <h4 className="font-medium text-gray-900 dark:text-white">Local Network Details</h4>
             </div>
-            <p className="text-sm text-blue-700 dark:text-blue-400">
-              The camera stream will be directly received through the internal MediaMTX proxy running on this cloud server. Click next to continue.
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">
+                  Subnet Mask
+                </label>
+                <input
+                  type="text"
+                  value={activeCamera.subnetMask}
+                  onChange={e => updateCamera({ subnetMask: e.target.value })}
+                  placeholder="255.255.255.0"
+                  className="w-full px-4 py-2.5 rounded-lg border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-slate-500 focus:ring-2 focus:ring-primary-500 transition-all font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1">
+                  Default Gateway
+                </label>
+                <input
+                  type="text"
+                  value={activeCamera.gateway}
+                  onChange={e => updateCamera({ gateway: e.target.value })}
+                  placeholder={suggestedGateway || '192.168.1.1'}
+                  className="w-full px-4 py-2.5 rounded-lg border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-gray-900 dark:text-white placeholder-gray-400 dark:placeholder-slate-500 focus:ring-2 focus:ring-primary-500 transition-all font-mono"
+                />
+              </div>
+            </div>
+
+            <p className="text-xs text-gray-500 dark:text-slate-400">
+              Suggested gateway from camera IP: <strong>{suggestedGateway || 'N/A'}</strong>
+            </p>
+            {suggestedGateway && (
+              <button
+                type="button"
+                onClick={() => updateCamera({ gateway: suggestedGateway })}
+                className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md border border-gray-200 dark:border-slate-600 text-xs font-medium text-gray-700 dark:text-slate-200 hover:bg-gray-50 dark:hover:bg-slate-700/50 transition-colors"
+              >
+                Use Suggested Gateway
+              </button>
+            )}
+
+            <p className="text-sm text-gray-600 dark:text-slate-400">
+              For cameras in <strong>192.168.5.x</strong>, gateway is usually <strong>192.168.5.1</strong>.
             </p>
           </div>
         </div>
@@ -1240,6 +1297,8 @@ export default function CameraSetupPage() {
 
   const renderStep6 = () => {
     const rtspUrl = buildRtspUrl(activeCamera);
+    const suggestedGateway = inferGatewayFromIp(activeCamera.ipAddress);
+    const gatewayDisplay = activeCamera.gateway || suggestedGateway || '-';
 
     return (
       <div className="space-y-6 animate-fade-in">
@@ -1285,7 +1344,7 @@ export default function CameraSetupPage() {
                 {activeCamera.isStaticIP ? 'Subnet / Gateway' : 'Network'}
               </span>
               <p className="font-medium text-gray-900 dark:text-white font-mono text-xs">
-                {activeCamera.isStaticIP ? `${activeCamera.subnetMask} / ${activeCamera.gateway}` : 'Auto'}
+                {activeCamera.isStaticIP ? `${activeCamera.subnetMask} / ${gatewayDisplay}` : 'Auto'}
               </p>
             </div>
           </div>
@@ -1814,6 +1873,8 @@ export default function CameraSetupPage() {
               </div>
               <button 
                 onClick={() => setEdgeInfoOpen(false)}
+                title="Close edge info"
+                aria-label="Close edge info"
                 className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors"
               >
                 <X className="w-5 h-5" />
