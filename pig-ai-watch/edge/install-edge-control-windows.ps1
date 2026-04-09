@@ -15,6 +15,25 @@ function Wait-BeforeExit {
     }
 }
 
+function Normalize-PathInput {
+    param([string]$RawPath)
+
+    if (-not $RawPath) {
+        return ""
+    }
+
+    $value = $RawPath.Trim()
+    if ($value.StartsWith('"') -and $value.EndsWith('"') -and $value.Length -ge 2) {
+        $value = $value.Substring(1, $value.Length - 2)
+    }
+
+    if ($value.StartsWith("'") -and $value.EndsWith("'") -and $value.Length -ge 2) {
+        $value = $value.Substring(1, $value.Length - 2)
+    }
+
+    return $value.Trim()
+}
+
 function Get-SafeTaskSuffix {
     param([string]$RawValue)
 
@@ -60,29 +79,37 @@ function Invoke-Schtasks {
 function Test-EdgeFolder {
     param([string]$Path)
 
-    if (-not $Path) {
+    $safePath = Normalize-PathInput -RawPath $Path
+    if (-not $safePath) {
         return $false
     }
 
-    return (Test-Path (Join-Path $Path "agent.py")) -and (Test-Path (Join-Path $Path "headless_proxy\edge_pusher.py"))
+    try {
+        return (Test-Path (Join-Path $safePath "agent.py")) -and (Test-Path (Join-Path $safePath "headless_proxy\edge_pusher.py"))
+    }
+    catch {
+        return $false
+    }
 }
 
 function Resolve-EdgeFolder {
     param([string]$Candidate)
 
-    if (Test-EdgeFolder $Candidate) {
-        return (Resolve-Path $Candidate).Path
+    $normalizedCandidate = Normalize-PathInput -RawPath $Candidate
+
+    if (Test-EdgeFolder $normalizedCandidate) {
+        return (Resolve-Path -LiteralPath $normalizedCandidate).Path
     }
 
     $scriptDir = Split-Path -Parent $PSCommandPath
     if (Test-EdgeFolder $scriptDir) {
-        return (Resolve-Path $scriptDir).Path
+        return (Resolve-Path -LiteralPath $scriptDir).Path
     }
 
     Write-Host "Enter full path to your pig-ai-watch\\edge folder:" -ForegroundColor Yellow
-    $manual = Read-Host
+    $manual = Normalize-PathInput -RawPath (Read-Host)
     if (Test-EdgeFolder $manual) {
-        return (Resolve-Path $manual).Path
+        return (Resolve-Path -LiteralPath $manual).Path
     }
 
     throw "Could not locate a valid edge folder."
@@ -294,6 +321,12 @@ exit /b 0
 catch {
     Write-Host ""
     Write-Host "Installation failed: $($_.Exception.Message)" -ForegroundColor Red
+    if ($_.Exception.Message -match "Illegal characters in path") {
+        Write-Host ""
+        Write-Host "The edge path could not be parsed correctly." -ForegroundColor Yellow
+        Write-Host "Run with an explicit path:" -ForegroundColor Yellow
+        Write-Host ".\install-edge-control-windows.ps1 -EdgeDir \"C:\\path\\to\\Prisma-atlas\\pig-ai-watch\\edge\""
+    }
     if ($_.Exception.Message -match "Access is denied") {
         Write-Host ""
         Write-Host "Task registration was denied by Windows." -ForegroundColor Yellow
