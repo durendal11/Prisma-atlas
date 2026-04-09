@@ -115,40 +115,83 @@ function Resolve-EdgeFolder {
     throw "Could not locate a valid edge folder."
 }
 
-function Find-PythonExe {
+function Test-PythonRuntime {
+    param(
+        [string]$Exe,
+        [string[]]$Args
+    )
+
+    if (-not $Exe) {
+        return $false
+    }
+
+    try {
+        $output = & $Exe @Args 2>&1
+        $exitCode = $LASTEXITCODE
+        $text = ($output | Out-String)
+
+        if ($exitCode -ne 0) {
+            return $false
+        }
+
+        if ($text -match "Python was not found" -or $text -match "Microsoft Store") {
+            return $false
+        }
+
+        return $true
+    }
+    catch {
+        return $false
+    }
+}
+
+function Find-PythonCommand {
     param([string]$ResolvedEdgeDir)
 
     $pigAiWatchDir = (Resolve-Path (Join-Path $ResolvedEdgeDir "..")).Path
     $repoRoot = (Resolve-Path (Join-Path $ResolvedEdgeDir "..\..")).Path
 
-    $candidates = @(
+    $venvCandidates = @(
         (Join-Path $ResolvedEdgeDir ".venv\Scripts\python.exe"),
         (Join-Path $pigAiWatchDir ".venv\Scripts\python.exe"),
         (Join-Path $repoRoot ".venv\Scripts\python.exe")
     )
 
-    foreach ($candidate in $candidates) {
-        if (Test-Path $candidate) {
-            return $candidate
+    foreach ($candidate in $venvCandidates) {
+        if ((Test-Path $candidate) -and (Test-PythonRuntime -Exe $candidate -Args @("--version"))) {
+            return @{ Exe = $candidate; Args = @() }
         }
     }
 
+    $pyLauncher = Get-Command py.exe -ErrorAction SilentlyContinue
+    if (-not $pyLauncher) {
+        $pyLauncher = Get-Command py -ErrorAction SilentlyContinue
+    }
+    if ($pyLauncher -and (Test-PythonRuntime -Exe $pyLauncher.Source -Args @("-3", "--version"))) {
+        return @{ Exe = $pyLauncher.Source; Args = @("-3") }
+    }
+
     $pythonCmd = Get-Command python.exe -ErrorAction SilentlyContinue
-    if ($pythonCmd) {
-        return $pythonCmd.Source
+    if (-not $pythonCmd) {
+        $pythonCmd = Get-Command python -ErrorAction SilentlyContinue
     }
 
-    $pythonCmd = Get-Command python -ErrorAction SilentlyContinue
-    if ($pythonCmd) {
-        return $pythonCmd.Source
+    if ($pythonCmd -and ($pythonCmd.Source -notmatch "\\WindowsApps\\python(\.exe)?$") -and (Test-PythonRuntime -Exe $pythonCmd.Source -Args @("--version"))) {
+        return @{ Exe = $pythonCmd.Source; Args = @() }
     }
 
-    throw "Python executable not found. Install Python or create a virtual environment first."
+    throw "Python runtime not found. Install Python 3 (or create .venv) and rerun installer."
 }
 
 try {
     $resolvedEdgeDir = Resolve-EdgeFolder -Candidate $EdgeDir
-    $pythonExe = Find-PythonExe -ResolvedEdgeDir $resolvedEdgeDir
+    $pythonCommand = Find-PythonCommand -ResolvedEdgeDir $resolvedEdgeDir
+    $pythonExe = $pythonCommand.Exe
+    $pythonArgs = $pythonCommand.Args
+    $pythonLaunch = '"' + $pythonExe + '"'
+    if ($pythonArgs -and $pythonArgs.Count -gt 0) {
+        $pythonLaunch = $pythonLaunch + " " + ($pythonArgs -join " ")
+    }
     $yoloModelVersion = "pig-ai-watch alpha"
 
     $taskSuffixSource = if ($TaskNameSuffix) { $TaskNameSuffix } else { $env:USERNAME }
@@ -175,7 +218,7 @@ try {
 @echo off
 cd /d "$resolvedEdgeDir"
 :loop
-"$pythonExe" "$resolvedEdgeDir\agent.py"
+$pythonLaunch "$resolvedEdgeDir\agent.py"
 timeout /t 5 /nobreak >nul
 goto loop
 "@
@@ -185,7 +228,7 @@ goto loop
 @echo off
 cd /d "$resolvedEdgeDir\headless_proxy"
 :loop
-"$pythonExe" "$resolvedEdgeDir\headless_proxy\edge_pusher.py"
+$pythonLaunch "$resolvedEdgeDir\headless_proxy\edge_pusher.py"
 timeout /t 5 /nobreak >nul
 goto loop
 "@
@@ -427,6 +470,7 @@ exit /b 0
             Write-Host "Task scheduler warning: $taskSetupWarning" -ForegroundColor Yellow
         }
     }
+    Write-Host "Python runtime: $pythonLaunch"
     Write-Host "YOLO model version: $yoloModelVersion"
     Write-Host "Default mode started: Detection Only"
 }
