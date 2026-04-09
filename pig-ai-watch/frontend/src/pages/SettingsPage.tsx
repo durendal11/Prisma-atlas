@@ -15,12 +15,14 @@ import {
   Activity,
   ChevronRight,
   Database,
+  Cpu,
   Languages
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
 export default function SettingsPage() {
   const [isInfoOpen, setIsInfoOpen] = useState(false);
+  const yoloModelVersion = 'pig-ai-watch alpha';
   const { t } = useTranslation();
   const { 
     theme, 
@@ -294,6 +296,19 @@ export default function SettingsPage() {
             </div>
             <ChevronRight className="h-5 w-5 text-gray-400 dark:text-slate-500" />
           </Link>
+        </div>
+      </div>
+
+      {/* AI Model */}
+      <div className="bg-white dark:bg-slate-800/50 rounded-xl border border-gray-100 dark:border-slate-700/50 p-6 hover:shadow-md dark:hover:shadow-dark-lg transition-all duration-300 group">
+        <div className="flex items-center gap-3 mb-4">
+          <Cpu className="h-5 w-5 text-gray-500 dark:text-slate-400 group-hover:scale-110 transition-transform duration-200" />
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-white">AI Model</h2>
+        </div>
+
+        <div className="p-4 rounded-lg bg-gray-50 dark:bg-slate-700/30 border border-gray-200 dark:border-slate-700/50">
+          <p className="text-sm text-gray-500 dark:text-slate-400 mb-1">YOLO Model Version</p>
+          <p className="font-semibold text-gray-900 dark:text-white">{yoloModelVersion}</p>
         </div>
       </div>
 

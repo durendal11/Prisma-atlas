@@ -19,12 +19,14 @@ TARGET_DIR="${1:-$HOME/Applications}"
 APP_NAME="PRISMA Edge Control.app"
 APP_PATH="$TARGET_DIR/$APP_NAME"
 TMP_SCRIPT="$(mktemp /tmp/prisma-edge-control.XXXXXX.applescript)"
+MODEL_VERSION_LABEL="pig-ai-watch alpha"
 
 mkdir -p "$TARGET_DIR"
 
 cat > "$TMP_SCRIPT" <<EOF
 property appTitle : "PRISMA Edge Control"
 property edgeDir : "${EDGE_DIR}"
+property modelVersion : "${MODEL_VERSION_LABEL}"
 property agentLabel : "com.prisma.edge-agent"
 property pusherLabel : "com.prisma.edge-pusher"
 
@@ -35,7 +37,7 @@ on run
   set logsDir to edgeDir & "/logs"
 
     repeat
-        set pickedAction to choose from list {"Start Edge (Detection Only)", "Start Edge + Stream Proxy", "Stop Edge", "Status", "Open Logs", "Quit"} with title appTitle with prompt "Choose an action:" default items {"Status"} OK button name "Run" cancel button name "Quit"
+        set pickedAction to choose from list {"Start Edge (Detection Only)", "Start Edge + Stream Proxy", "Stop Edge", "Status", "Open Logs", "Quit"} with title appTitle with prompt "YOLO Model: " & modelVersion & return & return & "Choose an action:" default items {"Status"} OK button name "Run" cancel button name "Quit"
       if pickedAction is false then exit repeat
       set actionChoice to item 1 of pickedAction
       if actionChoice is "Quit" then exit repeat
@@ -63,7 +65,7 @@ on run
     else if actionChoice is "Status" then
       set agentState to my serviceState(agentLabel)
       set pusherState to my serviceState(pusherLabel)
-        display dialog "Agent: " & agentState & return & "Pusher: " & pusherState & return & return & "Tip: If camera fails to open, use Detection Only mode." buttons {"OK"} default button "OK" with title appTitle
+        display dialog "YOLO Model: " & modelVersion & return & return & "Agent: " & agentState & return & "Pusher: " & pusherState & return & return & "Tip: If camera fails to open, use Detection Only mode." buttons {"OK"} default button "OK" with title appTitle
 
     else if actionChoice is "Open Logs" then
       do shell script "mkdir -p " & quoted form of logsDir & "; open " & quoted form of logsDir

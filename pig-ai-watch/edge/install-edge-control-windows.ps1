@@ -79,6 +79,7 @@ function Find-PythonExe {
 try {
     $resolvedEdgeDir = Resolve-EdgeFolder -Candidate $EdgeDir
     $pythonExe = Find-PythonExe -ResolvedEdgeDir $resolvedEdgeDir
+    $yoloModelVersion = "pig-ai-watch alpha"
 
     $agentTaskName = "PRISMA-Edge-Agent"
     $pusherTaskName = "PRISMA-Edge-Pusher"
@@ -147,6 +148,8 @@ cls
 echo ==============================
 echo   PRISMA EDGE CONTROL (WIN)
 echo ==============================
+echo YOLO Model: $yoloModelVersion
+echo.
 echo 1. Start Edge (Detection Only)
 echo 2. Start Edge + Stream Proxy
 echo 3. Stop Edge
@@ -181,6 +184,7 @@ timeout /t 2 >nul
 goto :menu
 
 :status
+echo YOLO Model: $yoloModelVersion
 echo.
 echo Agent Task:
 schtasks /Query /TN "$agentTaskName" /V /FO LIST | findstr /I "Status:"
@@ -237,6 +241,7 @@ exit /b 0
     Write-Host "Control panel shortcut: $shortcutPath"
     Write-Host "Background start shortcut: $backgroundShortcutPath"
     Write-Host "Background stop shortcut: $stopShortcutPath"
+    Write-Host "YOLO model version: $yoloModelVersion"
     Write-Host "Default mode started: Detection Only"
 }
 catch {
