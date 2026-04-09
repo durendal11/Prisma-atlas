@@ -1,7 +1,7 @@
 """add language to users
 
 Revision ID: 9999
-Revises: ce04072dc963
+Revises: 012_edge_cam_src
 Create Date: 2024-05-20 12:00:00.000000
 
 """
@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = '9999'
-down_revision = 'ce04072dc963' # Might need to link to latest
+down_revision = '012_edge_cam_src'
 branch_labels = None
 depends_on = None
 
