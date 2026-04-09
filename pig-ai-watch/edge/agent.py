@@ -62,6 +62,12 @@ HTTP_READ_TIMEOUT = float(os.getenv("EDGE_HTTP_READ_TIMEOUT", "25"))
 HTTP_WRITE_TIMEOUT = float(os.getenv("EDGE_HTTP_WRITE_TIMEOUT", "25"))
 HTTP_POOL_TIMEOUT = float(os.getenv("EDGE_HTTP_POOL_TIMEOUT", "5"))
 HTTP_RETRIES = int(os.getenv("EDGE_HTTP_RETRIES", "2"))
+FALLBACK_TO_ENV_ON_EMPTY_CLOUD = os.getenv("EDGE_FALLBACK_TO_ENV_ON_EMPTY_CLOUD", "false").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
 
 HTTP_TIMEOUT = httpx.Timeout(
     connect=HTTP_CONNECT_TIMEOUT,
@@ -107,7 +113,7 @@ def _cloud_post(path: str, **kwargs) -> httpx.Response:
 
 def fetch_camera_config() -> Dict[str, str]:
     """GET /api/edge/config → {pen_id: camera_url, …}"""
-    # Local edge camera sources (LAN/file/index) used as fallback/override.
+    # Local edge camera sources (LAN/file/index) used as fallback only.
     local_cameras = {}
     for i in range(1, 11):
         url = os.getenv(f"CAMERA_PEN_{i}")
@@ -122,21 +128,25 @@ def fetch_camera_config() -> Dict[str, str]:
         cameras = {}
         for p in data.get("cameras", []):
             pen_id = p.get("pen_id")
-            camera_url = p.get("camera_url")
+            camera_url = (p.get("camera_url") or "").strip()
             if not pen_id or not camera_url:
                 continue
 
-            # Cloud UI stores Edge Node Stream as rtsp://mediamtx:8554/pen_x,
-            # but "mediamtx" only resolves inside the cloud Docker network.
-            if "rtsp://mediamtx:8554/" in camera_url and pen_id in local_cameras:
-                cameras[pen_id] = local_cameras[pen_id]
-                logger.info("Using local CAMERA_%s override for cloud edge-stream path", pen_id.upper())
-            else:
-                cameras[pen_id] = camera_url
+            cameras[pen_id] = camera_url
 
         if cameras:
             logger.info("Loaded %d camera(s) from cloud config", len(cameras))
             return cameras
+
+        logger.warning("Cloud config returned 0 usable camera URL(s)")
+        if FALLBACK_TO_ENV_ON_EMPTY_CLOUD:
+            logger.info("EDGE_FALLBACK_TO_ENV_ON_EMPTY_CLOUD=true, using local .env fallback")
+            logger.info("Loaded %d camera(s) from local .env", len(local_cameras))
+            return local_cameras
+
+        # Cloud responded successfully, so treat it as source-of-truth.
+        # This prevents stale local camera URLs from persisting after cloud updates.
+        return {}
     except Exception as exc:
         logger.warning("Cloud config unavailable (%s), falling back to .env", exc)
 
@@ -154,21 +164,39 @@ def _file_md5(path: Path) -> str:
             h.update(chunk)
     return h.hexdigest()
 
+VERSION_FILE = MODEL_PATH.with_name("model_version.json")
+
+def get_current_model_version() -> str:
+    if VERSION_FILE.exists():
+        try:
+            return json.loads(VERSION_FILE.read_text()).get("version", "pig-ai-watch-alpha")
+        except:
+            pass
+    # Save the base version on first run
+    save_model_version("pig-ai-watch-alpha")
+    return "pig-ai-watch-alpha"
+
+def save_model_version(version_name: str):
+    try:
+        VERSION_FILE.write_text(json.dumps({"version": version_name}))
+    except Exception as exc:
+        logger.warning("Could not save model version: %s", exc)
 
 def check_and_update_model():
     """Compare local model hash with cloud; download if different."""
+    local_version = get_current_model_version()
     try:
         resp = _cloud_get("/api/edge/model/version")
         resp.raise_for_status()
         remote = resp.json()
     except httpx.HTTPStatusError as exc:
         if exc.response is not None and exc.response.status_code == 404:
-            logger.info("Cloud model endpoint unavailable (404), keeping current model")
+            logger.info("Cloud model endpoint unavailable (404), keeping current model (version: %s)", local_version)
             return
-        logger.warning("Model version check failed (%s), keeping current model", exc)
+        logger.warning("Model version check failed (%s), keeping current model (version: %s)", exc, local_version)
         return
     except Exception as exc:
-        logger.warning("Model version check failed (%s), keeping current model", exc)
+        logger.warning("Model version check failed (%s), keeping current model (version: %s)", exc, local_version)
         return
 
     remote_md5 = remote.get("md5")
@@ -178,7 +206,7 @@ def check_and_update_model():
     if MODEL_PATH.exists():
         local_md5 = _file_md5(MODEL_PATH)
         if local_md5 == remote_md5:
-            logger.info("Model is up-to-date (md5=%s)", local_md5[:12])
+            logger.info("Model is up-to-date (md5=%s, version=%s)", local_md5[:12], local_version)
             return
 
     logger.info("Downloading updated model from cloud…")
@@ -189,7 +217,13 @@ def check_and_update_model():
             with open(MODEL_PATH, "wb") as f:
                 for chunk in r.iter_bytes(chunk_size=1 << 20):
                     f.write(chunk)
-        logger.info("Model saved to %s (md5=%s)", MODEL_PATH, _file_md5(MODEL_PATH)[:12])
+        
+        # When update finishes, either extract version from remote filename or fallback
+        new_filename = remote.get("filename", "pig-ai-watch-updated")
+        new_version = Path(new_filename).stem if "." in new_filename else new_filename
+        save_model_version(new_version)
+        
+        logger.info("Model updated successfully to version %s (md5=%s)", new_version, _file_md5(MODEL_PATH)[:12])
     except Exception as exc:
         logger.error("Model download failed: %s", exc)
 
@@ -233,10 +267,12 @@ def main():
     logger.info("  PRISMA ATLAS — Edge Agent  (Raspberry Pi)")
     logger.info("════════════════════════════════════════════════")
     logger.info("Cloud: %s", CLOUD_URL)
-    logger.info("Model: %s", MODEL_PATH)
+    logger.info("Model Path: %s", MODEL_PATH)
 
     # ── model
     check_and_update_model()
+    current_version = get_current_model_version()
+    logger.info("Current Model Version Loaded: %s", current_version)
 
     # Late-import detector so model path is settled
     from ultralytics import YOLO
@@ -317,9 +353,6 @@ def main():
 
     # ── cameras
     cameras = fetch_camera_config()
-    if not cameras:
-        logger.error("No cameras configured — exiting")
-        sys.exit(1)
 
     buf = SyncBuffer()
     
@@ -357,13 +390,19 @@ def main():
         EDGE_PEN_RISKS.pop(pen_id, None)
         logger.info("Stopped camera worker for %s", pen_id)
 
+    CONFIG_REFRESH_INTERVAL = max(10.0, float(os.getenv("EDGE_CONFIG_REFRESH_SEC", "30")))
+
     for pen_id, url in cameras.items():
         _start_worker(pen_id, url)
     logger.info("Started %d camera worker(s)", len(workers))
+    if not workers:
+        logger.warning(
+            "No camera URLs configured at startup; agent will stay online and retry every %.0fs",
+            CONFIG_REFRESH_INTERVAL,
+        )
 
     current_camera_map = dict(cameras)
     last_config_refresh = 0.0
-    CONFIG_REFRESH_INTERVAL = max(10.0, float(os.getenv("EDGE_CONFIG_REFRESH_SEC", "30")))
 
     def _sync_workers_from_cloud():
         nonlocal current_camera_map
@@ -385,6 +424,9 @@ def main():
                 logger.info("Camera URL changed for %s; restarting worker", pen_id)
                 _stop_worker(pen_id)
                 _start_worker(pen_id, url)
+
+        if not latest and not workers:
+            logger.info("Still waiting for camera URLs from cloud config")
 
         current_camera_map = dict(latest)
 

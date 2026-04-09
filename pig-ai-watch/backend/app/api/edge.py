@@ -12,9 +12,11 @@ Endpoints consumed by the Raspberry Pi edge agent:
 import hashlib
 import json
 import logging
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional, Tuple
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status, Header
 from fastapi.responses import FileResponse
@@ -71,6 +73,16 @@ class CameraConfig(BaseModel):
 
 class ConfigResponse(BaseModel):
     cameras: List[CameraConfig]
+
+
+class PublisherConfig(BaseModel):
+    pen_id: str
+    stream_path: str
+    local_camera_url: str
+
+
+class PublisherConfigResponse(BaseModel):
+    publishers: List[PublisherConfig]
 
 
 class ModelVersion(BaseModel):
@@ -226,6 +238,56 @@ async def get_edge_config(db: AsyncSession = Depends(get_db)):
         for p in pens
     ]
     return ConfigResponse(cameras=cameras)
+
+
+def _extract_edge_stream_path(camera_source: Optional[str]) -> Optional[str]:
+    """Return a publish path (e.g. pen_1) for Edge Node stream camera_source URLs."""
+    if not camera_source:
+        return None
+
+    try:
+        parsed = urlparse(camera_source)
+    except Exception:
+        return None
+
+    raw_path = (parsed.path or "").strip("/")
+    if not raw_path:
+        return None
+
+    netloc = (parsed.netloc or "").lower()
+    # Edge Node streams are expected to target cloud MediaMTX publish paths.
+    if "mediamtx" in netloc or re.fullmatch(r"pen_[a-zA-Z0-9_-]+", raw_path):
+        return raw_path
+    return None
+
+
+@router.get("/publisher-config", dependencies=[Depends(verify_edge_key)], response_model=PublisherConfigResponse)
+async def get_edge_publisher_config(db: AsyncSession = Depends(get_db)):
+    """Return edge publisher assignments from cloud camera setup.
+
+    Requires both:
+      - camera_source: cloud RTSP path (rtsp://.../pen_X)
+      - edge_camera_source: farm-local RTSP camera URL
+    """
+    result = await db.execute(select(Pen).where(Pen.is_active == True))
+    pens = result.scalars().all()
+
+    publishers: List[PublisherConfig] = []
+    for p in pens:
+        local_camera_url = (p.edge_camera_source or "").strip()
+        stream_path = _extract_edge_stream_path(p.camera_source)
+        if not local_camera_url or not stream_path:
+            continue
+
+        publishers.append(
+            PublisherConfig(
+                pen_id=f"pen_{p.id}",
+                stream_path=stream_path,
+                local_camera_url=local_camera_url,
+            )
+        )
+
+    return PublisherConfigResponse(publishers=publishers)
 
 
 # ── GET /model/version ───────────────────────────────────────────────────────
