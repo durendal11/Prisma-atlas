@@ -474,3 +474,58 @@ The algorithms and heuristics in Pig AI Watch are based on established veterinar
 | POST   | `/api/tasks/cleaning-schedule/{pen_id}/create-task`| Create cleaning task         |
 | PUT    | `/api/tasks/cleaning-schedule/{pen_id}/interval`   | Set cleaning interval        |
 | POST   | `/api/tasks/cleaning-schedule/{pen_id}/mark-cleaned`| Record cleaning             |
+
+---
+
+## 19. Capstone Defense Storyline
+
+### The Real-World Problem
+
+Pig farrowing is one of the highest-risk stages in swine production. In many farms, especially backyard setups, monitoring is still manual and intermittent.
+
+- Farmers cannot watch pens 24/7.
+- Critical events (piglet crushing, difficult birth, prolonged inactivity) can happen in minutes.
+- Delayed intervention increases piglet mortality, stresses the sow, and reduces farm profitability.
+- Existing smart-farm systems are often expensive, cloud-heavy, or too technical for smaller farms.
+
+### Storyline: From Risk to Timely Action
+
+Imagine a small backyard pig farmer with 2 to 10 sows. During farrowing week, the farmer must monitor feeding, sanitation, and deliveries at the same time. Even with experience, it is impossible to stay in front of one pen all day and night.
+
+Pig AI Watch changes this workflow:
+
+1. Cameras observe each pen continuously.
+2. The AI detects sow posture, piglet count, and behavior patterns in real time.
+3. The system computes crushing risk and farrowing likelihood.
+4. When abnormal patterns appear, alerts are pushed immediately to the dashboard and mobile device.
+5. The farmer responds early, instead of discovering issues too late.
+
+The result is simple: better survival, better welfare, and better decisions with less guesswork.
+
+### Why This Is Convenient for Backyard Farmers
+
+- Practical setup: works with common RTSP/IP cameras and edge devices.
+- Lower operational pressure: farmers monitor by exception (alerts) instead of constant manual watching.
+- Local-first design: edge processing and smart recording reduce bandwidth and cloud dependency.
+- Actionable UI: clear risk levels, due-sow tracking, and guided tasks reduce cognitive load.
+- Language support: English and Filipino/Tagalog options improve usability for local operators.
+
+### Value for Commercial and Industry-Scale Operations
+
+- Standardized monitoring across multiple pens and sites.
+- Centralized dashboards for management-level visibility.
+- Replay and historical analytics for root-cause analysis and process improvement.
+- Structured event logs for training, auditability, and SOP refinement.
+- Early-warning automation supports labor efficiency without sacrificing animal welfare.
+
+### Core Capstone Contribution
+
+This capstone demonstrates that precision livestock monitoring can be:
+
+- technically robust (real-time AI + edge/cloud synchronization),
+- economically practical (uses existing camera infrastructure), and
+- socially relevant (supports smallholder farmers while scaling to industry needs).
+
+### Suggested Defense Talk Track (Short Version)
+
+"Our study addresses a common but costly farm reality: farrowing problems are often detected too late because monitoring is manual and inconsistent. Pig AI Watch turns ordinary cameras into a real-time decision support system. It detects sow and piglet behavior, computes risk, and sends alerts before losses escalate. For backyard farmers, this means less constant watch time and faster interventions. For larger farms, it provides standardized analytics across multiple pens. In short, we are not replacing farmers; we are augmenting them with timely, data-driven awareness during the most critical period of pig production." 

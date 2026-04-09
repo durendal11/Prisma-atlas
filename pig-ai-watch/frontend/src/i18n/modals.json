@@ -1,0 +1,65 @@
+{
+  "en": {
+    "cameraModalTitle": "Understanding Camera Setup pipeline",
+    "cameraModalIntro": "The Pig-AI Watch uses Real-Time Streaming Protocol (<b>RTSP</b>) to capture live video directly from your NVR or IP Camera systems.",
+    "cameraModalStep1Title": "Adding the Stream",
+    "cameraModalStep1Desc": "Find your camera manufacturer's standard RTSP link formats. Usually formatted as <code class=\"bg-slate-200 dark:bg-slate-700 px-1 py-0.5 rounded text-xs\">rtsp://user:pass@IP:554/stream</code>. The backend verifies the stream's availability.",
+    "cameraModalStep2Title": "Automatic Allocation",
+    "cameraModalStep2Desc": "Once you bind the setup camera link, MediaMTX handles the WebRTC proxy to expose video locally without latency, while the <b>YOLOv8 Edge Models</b> tap into the RTSP frames to search for farrowing behavior.",
+    "cameraModalWarningTitle": "Device Connectivity Notes",
+    "cameraModalWarni{
+  "en": {
+    "cameraModalTitle": "Understanding Camera Setup pipeline",
+    "cameraModalI net    "camti    "cameraModalIntro": "The Pig-AI Watch uses Real-Time Strees    "cameraModalStep1Title": "Adding the Stream",
+    "cameraModalStep1Desc": "Find your camera manufacturer's standard RTSP link formats. Usually formatted  "    "cameraModalStep1Desc": "Find your camera mafr    "cameraModalStep2Title": "Automatic Allocation",
+    "cameraModalStep2Desc": "Once you bind the setup camera link, MediaMTX handles the WebRTC proxy to expose video locally without latency, while the <b>YOLOv8 Edge Models</b> tap into the RTSP frames to searche edge nod    "cameraModalStep2Desc": "Once you bind the setute    "cameraModalWarningTitle": "Device Connectivity Notes",
+    "cameraModalWarni{
+  "en": {
+    "cameraModalTitle": "Understanding Camera Setup pipeline",
+    "cameraModalI net    "camti    "cameraModalIntro": "The Pig-AI Watch uses Re "    "cameraModalWarni{
+  "en": {
+    "cameraModalTitle": "ay  "en": {
+    "camerato    "camls    "cameraModalI net    "camti    "cameraModalIntro": "The Pve    "cameraModalStep1Desc": "Find your camera manufacturer's standard RTSP link formats. Usually formatted  "    "cameraModalStep1Desc": "Findng    "cameraModalStep2Desc": "Once you bind the setup camera link, MediaMTX handles the WebRTC proxy to expose video locally without latency, while the <b>YOLOv8 Edge Models</b> tap into the RTSP frames to searcrr    "cameraModalWarni{
+  "en": {
+    "cameraModalTitle": "Understanding Camera Setup pipeline",
+    "cameraModalI net    "camti    "cameraModalIntro": "The Pig-AI Watch uses Re "    "cameraModalWarni{
+  "en": {
+    "cameraModalTitle": "ay  "en": {
+    "camerato    "camls    "cameraModalI net    "camti    "cameraModalIntro": "The P4-  "en": {
+    "cameraon    "cam,     "cameraModalI net    "camti    "cameraModalIntro": "The Psu  "en": {
+    "cameraModalTitle": "ay  "en": {
+    "camerato    "camls    "cameraModalI net    "camti  od    ep3Des    "camerato    "camls    "cameraM.   "en": {
+    "cameraModalTitle": "Understanding Camera Setup pipeline",
+    "cameraModalI net    "camti    "cameraModalIntro": "The Pig-AI Watch uses Re "    "cameraModalWarni{
+  "en": {
+    "cameraModalTitle": "ay  "en": {
+    "camerato    "camls    "cameraModalI net    "camti    "cameraModalIntro": "The P4-  "en": {
+    "cameraon    "cam,     "cameraModalI net    "camti    "cameraModalIntro": "The Psu  "en": {
+    "cameraModalTitle": "ay  "en": {
+    "cameMo    "cp2De    "cameraModalI net    "camti    "cameraModalIntro": "The Pli  "en": {
+    "cameraModalTitle": "ay  "en": {
+    "camerato    "camls    "cameraModalI net    "camti  ks    "cam"a    "camerato    "camls    "cameraMor    "cameraon    "cam,     "cameraModalI net    "camti    "cameraModalIntro": "The Psu  "en": rs    "cameraModalTitle": "ay  "en": {
+    "camerato    "camls    "cameraModalI net    "camti  ots    "camerato    "camls    "cameraMio    "cameraModalTitle": "Understanding Cameraou can receive immediate browser or mobile push alerts for Critical Ta    "cameraModalI net    "camti    "cameraModalIntro": "The Pgs  "en": {
+    "cameraModalTitle": "ay  "en": {
+    "camerato    "camls    "cameraModalI net    "camti  en    "camr     "camerato    "camls    "cameraMn'    "cameraon    "cam,     "cameraModalI net    "camti    "cameraModalIntro": "The Psu  "en": ch    "cameraModalTitle": "ay  "en": {
+    "cameMo    "cp2De    "cameraModalI net    "camti    "io    "cameMo    "cp2De    "cameraModck    "cameraModalTitle": "ay  "en": {
+    "camerato    "camls    "cameraModalI net    "camti ra    "camerato    "camls    "cameraMe"    "camerato    "camls    "cameraModalI net    "camti  ots    "camerato    "camls    "cameraMio    "cameraModalTitle": "Understanding Cameraou can receive immediate browser or mobile push alerts for Critical Ta    "cameraModalI net    Mo    "cameraModalTitle": "ay  "en": {
+    "camerato    "camls    "cameraModalI net    "camti  en    "camr     "camerato    "camls    "cameraMn'    "cameraon    "cam,     "cameraModalI net    "camti    "cameraModalIntro": "The Psu  "en": ch    "cameraModalTitle": "ay  "en": {
+    "calI    "camerato    "camls    "cameraMng    "cameMo    "cp2De    "cameraModalI net    "camti    "io    "cameMo    "cp2De    "cameraModck    "cameraModalTitle": "ay  "en": {
+    "camerato    "camls    "cameraModalI net    "camti ra    "camerato    "camls    "cameraMe"    "camet     "camerato    "camls    "cameraModalI net    "camti ra    "camerato    "camls    "cameraMe"    "camerato    "camls    "cameraModou    "camerato    "camls    "cameraModalI net    "camti  en    "camr     "camerato    "camls    "cameraMn'    "cameraon    "cam,     "cameraModalI net    "camti    "cameraModalIntro": "The Psu  "en": ch    "cameraModalTitle": "ay  "en": {
+    "calI    "camerato    "camls    "cameraMng    "cameMo    "cp2De    "cameraModalI net    "camti    "io    "cameMo    "cp2De    E    "calI    "camerato    "camls    "cameraMng    "cameMo    "cp2De    "cameraModalI net    "camti    "io    "cameMo    "cp2De    "cameraModck    "cameraModalTitle": "ay  "en": {
+    "camerato    "camls    "cameraModalI net    "camti ra s    "camerato    "camls    "cameraModalI net    "camti ra    "camerato    "camls    "cameraMe"    "camet     "camerato    "camls    "cameraModalI net    "camti ra    "camerato  ",    "calI    "camerato    "camls    "cameraMng    "cameMo    "cp2De    "cameraModalI net    "camti    "io    "cameMo    "cp2De    E    "calI    "camerato    "camls    "cameraMng    "cameMo    "cp2De    "cameraModalI net    "camti    "io    "cameMo    "cp2De    "cameraModck    "cameraModalTitle": "ay  "en": {
+    "camerato    "camls    "cameraModalI net    "camti ra s    "camerato    "camls    "cameraModalI net    "camti ra    "camerato    "camls    "cameraMe"    "camet ko    "camerato    "camls    "cameraModalI net    "camti ra s    "camerato    "camls    "cameraModalI net    "camti ra    "camerato    "camls    "cameraMe"    "camet     "camerato    "camls    "cameraModalI net    "camti ra    "camerato  ",    "calI    "camerato    "camls    "cameraMng    "cameMo    "cp2De   an    "camerato    "camls    "cameraModalI net    "camti ra s    "camerato    "camls    "cameraModalI net    "camti ra    "camerato    "camls    "cameraMe"    "camet ko    "camerato    "camls    "cameraModalI net    "camti ra s    "camerato    "camls    "cameraModalI net    "camti ra    "camerato    "camls    "cameraMe"    "camet     "camerato    "camls    "cameraModalI net    "camti ra    "camerato  ",    "calI    "camerato    "camls    "cameraMng    "cameMo    "cp2De   an    "camerato    "camls    "cameraModalI net    "camti ra s    "camera vision) at longitudinal data tracking (mula sa cloud databases) upang mahulaan ang eksaktong oras ng panganganak.",
+    "farrowingModalStep1Title": "Mga Indikasyon sa Pag-uugali",
+    "farrowingModalStep1Desc": "Ang aming AI ay naghahanap ng <b>pagpupugad (nesting), pagiging hindi mapakali, at madalas na pagbabago sa pagtayo at paghiga</b>. Ang mataas na antas ng aktibidad ay direktang nakakaapekto sa porsyento ng posilbilidad o \"Likelihood\".",
+    "farrowingModalStep2Title": "Paghahanay ng Pagbubuntis",
+    "farrowingModalStep2Desc": "Batay sa karaniwang 114-116 araw na panahon ng pagbubuntis ng mga baboy, ang app ay nag-i-integrate ng mga naunang logs ng pagpaparami sa mga nakikitang senyales ng pisikal na hirap (distress).",
+    "farrowingModalStep3Title": "Bilang ng mga Biik at Kaligtasan",
+    "farrowingModalStep3Desc": "Bina-track namin ang bawat nagagawang biik. Sinusubaybayan ng AI ang bilang kumpara sa inaasahang dami, palagi kang ina-update tungkol sa panganib ng stillborn at pag-unlad ng pagpapasu    "farrowingModalStep1Title": "Mga Indikasyon sa Pag-uugali",
+    "farrowingModalStep1Desc": "Ang aming AI ay nti    "farrowingModalStep1Desc": "Ang aming AI ay naghahanap ng na    "farrowingModalStep2Title": "Paghahanay ng Pagbubuntis",
+    "farrowingModalStep2Desc": "Batay sa karaniwang 114-116 araw na panahon ng pagbubuntis ng mga baboy, ang app ay nag-i-integrate ng mga naunang logs ng pagpaparami sa mga nakikitang senyales ng pisikal na "T    "farrowingModalStep2Desc": "Batay sa karaniwang 114-116y     "farrowingModalStep3Title": "Bilang ng mga Biik at Kaligtasan",
+    "farrowingModalStep3Desc": "Bina-track namin ang bawat nagagawang biik. Sinusubaybayan ng AI ang bilang kumpara sa inaasahang dami, palagi kang ina-updatele    "farrowingModalStep3Desc": "Bina-track namin ang bawat nagagawng    "farrowingModalStep1Desc": "Ang aming AI ay nti    "farrowingModalStep1Desc": "Ang aming AI ay naghahanap ng na    "farrowingModalStep2Title": "Paghahanay ng Pagbubuntis",
+    "farrowingModalStep2Desc": "Batay sa karaniwang 114-116 araw na panahon ng pagbubuntis ng mga baboyng    "farrowingModalStep2Desc": "Batay sa karaniwang 114-116 araw na panahon ng pagbubuntis ng mga baboy, ang app ay nag-i-integrate ng mga naunang logs ng pagpaparami sa mga  p    "farrowingModalStep3Desc": "Bina-track namin ang bawat nagagawang biik. Sinusubaybayan ng AI ang bilang kumpara sa inaasahang dami, palagi kang ina-updatele    "farrowingModalStep3Desc": "Bina-track namin ang bawat nagagawng    "farrowingModalStep1Desc": "Ang aming AI ay nti    "farrowingModalStep1Desc": "Ang aming AI ay naghahanapio    "farrowingModalStep2Desc": "Batay sa karaniwang 114-116 araw na panahon ng pagbubuntis ng mga baboyng    "farrowingModalStep2Desc": "Batay sa karaniwang 114-116 araw na panahon ng pagbubuntis ng mga baboy, ang app ay nag-i-integrate ng mga naunang logs ng pagpaparami sa mga  p    "farrowingModalStep3Desc": "Bina-track namin ang bawat nagagawang biik. Sinusubaybayan ng AI ang bilang kumpara sa inlActiveTitle": "Epekto sa CPU",
+    "scheduleModalActiveDesc": "Ang buo at 24/7 na continuous recording ay napakalaki ang pangangailangan sa hard-drive at nagdudulot ng matinding load sa CPU ng iyong Edge Device. Mag-record lang sana sa mga oras na malamang na may panganganak (hal. magdamag)."
+  }
+}

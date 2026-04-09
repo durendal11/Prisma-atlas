@@ -28,6 +28,11 @@ export default defineConfig({
         maximumFileSizeToCacheInBytes: 5 * 1024 * 1024,
         runtimeCaching: [
           {
+            // Recording schedule/clips must always reflect latest server state.
+            urlPattern: /^.*\/api\/recording\/.*/i,
+            handler: 'NetworkOnly',
+          },
+          {
             urlPattern: /^.*\/api\/.*/i,
             handler: 'NetworkFirst',
             options: { cacheName: 'api-cache', expiration: { maxEntries: 100, maxAgeSeconds: 300 } },

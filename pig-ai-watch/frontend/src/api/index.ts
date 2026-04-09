@@ -465,7 +465,8 @@ export const recordingApi = {
       storage: penStorage ? {
         total: penStorage.total_bytes,
         used: penStorage.total_bytes - penStorage.free_bytes,
-        free: penStorage.free_bytes
+        free: penStorage.free_bytes,
+        storage_path: penStorage.storage_path
       } : null
     };
   },

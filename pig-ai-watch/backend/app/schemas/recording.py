@@ -19,3 +19,8 @@ class RecordingClipReport(BaseModel):
     mode: str
     file_size_bytes: int
     storage_path: str
+
+
+class RecordingClipPruneRequest(BaseModel):
+    file_paths: List[str]
+    pen_id: Optional[int] = None

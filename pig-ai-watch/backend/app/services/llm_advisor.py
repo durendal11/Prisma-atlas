@@ -67,14 +67,20 @@ Ground recommendations in observable data only. Do not speculate.
 """
 
 
-def _get_digest_prompt(period_label: str = "24 hours") -> str:
-    """Return a digest system prompt tailored to the requested analysis window."""
+def _get_digest_prompt(
+    period_label: str = "24 hours",
+    briefing_title: str = "Morning Briefing",
+    time_focus: str = "start-of-day planning"
+) -> str:
+    """Return a digest system prompt tailored to the analysis window and briefing time context."""
     return f"""
 You are a farm performance analyst for a pig farrowing operation.
 Summarize the last {period_label} across all monitored pens into a
-briefing for the farmer. Be warm but professional. Use plain language
+{briefing_title.lower()} for the farmer. Be warm but professional. Use plain language
 — no technical jargon. Format as a short report the farmer can read
 in under 2 minutes.
+
+Time context: write this with {time_focus} in mind.
 
 Structure:
 1. Overall status (1 sentence)
@@ -201,8 +207,16 @@ def generate_daily_digest(data: Dict[str, Any]) -> str:
 
     period_hours = data.get('period_hours', 24)
     period_label = _period_label(period_hours)
+    briefing_mode = str(data.get('briefing_mode', '')).strip().lower()
+    if briefing_mode == 'night':
+        briefing_title = 'Night Briefing'
+        time_focus = 'night monitoring priorities, overnight risks, and next-shift actions'
+    else:
+        briefing_title = 'Morning Briefing'
+        time_focus = 'start-of-day planning and immediate daytime priorities'
 
     prompt = f"""
+    {briefing_title} context (local hour: {data.get('local_hour', 'unknown')}).
     {period_label} summary across {data.get('pen_count', 0)} pens:
     {data.get('per_pen_summaries', 'No pen data available')}
 
@@ -212,7 +226,7 @@ def generate_daily_digest(data: Dict[str, Any]) -> str:
     Declining pens: {data.get('declining_pens', 'None')}
     """
     try:
-        system_prompt = _get_digest_prompt(period_label)
+        system_prompt = _get_digest_prompt(period_label, briefing_title, time_focus)
         response = model.generate_content(
             contents=[
                 {"role": "user", "parts": [{"text": system_prompt}]},

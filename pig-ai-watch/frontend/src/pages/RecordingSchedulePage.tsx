@@ -105,6 +105,8 @@ export default function RecordingSchedulePage() {
           <select
             value={selectedPen || ''}
             onChange={(e) => setSelectedPen(Number(e.target.value))}
+            aria-label="Select pen"
+            title="Select pen"
             className="rounded-lg border-gray-300 dark:border-slate-600 dark:bg-slate-700 dark:text-white px-4 py-2"
           >
             {pens.map(p => (
@@ -183,9 +185,9 @@ export default function RecordingSchedulePage() {
           </div>
 
           {/* Mobile Layout (Vertical Hours, Horizontal Days) */}
-          <div className="block md:hidden min-w-fit flex pb-2">
+          <div className="md:hidden min-w-fit flex pb-2">
             <div>
-              <div className="flex mb-2 sticky top-0 bg-white dark:bg-slate-800 z-10 pt-2 pb-1 border-b border-gray-100 dark:border-slate-700 mb-4">
+              <div className="flex sticky top-0 bg-white dark:bg-slate-800 z-10 pt-2 pb-1 border-b border-gray-100 dark:border-slate-700 mb-4">
                 <div className="w-16"></div>
                 {DAYS.map(day => (
                   <div key={day} className="w-12 text-sm text-center text-gray-700 dark:text-slate-300 font-medium">
@@ -236,6 +238,8 @@ export default function RecordingSchedulePage() {
               </div>
               <button 
                 onClick={() => setShowInfo(false)}
+                aria-label="Close recording schedule info"
+                title="Close recording schedule info"
                 className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-slate-700 transition-colors"
               >
                 <X className="w-5 h-5" />
@@ -319,6 +323,15 @@ export default function RecordingSchedulePage() {
 
               {/* Explanations */}
               <div className="space-y-6">
+                <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700/40 rounded-xl p-4">
+                  <h4 className="font-bold text-amber-800 dark:text-amber-300 mb-2">
+                    {t('scheduleModalImportantTitle')}
+                  </h4>
+                  <ul className="list-disc pl-5 space-y-1 text-sm text-amber-900/90 dark:text-amber-200/90">
+                    <li>{t('scheduleModalImportantLine1')}</li>
+                    <li>{t('scheduleModalImportantLine2')}</li>
+                  </ul>
+                </div>
                 
                 {/* Visual Instructions */}
                 <div className="bg-white dark:bg-slate-800 rounded-xl shadow-sm border border-slate-200 dark:border-slate-700 overflow-hidden divide-y divide-slate-100 dark:divide-slate-700/50 text-sm">

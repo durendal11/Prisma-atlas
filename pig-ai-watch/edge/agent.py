@@ -493,28 +493,49 @@ if __name__ == "__main__":
             logger.warning("Recording schedule fetch failed: %s", exc)
             return {}
 
-    def report_storage_status():
-        """POST /api/edge/storage-status -> current free space"""
+    def report_storage_status(pen_ids: List[str]):
+        """POST /api/edge/storage-status per pen -> current free space"""
         try:
             path, total, free = detect_storage()
-            payload = {
-                "storage_path": str(path),
-                "total_bytes": total,
-                "free_bytes": free
-            }
-            _cloud_post("/api/edge/storage-status", json=payload)
+
+            if not pen_ids:
+                _cloud_post(
+                    "/api/edge/storage-status",
+                    json={
+                        "pen_id": None,
+                        "storage_path": str(path),
+                        "total_bytes": total,
+                        "free_bytes": free,
+                    },
+                )
+                return
+
+            for pen_id in pen_ids:
+                try:
+                    pen_id_int = int(str(pen_id).replace("pen_", ""))
+                except ValueError:
+                    continue
+
+                payload = {
+                    "pen_id": pen_id_int,
+                    "storage_path": str(path),
+                    "total_bytes": total,
+                    "free_bytes": free,
+                }
+                _cloud_post("/api/edge/storage-status", json=payload)
         except Exception as exc:
             logger.warning("Storage status report failed: %s", exc)
 
     def schedule_loop():
         # Routinely poll GET /api/edge/recording-schedule and POST /api/edge/storage-status
+        loop_interval = max(30.0, float(os.getenv("EDGE_RECORDING_SYNC_SEC", "60")))
         while True:
-            # Report storage capacity periodically
-            report_storage_status()
-            
             # Fetch updated config and schedules
             cameras = fetch_camera_config()
             schedules = fetch_recording_schedules()
+
+            # Report storage capacity per active pen.
+            report_storage_status(list(cameras.keys()))
             
             # Manage RecordingWorker instances alongside CameraWorker
             # Since CameraWorkers are managed in main loop directly in this basic script,
@@ -551,7 +572,7 @@ if __name__ == "__main__":
                         recording_workers.pop(pen_id, None)
                         recording_stream_map.pop(pen_id, None)
                     
-            time.sleep(15 * 60)  # Sleep 15 mins
+            time.sleep(loop_interval)
             
     # Start schedule loop in background
     threading.Thread(target=schedule_loop, daemon=True).start()

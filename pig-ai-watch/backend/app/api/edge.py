@@ -21,7 +21,7 @@ from urllib.parse import urlparse
 from fastapi import APIRouter, Depends, HTTPException, Request, status, Header
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-from sqlalchemy import select, text
+from sqlalchemy import delete, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 
@@ -458,25 +458,59 @@ async def _broadcast_detection(message: dict, pen_id: str):
     except Exception as exc:
         logger.debug("WebSocket broadcast skipped: %s", exc)
 from app.models.pig import RecordingSchedule, RecordingClip, StorageStatus, Pen
-from app.schemas.recording import RecordingClipReport, StorageStatusReport
+from app.schemas.recording import RecordingClipPruneRequest, RecordingClipReport, StorageStatusReport
 import json
 
-@router.get("/recording-schedule")
+VALID_REC_MODES = {"off", "detection", "continuous"}
+DEFAULT_SCHEDULE = ["off"] * 168
+
+
+def _normalize_schedule(raw_schedule) -> List[str]:
+    normalized = DEFAULT_SCHEDULE.copy()
+
+    if not isinstance(raw_schedule, list):
+        return normalized
+
+    if len(raw_schedule) == 168 and all(isinstance(x, str) for x in raw_schedule):
+        out: List[str] = []
+        for mode in raw_schedule:
+            m = (mode or "off").strip().lower()
+            out.append(m if m in VALID_REC_MODES else "off")
+        return out
+
+    if raw_schedule and all(isinstance(x, dict) for x in raw_schedule):
+        for slot in raw_schedule:
+            day = slot.get("day")
+            hour = slot.get("hour")
+            mode = (slot.get("mode") or "off").strip().lower()
+            if isinstance(day, int) and isinstance(hour, int) and 0 <= day <= 6 and 0 <= hour <= 23:
+                idx = day * 24 + hour
+                normalized[idx] = mode if mode in VALID_REC_MODES else "off"
+        return normalized
+
+    if raw_schedule and all(isinstance(x, str) for x in raw_schedule):
+        for idx, mode in enumerate(raw_schedule[:168]):
+            m = (mode or "off").strip().lower()
+            normalized[idx] = m if m in VALID_REC_MODES else "off"
+
+    return normalized
+
+@router.get("/recording-schedule", dependencies=[Depends(verify_edge_key)])
 async def get_recording_schedule(db: AsyncSession = Depends(get_db)):
     """Get recording schedules for all pens"""
-    result = await db.execute(select(RecordingSchedule))
+    result = await db.execute(select(RecordingSchedule).execution_options(ignore_tenant=True))
     schedules = result.scalars().all()
     
-    result_pens = await db.execute(select(Pen))
+    result_pens = await db.execute(select(Pen).where(Pen.is_active == True).execution_options(ignore_tenant=True))
     pens = result_pens.scalars().all()
     
-    pen_schedules = {s.pen_id: s.schedule_json for s in schedules}
+    pen_schedules = {s.pen_id: _normalize_schedule(s.schedule_json) for s in schedules}
     
     output = []
     for pen in pens:
         output.append({
             "pen_id": pen.id,
-            "schedule": pen_schedules.get(pen.id, [])
+            "schedule": pen_schedules.get(pen.id, DEFAULT_SCHEDULE.copy())
         })
         
     return output
@@ -488,12 +522,22 @@ async def register_recording(
     db: AsyncSession = Depends(get_db)
 ):
     """Register a completed video clip"""
+    if not settings.EDGE_API_KEY or x_edge_key != settings.EDGE_API_KEY:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid edge key")
+
+    pen_result = await db.execute(
+        select(Pen).where(Pen.id == clip.pen_id).execution_options(ignore_tenant=True)
+    )
+    pen = pen_result.scalar_one_or_none()
+    if pen and pen.owner_id is not None:
+        db.info["tenant_id"] = pen.owner_id
+
     new_clip = RecordingClip(
         pen_id=clip.pen_id,
         file_path=clip.file_path,
         start_time=clip.start_time,
         end_time=clip.end_time,
-        mode=clip.mode,
+        mode=clip.mode if clip.mode in VALID_REC_MODES else "detection",
         file_size_bytes=clip.file_size_bytes,
         storage_path=clip.storage_path,
         edge_device_id=x_edge_key
@@ -502,12 +546,57 @@ async def register_recording(
     await db.commit()
     return {"status": "ok", "id": new_clip.id}
 
+
+@router.post("/recording-clip")
+async def register_recording_alias(
+    clip: RecordingClipReport,
+    x_edge_key: str = Header(...),
+    db: AsyncSession = Depends(get_db)
+):
+    """Alias endpoint used by some edge builds."""
+    return await register_recording(clip=clip, x_edge_key=x_edge_key, db=db)
+
+
+@router.post("/recordings/prune")
+async def prune_recording_metadata(
+    payload: RecordingClipPruneRequest,
+    x_edge_key: str = Header(...),
+    db: AsyncSession = Depends(get_db)
+):
+    """Delete stale recording metadata rows for files removed by edge loop-recording."""
+    if not settings.EDGE_API_KEY or x_edge_key != settings.EDGE_API_KEY:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid edge key")
+
+    file_paths = [p for p in payload.file_paths if isinstance(p, str) and p.strip()]
+    if not file_paths:
+        return {"status": "ok", "deleted": 0}
+
+    stmt = delete(RecordingClip).where(RecordingClip.file_path.in_(file_paths))
+    if payload.pen_id is not None:
+        stmt = stmt.where(RecordingClip.pen_id == payload.pen_id)
+
+    result = await db.execute(stmt.execution_options(ignore_tenant=True))
+    await db.commit()
+    return {"status": "ok", "deleted": int(result.rowcount or 0)}
+
 @router.post("/storage-status")
 async def report_storage_status(
     status: StorageStatusReport,
+    x_edge_key: str = Header(...),
     db: AsyncSession = Depends(get_db)
 ):
     """Update storage status for the edge agent/pen"""
+    if not settings.EDGE_API_KEY or x_edge_key != settings.EDGE_API_KEY:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid edge key")
+
+    if status.pen_id is not None:
+        pen_result = await db.execute(
+            select(Pen).where(Pen.id == status.pen_id).execution_options(ignore_tenant=True)
+        )
+        pen = pen_result.scalar_one_or_none()
+        if pen and pen.owner_id is not None:
+            db.info["tenant_id"] = pen.owner_id
+
     new_status = StorageStatus(
         pen_id=status.pen_id,
         storage_path=status.storage_path,

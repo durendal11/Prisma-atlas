@@ -42,7 +42,23 @@ function parsePenFromQuery(value: string | null): number | null {
 function RecordingsTab({ penId }: { penId: number }) {
   const [recordings, setRecordings] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
-  const [storageInfo, setStorageInfo] = useState<{total: number, used: number, free: number} | null>(null);
+  const [storageInfo, setStorageInfo] = useState<{total: number, used: number, free: number, storage_path?: string | null} | null>(null);
+
+  const inferredSavePath = useMemo(() => {
+    if (storageInfo?.storage_path) return storageInfo.storage_path;
+
+    const firstClipWithStorage = recordings.find((r) => typeof r.storage_path === 'string' && r.storage_path.trim().length > 0);
+    if (firstClipWithStorage?.storage_path) return firstClipWithStorage.storage_path;
+
+    const firstClipWithFile = recordings.find((r) => typeof r.file_path === 'string' && r.file_path.trim().length > 0);
+    if (firstClipWithFile?.file_path) {
+      const p = firstClipWithFile.file_path;
+      const idx = Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\'));
+      if (idx > 0) return p.slice(0, idx);
+    }
+
+    return null;
+  }, [recordings, storageInfo]);
 
   useEffect(() => {
     let mounted = true;
@@ -68,6 +84,24 @@ function RecordingsTab({ penId }: { penId: number }) {
 
   return (
     <div className="space-y-6">
+      <div className="bg-white dark:bg-slate-800/50 rounded-xl border border-gray-200 dark:border-slate-700/50 p-4">
+        <h3 className="text-sm font-semibold text-gray-900 dark:text-white mb-2 flex items-center gap-2">
+          <HardDrive className="w-4 h-4 text-indigo-500" />
+          Edge Clip Save Location
+        </h3>
+        <div className="text-xs text-gray-500 dark:text-slate-400 mb-2">
+          Use this path to confirm clips are physically written on the edge device.
+        </div>
+        <div className="font-mono text-xs px-3 py-2 rounded-lg bg-gray-50 dark:bg-slate-900/60 border border-gray-200 dark:border-slate-700 break-all text-gray-700 dark:text-slate-300">
+          {inferredSavePath || 'No recording path reported yet (save clips first).'}
+        </div>
+        <div className="mt-2 text-xs text-gray-500 dark:text-slate-400">
+          {recordings.length > 0
+            ? `Clips indexed and fetchable: ${recordings.length}`
+            : 'No indexed clips yet for this pen.'}
+        </div>
+      </div>
+
       <div className="bg-white dark:bg-slate-800/50 rounded-xl border border-gray-200 dark:border-slate-700/50 overflow-hidden">
         {loading ? (
           <div className="p-8 text-center text-gray-500 dark:text-slate-400">Loading recordings...</div>
@@ -84,6 +118,7 @@ function RecordingsTab({ penId }: { penId: number }) {
                 <th className="px-4 py-3 font-medium text-gray-900 dark:text-white">Duration</th>
                 <th className="px-4 py-3 font-medium text-gray-900 dark:text-white">Mode</th>
                 <th className="px-4 py-3 font-medium text-gray-900 dark:text-white">Size</th>
+                <th className="px-4 py-3 font-medium text-gray-900 dark:text-white">Saved Path</th>
                 <th className="px-4 py-3 font-medium text-gray-900 dark:text-white">Action</th>
               </tr>
             </thead>
@@ -104,6 +139,11 @@ function RecordingsTab({ penId }: { penId: number }) {
                   </td>
                   <td className="px-4 py-3 text-gray-600 dark:text-slate-400">
                     {(rec.size_bytes / (1024 * 1024)).toFixed(1)} MB
+                  </td>
+                  <td className="px-4 py-3 text-gray-600 dark:text-slate-400">
+                    <div className="font-mono text-xs break-all max-w-[260px]">
+                      {rec.file_path || rec.storage_path || '-'}
+                    </div>
                   </td>
                   <td className="px-4 py-3">
                     <a 
@@ -138,15 +178,20 @@ function RecordingsTab({ penId }: { penId: number }) {
                 {((storageInfo.used / (1024**3)) || 0).toFixed(1)} GB / {((storageInfo.total / (1024**3)) || 0).toFixed(1)} GB
               </span>
             </div>
-            <div className="w-full bg-gray-200 dark:bg-slate-700 rounded-full h-2.5 overflow-hidden">
-              <div 
-                className="bg-indigo-500 h-2.5 rounded-full transition-all" 
-                style={{ width: `${Math.min(100, Math.max(0, (storageInfo.used / storageInfo.total) * 100))}%` }}
-              ></div>
-            </div>
+            <progress
+              value={Math.min(100, Math.max(0, (storageInfo.used / storageInfo.total) * 100))}
+              max={100}
+              className="w-full h-2.5 rounded-full overflow-hidden bg-gray-200 dark:bg-slate-700"
+            />
             <div className="mt-2 text-xs text-gray-500 dark:text-slate-400 flex justify-between">
               <span>{((storageInfo.free / (1024**3)) || 0).toFixed(1)} GB Free Space</span>
+              <span>Loop recording cap: 5.0 GB</span>
             </div>
+            {storageInfo.storage_path && (
+              <div className="mt-2 font-mono text-[11px] text-gray-500 dark:text-slate-400 break-all">
+                Saved under: {storageInfo.storage_path}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -381,9 +426,11 @@ export default function ReplayPage() {
             </div>
 
             {/* Progress bar visual */}
-            <div className="w-full bg-gray-200 dark:bg-slate-700 rounded-full h-1">
-              <div className="h-1 rounded-full bg-indigo-500 transition-all duration-100" style={{ width: `${progressPct}%` }} />
-            </div>
+            <progress
+              value={progressPct}
+              max={100}
+              className="w-full h-1 rounded-full overflow-hidden bg-gray-200 dark:bg-slate-700"
+            />
 
             {/* Buttons row */}
             <div className="flex items-center justify-center gap-2">

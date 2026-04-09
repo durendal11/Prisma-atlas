@@ -12,6 +12,13 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
+DETECTION_RISK_THRESHOLD = float(os.getenv("DETECTION_RECORD_RISK_THRESHOLD", "0.0"))
+RECORDING_STORAGE_CAP_GB = float(os.getenv("RECORDING_STORAGE_CAP_GB", "5"))
+RECORDING_STORAGE_CAP_BYTES = int(max(0.0, RECORDING_STORAGE_CAP_GB) * (1024 ** 3))
+
+# Multiple recording workers can run in parallel; serialize global prune operations.
+_CAP_ENFORCE_LOCK = threading.Lock()
+
 class RecordingWorker:
     def __init__(
         self,
@@ -58,7 +65,8 @@ class RecordingWorker:
     def get_current_mode(self) -> str:
         # Determine continuous, detection, or none based on current time
         now = datetime.now()
-        day = now.weekday() # 0 = Monday, 6 = Sunday
+        # Frontend schedule grid is Sunday-first: [Sun, Mon, Tue, Wed, Thu, Fri, Sat].
+        day = (now.weekday() + 1) % 7  # Convert Python weekday (Mon=0) -> Sun=0
         hour = now.hour
         
         # Check if the schedule is the new flat list format (168 items)
@@ -102,6 +110,77 @@ class RecordingWorker:
         except Exception as e:
             logger.error("Failed to report clip to cloud: %s", e)
 
+    def _report_pruned_clips(self, file_paths: List[str]):
+        if not file_paths:
+            return
+
+        try:
+            payload = {
+                "file_paths": file_paths,
+            }
+            url = f"{self.cloud_url}/api/edge/recordings/prune"
+            headers = {"X-Edge-Key": self.api_key}
+            resp = httpx.post(url, json=payload, headers=headers, timeout=10)
+            resp.raise_for_status()
+            logger.info("Reported %d pruned clip metadata row(s)", len(file_paths))
+        except Exception as exc:
+            logger.warning("Failed to report pruned clips to cloud: %s", exc)
+
+    def _collect_recording_files(self) -> List[tuple[Path, float, int]]:
+        root = Path(self.storage_path)
+        if not root.exists():
+            return []
+
+        files: List[tuple[Path, float, int]] = []
+        for p in root.rglob("*.mp4"):
+            try:
+                st = p.stat()
+                files.append((p, st.st_mtime, int(st.st_size)))
+            except OSError:
+                continue
+
+        files.sort(key=lambda x: x[1])
+        return files
+
+    def _enforce_storage_cap(self):
+        """Loop-recording retention: keep newest clips, delete stale clips past storage cap."""
+        if RECORDING_STORAGE_CAP_BYTES <= 0:
+            return
+
+        with _CAP_ENFORCE_LOCK:
+            files = self._collect_recording_files()
+            total_size = sum(size for _, _, size in files)
+
+            if total_size <= RECORDING_STORAGE_CAP_BYTES:
+                return
+
+            deleted_paths: List[str] = []
+
+            # Always preserve at least the freshest clip.
+            while total_size > RECORDING_STORAGE_CAP_BYTES and len(files) > 1:
+                old_path, _mtime, old_size = files.pop(0)
+                try:
+                    old_path.unlink(missing_ok=True)
+                    total_size -= old_size
+                    deleted_paths.append(str(old_path))
+                    logger.info(
+                        "Loop recording: pruned stale clip %s (size=%d bytes)",
+                        old_path,
+                        old_size,
+                    )
+                except OSError as exc:
+                    logger.warning("Failed to prune stale clip %s: %s", old_path, exc)
+
+            if total_size > RECORDING_STORAGE_CAP_BYTES:
+                logger.warning(
+                    "Storage cap still exceeded after prune (used=%d cap=%d).",
+                    total_size,
+                    RECORDING_STORAGE_CAP_BYTES,
+                )
+
+            if deleted_paths:
+                self._report_pruned_clips(deleted_paths)
+
     def _run_recording_loop(self):
         logger.info("Starting RecordingWorker for %s (URL=%s)", self.pen_id, self.stream_url)
         
@@ -114,12 +193,15 @@ class RecordingWorker:
                 
             if mode == "detection":
                 risk_score = self.get_risk_score() if self.get_risk_score else 0.0
-                if risk_score < 0.4:
+                if risk_score < DETECTION_RISK_THRESHOLD:
                     # No significant crushing risk spike found, idle for a bit
                     time.sleep(5)
                     continue
                 else:
                     logger.info("Crushing spike detected! (Risk: %.2f) Activating recording chunk for %s", risk_score, self.pen_id)
+
+            # Free old clips first if the recording area has exceeded the configured cap.
+            self._enforce_storage_cap()
             
             start_t = datetime.now()
             end_t = start_t + timedelta(seconds=self.chunk_duration_sec)
@@ -160,6 +242,8 @@ class RecordingWorker:
                     finish_t = datetime.now()
                     size_bytes = filepath.stat().st_size
                     self.report_clip(str(filepath), start_t, finish_t, mode, size_bytes)
+                    # Enforce retention after adding a new clip as well.
+                    self._enforce_storage_cap()
                 else:
                     logger.warning("Recording file %s empty or missing", filepath)
                     

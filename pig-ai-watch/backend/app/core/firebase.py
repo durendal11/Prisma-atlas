@@ -96,23 +96,26 @@ async def broadcast_alert(title: str, body: str, alert_type: str = "system", pen
                 if not users:
                     return
 
-                data_payload = {
-                    "title": title,
-                    "body": body,
-                    "type": alert_type,
-                    "severity": severity,
-                }
-                if pen_id is not None:
-                    data_payload["pen_id"] = str(pen_id)
-
-                str_data = {k: str(v) for k, v in data_payload.items()}
-                
                 for user in users:
                     if not user.fcm_token:
                         continue
                     try:
+                        from app.core.i18n import translate
+                        user_lang = getattr(user, "language", "en")
+                        
+                        user_data_payload = {
+                            "title": translate(title, user_lang),
+                            "body": translate(body, user_lang),
+                            "type": alert_type,
+                            "severity": severity,
+                        }
+                        if pen_id is not None:
+                            user_data_payload["pen_id"] = str(pen_id)
+
+                        user_str_data = {k: str(v) for k, v in user_data_payload.items()}
+                        
                         msg = messaging.Message(
-                            data=str_data,
+                            data=user_str_data,
                             token=user.fcm_token,
                         )
                         messaging.send(msg)

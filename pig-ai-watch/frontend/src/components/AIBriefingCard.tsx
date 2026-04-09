@@ -3,6 +3,17 @@ import { Sparkles } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import { advisoryApi } from '../api';
 
+type BriefingMode = 'morning' | 'night';
+
+const getBriefingMode = (date: Date): BriefingMode => {
+  const hour = date.getHours();
+  return hour >= 18 || hour < 5 ? 'night' : 'morning';
+};
+
+const getBriefingTitle = (mode: BriefingMode): string => {
+  return mode === 'night' ? 'Night Briefing' : 'Morning Briefing';
+};
+
 const GeneratingAnimation = () => (
   <div className="flex flex-col space-y-4 py-2">
     {/* Looping highlighted text generating animation */}
@@ -32,6 +43,10 @@ export const AIBriefingCard: React.FC<{ penData?: any }> = ({ penData }) => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [periodHours, setPeriodHours] = useState(24);
+  const [now, setNow] = useState(() => new Date());
+
+  const briefingMode = getBriefingMode(now);
+  const briefingTitle = getBriefingTitle(briefingMode);
 
   const PERIOD_OPTIONS = [
     { label: 'Last 24 Hours', value: 24 },
@@ -52,6 +67,11 @@ export const AIBriefingCard: React.FC<{ penData?: any }> = ({ penData }) => {
     return () => { document.head.removeChild(style); };
   }, []);
 
+  useEffect(() => {
+    const timerId = window.setInterval(() => setNow(new Date()), 60_000);
+    return () => window.clearInterval(timerId);
+  }, []);
+
   const generateBriefing = async () => {
     setLoading(true);
     setError(null);
@@ -60,6 +80,9 @@ export const AIBriefingCard: React.FC<{ penData?: any }> = ({ penData }) => {
         pen_count: penData?.length || 0,
         per_pen_summaries: JSON.stringify(penData || []),
         period_hours: periodHours,
+        briefing_mode: briefingMode,
+        briefing_title: briefingTitle,
+        local_hour: now.getHours(),
       };
       const response = await advisoryApi.getDailyDigest(data);
       // Ensure we extract the markdown string from the response object
@@ -80,7 +103,7 @@ export const AIBriefingCard: React.FC<{ penData?: any }> = ({ penData }) => {
       <div className="relative z-10 flex flex-wrap items-center justify-between gap-3 mb-4 pb-4 border-b border-indigo-100 dark:border-indigo-800/50">
         <div className="flex items-center gap-2 text-indigo-700 dark:text-indigo-400">
           <Sparkles className="w-6 h-6" />
-          <h2 className="text-xl font-bold tracking-tight">Morning Briefing</h2>
+          <h2 className="text-xl font-bold tracking-tight">{briefingTitle}</h2>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           <div className="flex items-center gap-1 bg-indigo-50/80 dark:bg-indigo-900/30 rounded-lg p-0.5">

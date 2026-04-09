@@ -127,6 +127,9 @@ export const translations = {
     scheduleModalStep2Desc: 'The grid runs from 00:00 (12:00 AM Midnight) to 23:00 (11:00 PM) in 1-hour chunks. 08:00 is 8 AM, 15:00 is 3 PM.',
     scheduleModalStep3Title: 'Processing Impact',
     scheduleModalStep3Desc: 'Full 24/7 continuous recording maximizes hard-drive usage and heavily taxes the Edge Device CPU. Only record chunks where farrowing is likely (e.g. overnight).',
+    scheduleModalImportantTitle: 'Important note about Replay and Recordings',
+    scheduleModalImportantLine1: 'Replay Simulation uses behavior logs and is not directly tied to this recording schedule.',
+    scheduleModalImportantLine2: 'To view actual video clips in Replay > Recordings, this schedule must be active and the edge device must upload reported clips.',
   },
   fil: {
     // Dashboard
@@ -254,6 +257,9 @@ export const translations = {
     scheduleModalStep2Desc: 'Mula 00:00 (12:00 AM Hatinggabi) hanggang 23:00 (11:00 PM) ang takbo ng grid nang tig-1 oras. Ang 08:00 ay 8 AM, at ang 15:00 ay 3 PM.',
     scheduleModalStep3Title: 'Epekto sa CPU',
     scheduleModalStep3Desc: 'Ang buo at 24/7 na continuous recording ay napakalaki ang pangangailangan sa hard-drive at nagdudulot ng matinding load sa CPU ng iyong Edge Device. Mag-record lang sana sa mga oras na malamang na may panganganak (hal. magdamag).',
+    scheduleModalImportantTitle: 'Mahalagang paalala tungkol sa Replay at Recordings',
+    scheduleModalImportantLine1: 'Ang Replay Simulation ay gumagamit ng behavior logs at hindi direktang nakatali sa recording schedule na ito.',
+    scheduleModalImportantLine2: 'Para makita ang totoong video clips sa Replay > Recordings, dapat aktibo ang schedule na ito at nakakapag-upload ng clips ang edge device.',
   },
 } as const;
 
