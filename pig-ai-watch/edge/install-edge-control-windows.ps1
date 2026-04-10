@@ -207,18 +207,35 @@ try {
     $startBackgroundBat = Join-Path $controlDir "Start-Edge-Background.bat"
     $stopBackgroundBat = Join-Path $controlDir "Stop-Edge-Background.bat"
     $statusBat = Join-Path $controlDir "Status-Edge-Background.bat"
+    $viewAgentLogsBat = Join-Path $controlDir "View-Agent-Logs.bat"
+    $viewPusherLogsBat = Join-Path $controlDir "View-Pusher-Logs.bat"
+    $forceStopBat = Join-Path $controlDir "Force-Stop-Edge.bat"
     $controlBat = Join-Path $controlDir "PRISMA-Edge-Control.bat"
     $agentWindowTitle = "PRISMA_EDGE_AGENT_$taskSuffix"
     $pusherWindowTitle = "PRISMA_EDGE_PUSHER_$taskSuffix"
+    $agentOutLog = Join-Path $logsDir "edge-agent.out.log"
+    $agentErrLog = Join-Path $logsDir "edge-agent.err.log"
+    $pusherOutLog = Join-Path $logsDir "edge-pusher.out.log"
+    $pusherErrLog = Join-Path $logsDir "edge-pusher.err.log"
 
     New-Item -ItemType Directory -Path $controlDir -Force | Out-Null
     New-Item -ItemType Directory -Path $logsDir -Force | Out-Null
+    New-Item -ItemType File -Path $agentOutLog -Force | Out-Null
+    New-Item -ItemType File -Path $agentErrLog -Force | Out-Null
+    New-Item -ItemType File -Path $pusherOutLog -Force | Out-Null
+    New-Item -ItemType File -Path $pusherErrLog -Force | Out-Null
 
     $agentLoopContent = @"
 @echo off
+set "LOG_OUT=$agentOutLog"
+set "LOG_ERR=$agentErrLog"
 cd /d "$resolvedEdgeDir"
+echo [%date% %time%] Agent loop initialized.>>"%LOG_OUT%"
 :loop
-$pythonLaunch "$resolvedEdgeDir\agent.py"
+echo [%date% %time%] Starting agent...>>"%LOG_OUT%"
+$pythonLaunch "$resolvedEdgeDir\agent.py" >>"%LOG_OUT%" 2>>"%LOG_ERR%"
+set "RC=%ERRORLEVEL%"
+echo [%date% %time%] Agent exited with code %RC%. Restarting in 5s...>>"%LOG_ERR%"
 timeout /t 5 /nobreak >nul
 goto loop
 "@
@@ -226,13 +243,47 @@ goto loop
 
     $pusherLoopContent = @"
 @echo off
+set "LOG_OUT=$pusherOutLog"
+set "LOG_ERR=$pusherErrLog"
 cd /d "$resolvedEdgeDir\headless_proxy"
+echo [%date% %time%] Proxy loop initialized.>>"%LOG_OUT%"
 :loop
-$pythonLaunch "$resolvedEdgeDir\headless_proxy\edge_pusher.py"
+echo [%date% %time%] Starting proxy...>>"%LOG_OUT%"
+$pythonLaunch "$resolvedEdgeDir\headless_proxy\edge_pusher.py" >>"%LOG_OUT%" 2>>"%LOG_ERR%"
+set "RC=%ERRORLEVEL%"
+echo [%date% %time%] Proxy exited with code %RC%. Restarting in 5s...>>"%LOG_ERR%"
 timeout /t 5 /nobreak >nul
 goto loop
 "@
     Set-Content -Path $pusherLoopBat -Value $pusherLoopContent -Encoding ASCII
+
+    $viewAgentLogsContent = @"
+@echo off
+if not exist "$agentOutLog" type nul > "$agentOutLog"
+if not exist "$agentErrLog" type nul > "$agentErrLog"
+powershell -NoProfile -NoExit -Command "Write-Host 'Live agent logs (output + error). Close window when done.' -ForegroundColor Cyan; Get-Content -Path '$agentOutLog','$agentErrLog' -Tail 40 -Wait"
+"@
+    Set-Content -Path $viewAgentLogsBat -Value $viewAgentLogsContent -Encoding ASCII
+
+    $viewPusherLogsContent = @"
+@echo off
+if not exist "$pusherOutLog" type nul > "$pusherOutLog"
+if not exist "$pusherErrLog" type nul > "$pusherErrLog"
+powershell -NoProfile -NoExit -Command "Write-Host 'Live proxy logs (output + error). Close window when done.' -ForegroundColor Cyan; Get-Content -Path '$pusherOutLog','$pusherErrLog' -Tail 40 -Wait"
+"@
+    Set-Content -Path $viewPusherLogsBat -Value $viewPusherLogsContent -Encoding ASCII
+
+    $forceStopContent = @"
+@echo off
+schtasks /End /TN "$agentTaskName" >nul 2>&1
+schtasks /End /TN "$pusherTaskName" >nul 2>&1
+taskkill /F /FI "WINDOWTITLE eq $agentWindowTitle" >nul 2>&1
+taskkill /F /FI "WINDOWTITLE eq $pusherWindowTitle" >nul 2>&1
+powershell -NoProfile -Command "Get-CimInstance Win32_Process | Where-Object { (`$_.CommandLine -match 'agent\.py') -or (`$_.CommandLine -match 'edge_pusher\.py') } | ForEach-Object { Stop-Process -Id `$_.ProcessId -Force -ErrorAction SilentlyContinue }"
+echo Forced stop command executed for tasks and processes.
+timeout /t 2 >nul
+"@
+    Set-Content -Path $forceStopBat -Value $forceStopContent -Encoding ASCII
 
     $agentTaskCmd = '"' + $agentLoopBat + '"'
     $pusherTaskCmd = '"' + $pusherLoopBat + '"'
@@ -284,11 +335,25 @@ timeout /t 2 >nul
 
         $statusContent = @"
 @echo off
+    echo Install Mode: Task Scheduler
+    echo.
 echo Agent Task:
-schtasks /Query /TN "$agentTaskName" /V /FO LIST | findstr /I "Status:"
+    schtasks /Query /TN "$agentTaskName" /V /FO LIST | findstr /I "Status: Last Run Time: Last Result:"
 echo.
 echo Pusher Task:
-schtasks /Query /TN "$pusherTaskName" /V /FO LIST | findstr /I "Status:"
+    schtasks /Query /TN "$pusherTaskName" /V /FO LIST | findstr /I "Status: Last Run Time: Last Result:"
+    echo.
+    echo Agent Log (last 5):
+    powershell -NoProfile -Command "if (Test-Path '$agentOutLog') { Get-Content -Path '$agentOutLog' -Tail 5 } else { '(no agent output log yet)' }"
+    echo.
+    echo Agent Errors (last 5):
+    powershell -NoProfile -Command "if (Test-Path '$agentErrLog') { Get-Content -Path '$agentErrLog' -Tail 5 } else { '(no agent error log yet)' }"
+    echo.
+    echo Proxy Log (last 5):
+    powershell -NoProfile -Command "if (Test-Path '$pusherOutLog') { Get-Content -Path '$pusherOutLog' -Tail 5 } else { '(no proxy output log yet)' }"
+    echo.
+    echo Proxy Errors (last 5):
+    powershell -NoProfile -Command "if (Test-Path '$pusherErrLog') { Get-Content -Path '$pusherErrLog' -Tail 5 } else { '(no proxy error log yet)' }"
 "@
         Set-Content -Path $statusBat -Value $statusContent -Encoding ASCII
     }
@@ -339,6 +404,8 @@ timeout /t 2 >nul
 
         $statusContent = @"
 @echo off
+    echo Install Mode: Startup Fallback
+    echo.
 echo Agent Process:
 tasklist /v /fo list | findstr /I /C:"Window Title: $agentWindowTitle" >nul 2>&1
 if errorlevel 1 (
@@ -354,6 +421,18 @@ if errorlevel 1 (
 ) else (
     echo Status: Running
 )
+echo.
+echo Agent Log (last 5):
+powershell -NoProfile -Command "if (Test-Path '$agentOutLog') { Get-Content -Path '$agentOutLog' -Tail 5 } else { '(no agent output log yet)' }"
+echo.
+echo Agent Errors (last 5):
+powershell -NoProfile -Command "if (Test-Path '$agentErrLog') { Get-Content -Path '$agentErrLog' -Tail 5 } else { '(no agent error log yet)' }"
+echo.
+echo Proxy Log (last 5):
+powershell -NoProfile -Command "if (Test-Path '$pusherOutLog') { Get-Content -Path '$pusherOutLog' -Tail 5 } else { '(no proxy output log yet)' }"
+echo.
+echo Proxy Errors (last 5):
+powershell -NoProfile -Command "if (Test-Path '$pusherErrLog') { Get-Content -Path '$pusherErrLog' -Tail 5 } else { '(no proxy error log yet)' }"
 "@
         Set-Content -Path $statusBat -Value $statusContent -Encoding ASCII
     }
@@ -374,10 +453,16 @@ echo 2. Start Edge + Stream Proxy
 echo 3. Stop Edge
 echo 4. Status
 echo 5. Open Logs
-echo 6. Exit
-choice /C 123456 /N /M "Select option: "
+echo 6. Live Agent Logs
+echo 7. Live Proxy Logs
+echo 8. Force Stop (All)
+echo 9. Exit
+choice /C 123456789 /N /M "Select option: "
 
-if errorlevel 6 goto :end
+if errorlevel 9 goto :end
+if errorlevel 8 goto :force
+if errorlevel 7 goto :viewproxy
+if errorlevel 6 goto :viewagent
 if errorlevel 5 goto :logs
 if errorlevel 4 goto :status
 if errorlevel 3 goto :stop
@@ -412,6 +497,20 @@ goto :menu
 
 :logs
 start "" "$logsDir"
+goto :menu
+
+:viewagent
+call "$viewAgentLogsBat"
+goto :menu
+
+:viewproxy
+call "$viewPusherLogsBat"
+goto :menu
+
+:force
+call "$forceStopBat"
+echo Force stop completed.
+timeout /t 2 >nul
 goto :menu
 
 :end
@@ -459,6 +558,7 @@ exit /b 0
     Write-Host "Control panel shortcut: $shortcutPath"
     Write-Host "Background start shortcut: $backgroundShortcutPath"
     Write-Host "Background stop shortcut: $stopShortcutPath"
+    Write-Host "Logs folder: $logsDir"
     if ($installMode -eq "task-scheduler") {
         Write-Host "Install mode: Task Scheduler" -ForegroundColor Green
         Write-Host "Task names: $agentTaskName, $pusherTaskName"
