@@ -108,7 +108,7 @@ function CountUp({ target, suffix, label }: { target: number; suffix: string; la
 /* ─── Features Data ──────────────────────────────────────────────────────── */
 
 const FEATURES = [
-  { icon: Brain, title: 'AI Detection', desc: 'Advanced YOLOv8 model trained specifically for pig detection with 99.2% accuracy for sows and piglets.', tags: ['YOLOv8', 'ONNX', 'Real-time'] },
+  { icon: Brain, title: 'AI Detection', desc: 'Advanced YOLOv11 model trained specifically for pig detection with 99.2% accuracy for sows and piglets.', tags: ['YOLOv11', 'ONNX', 'Real-time'] },
   { icon: ShieldCheck, title: 'Crushing Prevention', desc: 'Real-time crushing risk assessment based on sow posture, piglet proximity, and behavioral patterns.', tags: ['Risk Analysis', 'Alerts'] },
   { icon: BarChart3, title: 'Health Analytics', desc: 'Comprehensive health scoring tracking activity levels, feeding patterns, and vital indicators.', tags: ['Health Score', 'Trends'] },
   { icon: Video, title: 'Multi-Camera Support', desc: 'Monitor multiple pens simultaneously with seamless camera switching and unified dashboard.', tags: ['Multi-feed', 'WebRTC'] },
@@ -125,7 +125,7 @@ const DEMO_FEATURES = [
 
 const PROCESS = [
   { n: '01', icon: Camera, title: 'Video Capture', desc: 'Camera feeds captured and preprocessed into 640×640 normalized tensors for optimal model input.' },
-  { n: '02', icon: Cpu, title: 'AI Inference', desc: 'YOLOv8 processes frames detecting sows, piglets, and their postures with high confidence.' },
+  { n: '02', icon: Cpu, title: 'AI Inference', desc: 'YOLOv11 processes frames detecting sows, piglets, and their postures with high confidence.' },
   { n: '03', icon: Calculator, title: 'Risk Analysis', desc: 'Proximity calculations and posture analysis determine crushing risk with our proprietary algorithm.' },
   { n: '04', icon: BellRing, title: 'Alert & Log', desc: 'Critical events trigger instant alerts while all behavior data is logged for analytics.' },
 ];
@@ -464,7 +464,7 @@ export default function LandingPage() {
 
       {/* ── Features ──────────────────────────────────────────────────────── */}
       <Section id="features">
-        <SectionHeader tag="Features" title="Intelligent Monitoring" highlight="Capabilities" description="Powered by state-of-the-art YOLOv8 computer vision and real-time analytics" />
+        <SectionHeader tag="Features" title="Intelligent Monitoring" highlight="Capabilities" description="Powered by state-of-the-art YOLOv11 computer vision and real-time analytics" />
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
           {FEATURES.map((f, i) => (
             <FadeInCard key={f.title} delay={i * 0.1} className="group">
@@ -562,7 +562,7 @@ export default function LandingPage() {
 
       {/* ── Detection Classes ─────────────────────────────────────────────── */}
       <Section id="model-classes">
-        <SectionHeader tag="AI Model" title="Detection" highlight="Classes" description="Our YOLOv8 model is trained to recognize 6 distinct classes" />
+        <SectionHeader tag="AI Model" title="Detection" highlight="Classes" description="Our YOLOv11 model is trained to recognize 6 distinct classes" />
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
           {CLASSES.map((c, i) => (
             <FadeInCard key={c.name} delay={i * 0.1}>

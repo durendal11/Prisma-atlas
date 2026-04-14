@@ -205,7 +205,7 @@ export function useONNXDetector(modelPath: string = '/models/pig_detection.onnx'
     const scores: number[] = [];
     const classIds: number[] = [];
     
-    // YOLOv8 output format: [batch, 4 + num_classes + 32, num_boxes]
+    // YOLOv11 output format: [batch, 4 + num_classes + 32, num_boxes]
     // First 4 values are cx, cy, w, h
     // Next num_classes values are class probabilities
     const numClasses = features - 4 - 32; // 32 for segmentation mask coefficients

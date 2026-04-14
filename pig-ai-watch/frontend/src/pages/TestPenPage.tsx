@@ -3094,7 +3094,7 @@ export default function TestPenPage() {
         section="test_pen"
         steps={[
           "Sandbox Simulator: Upload an mp4 file or an image to run a complete simulated detection pass mirroring the edge agent.",
-          "Bounding Box Overlays: Verify the visual fidelity of YOLOv8s' bounding boxes representing `sow`, `piglet`, and `posture` logic.",
+          "Bounding Box Overlays: Verify the visual fidelity of YOLOv11's bounding boxes representing `sow`, `piglet`, and `posture` logic.",
           "Farrowing Emulation: Toggle farrowing active to monitor how the state machine reacts to simulated rapid piglet growth.",
           "Event Analytics: Track historical frames simulated in real-time or fast-forward modes."
         ]}

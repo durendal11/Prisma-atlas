@@ -75,7 +75,7 @@ export const translations = {
     cameraModalStep1Title: 'Adding the Stream',
     cameraModalStep1Desc: 'Find your camera manufacturer\'s standard RTSP link formats. Usually formatted as <code class="bg-slate-200 dark:bg-slate-700 px-1 py-0.5 rounded text-xs">rtsp://user:pass@IP:554/stream</code>. The backend verifies the stream\'s availability.',
     cameraModalStep2Title: 'Automatic Allocation',
-    cameraModalStep2Desc: 'Once you bind the setup camera link, MediaMTX handles the WebRTC proxy to expose video locally without latency, while the <b>YOLOv8 Edge Models</b> tap into the RTSP frames to search for farrowing behavior.',
+    cameraModalStep2Desc: 'Once you bind the setup camera link, MediaMTX handles the WebRTC proxy to expose video locally without latency, while the <b>YOLOv11 Edge Models</b> tap into the RTSP frames to search for farrowing behavior.',
     cameraModalWarningTitle: 'Device Connectivity Notes',
     cameraModalWarningDesc: 'You must be deployed on the <b>same local area network</b> as the cameras. If your network partitions the IoT devices on a different VLAN, this system requires routing setup to view streams.',
     
@@ -205,7 +205,7 @@ export const translations = {
     cameraModalStep1Title: 'Pagdadagdag ng Stream',
     cameraModalStep1Desc: 'Hanapin ang mga karaniwang format ng RTSP link ng manufacturer ng iyong camera. Kadalasan ay may format na <code class="bg-slate-200 dark:bg-slate-700 px-1 py-0.5 rounded text-xs">rtsp://user:pass@IP:554/stream</code>. Bine-verify ng backend ang availability ng stream.',
     cameraModalStep2Title: 'Awtomatikong Alokasyon',
-    cameraModalStep2Desc: 'Kapag naiugnay mo na ang setup camera link, pinangangasiwaan ng MediaMTX ang WebRTC proxy para ipakita ang video nang lokal nang walang latency, habang tinitingnan ng <b>YOLOv8 Edge Models</b> ang RTSP frames para maghanap ng aktibidad ng panganganak.',
+    cameraModalStep2Desc: 'Kapag naiugnay mo na ang setup camera link, pinangangasiwaan ng MediaMTX ang WebRTC proxy para ipakita ang video nang lokal nang walang latency, habang tinitingnan ng <b>YOLOv11 Edge Models</b> ang RTSP frames para maghanap ng aktibidad ng panganganak.',
     cameraModalWarningTitle: 'Mga Tala sa Device Connectivity',
     cameraModalWarningDesc: 'Dapat naka-deploy ka sa <b>parehong local area network</b> kung saan nandoon ang mga camera. Kung hinihiwalay ng iyong network ang mga IoT device sa ibang VLAN, nangangailangan ang system na ito ng routing setup para matingnan ang mga stream.',
     

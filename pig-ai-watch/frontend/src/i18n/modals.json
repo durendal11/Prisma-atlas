@@ -5,21 +5,21 @@
     "cameraModalStep1Title": "Adding the Stream",
     "cameraModalStep1Desc": "Find your camera manufacturer's standard RTSP link formats. Usually formatted as <code class=\"bg-slate-200 dark:bg-slate-700 px-1 py-0.5 rounded text-xs\">rtsp://user:pass@IP:554/stream</code>. The backend verifies the stream's availability.",
     "cameraModalStep2Title": "Automatic Allocation",
-    "cameraModalStep2Desc": "Once you bind the setup camera link, MediaMTX handles the WebRTC proxy to expose video locally without latency, while the <b>YOLOv8 Edge Models</b> tap into the RTSP frames to search for farrowing behavior.",
+    "cameraModalStep2Desc": "Once you bind the setup camera link, MediaMTX handles the WebRTC proxy to expose video locally without latency, while the <b>YOLOv11 Edge Models</b> tap into the RTSP frames to search for farrowing behavior.",
     "cameraModalWarningTitle": "Device Connectivity Notes",
     "cameraModalWarni{
   "en": {
     "cameraModalTitle": "Understanding Camera Setup pipeline",
     "cameraModalI net    "camti    "cameraModalIntro": "The Pig-AI Watch uses Real-Time Strees    "cameraModalStep1Title": "Adding the Stream",
     "cameraModalStep1Desc": "Find your camera manufacturer's standard RTSP link formats. Usually formatted  "    "cameraModalStep1Desc": "Find your camera mafr    "cameraModalStep2Title": "Automatic Allocation",
-    "cameraModalStep2Desc": "Once you bind the setup camera link, MediaMTX handles the WebRTC proxy to expose video locally without latency, while the <b>YOLOv8 Edge Models</b> tap into the RTSP frames to searche edge nod    "cameraModalStep2Desc": "Once you bind the setute    "cameraModalWarningTitle": "Device Connectivity Notes",
+    "cameraModalStep2Desc": "Once you bind the setup camera link, MediaMTX handles the WebRTC proxy to expose video locally without latency, while the <b>YOLOv11 Edge Models</b> tap into the RTSP frames to searche edge nod    "cameraModalStep2Desc": "Once you bind the setute    "cameraModalWarningTitle": "Device Connectivity Notes",
     "cameraModalWarni{
   "en": {
     "cameraModalTitle": "Understanding Camera Setup pipeline",
     "cameraModalI net    "camti    "cameraModalIntro": "The Pig-AI Watch uses Re "    "cameraModalWarni{
   "en": {
     "cameraModalTitle": "ay  "en": {
-    "camerato    "camls    "cameraModalI net    "camti    "cameraModalIntro": "The Pve    "cameraModalStep1Desc": "Find your camera manufacturer's standard RTSP link formats. Usually formatted  "    "cameraModalStep1Desc": "Findng    "cameraModalStep2Desc": "Once you bind the setup camera link, MediaMTX handles the WebRTC proxy to expose video locally without latency, while the <b>YOLOv8 Edge Models</b> tap into the RTSP frames to searcrr    "cameraModalWarni{
+    "camerato    "camls    "cameraModalI net    "camti    "cameraModalIntro": "The Pve    "cameraModalStep1Desc": "Find your camera manufacturer's standard RTSP link formats. Usually formatted  "    "cameraModalStep1Desc": "Findng    "cameraModalStep2Desc": "Once you bind the setup camera link, MediaMTX handles the WebRTC proxy to expose video locally without latency, while the <b>YOLOv11 Edge Models</b> tap into the RTSP frames to searcrr    "cameraModalWarni{
   "en": {
     "cameraModalTitle": "Understanding Camera Setup pipeline",
     "cameraModalI net    "camti    "cameraModalIntro": "The Pig-AI Watch uses Re "    "cameraModalWarni{
