@@ -6,6 +6,7 @@ import sys
 import threading
 import time
 from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -26,6 +27,37 @@ CLOUD_API_URL = os.getenv("CLOUD_API_URL", "").rstrip("/")
 EDGE_API_KEY = os.getenv("EDGE_API_KEY", "")
 CONFIG_REFRESH_SEC = int(os.getenv("EDGE_PUBLISH_CONFIG_REFRESH_SEC", "30"))
 HTTP_TIMEOUT_SEC = float(os.getenv("EDGE_PUBLISH_HTTP_TIMEOUT_SEC", "15"))
+FAIL_FAST_SEC = float(os.getenv("EDGE_PUBLISH_FAIL_FAST_SEC", "12"))
+INPUT_THREAD_QUEUE_SIZE = int(os.getenv("EDGE_PUBLISH_THREAD_QUEUE_SIZE", "64"))
+TRY_STREAM2_FALLBACK = os.getenv("EDGE_PUBLISH_TRY_STREAM2", "true").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+PREFER_STREAM2 = os.getenv("EDGE_PUBLISH_PREFER_STREAM2", "true").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+ROTATE_SOURCE_ON_DISCONNECT = os.getenv("EDGE_PUBLISH_ROTATE_SOURCE_ON_DISCONNECT", "true").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+FORCE_RE_FOR_ALL_INPUTS = os.getenv("EDGE_PUBLISH_FORCE_RE", "false").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+
+
+def _is_realtime_source(url: str) -> bool:
+    lower = url.lower()
+    return lower.startswith(("rtsp://", "rtsps://", "rtmp://", "http://", "https://"))
 
 
 def _tcp_port_open(host: str, port: int, timeout_sec: float) -> tuple[bool, str]:
@@ -47,6 +79,53 @@ def _legacy_env_publishers() -> dict[str, str]:
             pen_path = key.replace("FARM_CAM_", "pen_").lower()
             publishers[pen_path] = local_url.strip()
     return publishers
+
+
+def _sanitize_url(url: str) -> str:
+    """Hide embedded credentials when logging camera URLs."""
+    if "@" not in url or "://" not in url:
+        return url
+
+    parsed = urlsplit(url)
+    if not parsed.netloc or "@" not in parsed.netloc:
+        return url
+
+    creds, host = parsed.netloc.rsplit("@", 1)
+    username = creds.split(":", 1)[0] if creds else ""
+    masked_user = f"{username}:***" if username else "***"
+    return urlunsplit((parsed.scheme, f"{masked_user}@{host}", parsed.path, parsed.query, parsed.fragment))
+
+
+def _build_source_candidates(local_url: str) -> list[str]:
+    """
+    Return candidate camera URLs to try.
+
+    For common IP-camera layouts, if source is .../stream1 we also try .../stream2
+    so publishing can move to a secondary channel when the primary is in use.
+    """
+    candidates = [local_url.strip()]
+
+    if not TRY_STREAM2_FALLBACK or not local_url.lower().startswith("rtsp://"):
+        return candidates
+
+    parsed = urlsplit(local_url)
+    path = parsed.path or ""
+    lower_path = path.lower()
+    if not lower_path.endswith("/stream1"):
+        return candidates
+
+    alt_path = f"{path[:-1]}2"
+    alt_url = urlunsplit((parsed.scheme, parsed.netloc, alt_path, parsed.query, parsed.fragment))
+    if alt_url == local_url:
+        return candidates
+
+    if PREFER_STREAM2:
+        return [alt_url, local_url]
+
+    if alt_url not in candidates:
+        candidates.append(alt_url)
+
+    return candidates
 
 
 def _fetch_cloud_publishers() -> dict[str, str] | None:
@@ -87,24 +166,40 @@ class PushWorker(threading.Thread):
         super().__init__(daemon=True)
         self.local_url = local_url
         self.stream_path = stream_path
+        self._source_candidates = _build_source_candidates(local_url)
+        self._source_index = 0
         self._stop_event = threading.Event()
 
     def stop(self):
         self._stop_event.set()
 
-    def _build_ffmpeg_cmd(self) -> list[str]:
+    def _build_ffmpeg_cmd(self, source_url: str) -> list[str]:
         cloud_url = f"rtsp://{CLOUD_IP}:{RTSP_PORT}/{self.stream_path}"
         cmd = ["ffmpeg", "-y"]
-        if self.local_url.startswith("rtsp://"):
-            cmd.extend(["-rtsp_transport", "tcp"])
+        if source_url.startswith("rtsp://"):
+            cmd.extend(
+                [
+                    "-rtsp_transport",
+                    "tcp",
+                    "-fflags",
+                    "nobuffer",
+                    "-flags",
+                    "low_delay",
+                    "-max_delay",
+                    "500000",
+                ]
+            )
+
+        # -re is useful for file inputs, but it can introduce drift on live RTSP streams.
+        if FORCE_RE_FOR_ALL_INPUTS or not _is_realtime_source(source_url):
+            cmd.append("-re")
 
         cmd.extend(
             [
-                "-re",
                 "-thread_queue_size",
-                "512",
+                str(INPUT_THREAD_QUEUE_SIZE),
                 "-i",
-                self.local_url,
+                source_url,
                 "-c:v",
                 "libx264",
                 "-preset",
@@ -118,6 +213,10 @@ class PushWorker(threading.Thread):
                 "warning",
                 "-f",
                 "rtsp",
+                "-muxdelay",
+                "0",
+                "-muxpreload",
+                "0",
                 "-rtsp_transport",
                 "tcp",
                 cloud_url,
@@ -127,7 +226,10 @@ class PushWorker(threading.Thread):
 
     def run(self):
         cloud_url = f"rtsp://{CLOUD_IP}:{RTSP_PORT}/{self.stream_path}"
-        print(f"[*] Starting proxy: {self.local_url} -> {cloud_url}")
+        print(f"[*] Starting proxy: {_sanitize_url(self.local_url)} -> {cloud_url}")
+        if len(self._source_candidates) > 1:
+            joined = " | ".join(_sanitize_url(url) for url in self._source_candidates)
+            print(f"[*] {self.stream_path} input fallback order: {joined}")
 
         while not self._stop_event.is_set():
             ok, detail = _tcp_port_open(CLOUD_IP, RTSP_PORT, TCP_CHECK_TIMEOUT_SEC)
@@ -139,11 +241,14 @@ class PushWorker(threading.Thread):
                 self._stop_event.wait(PUBLISH_RETRY_SEC)
                 continue
 
+            source_url = self._source_candidates[self._source_index]
             try:
-                proc = subprocess.Popen(self._build_ffmpeg_cmd())
+                proc = subprocess.Popen(self._build_ffmpeg_cmd(source_url))
             except FileNotFoundError:
                 print("[!] ffmpeg command not found. Install ffmpeg and retry.")
                 return
+
+            started_at = time.monotonic()
 
             while proc.poll() is None and not self._stop_event.is_set():
                 time.sleep(1)
@@ -156,10 +261,42 @@ class PushWorker(threading.Thread):
                     proc.kill()
                 break
 
+            run_sec = time.monotonic() - started_at
+            if run_sec < FAIL_FAST_SEC and len(self._source_candidates) > 1:
+                prev_source = source_url
+                self._source_index = (self._source_index + 1) % len(self._source_candidates)
+                next_source = self._source_candidates[self._source_index]
+                print(
+                    f"[!] {self.stream_path} input failed quickly ({run_sec:.1f}s): "
+                    f"{_sanitize_url(prev_source)}"
+                )
+                print(
+                    f"[*] Retrying with alternate source: {_sanitize_url(next_source)} "
+                    f"in {PUBLISH_RETRY_SEC}s..."
+                )
+                self._stop_event.wait(PUBLISH_RETRY_SEC)
+                continue
+
+            if run_sec < FAIL_FAST_SEC:
+                print(
+                    f"[!] {self.stream_path} source failed quickly ({run_sec:.1f}s): "
+                    f"{_sanitize_url(source_url)}"
+                )
+                print(
+                    "[!] If this camera allows only one RTSP client, "
+                    "run Detection Only mode or map publisher to a secondary substream."
+                )
+
             print(
                 f"[!] Stream to {self.stream_path} disconnected. "
                 f"Reconnecting in {PUBLISH_RETRY_SEC}s..."
             )
+
+            if ROTATE_SOURCE_ON_DISCONNECT and len(self._source_candidates) > 1:
+                self._source_index = (self._source_index + 1) % len(self._source_candidates)
+                next_source = self._source_candidates[self._source_index]
+                print(f"[*] Next source candidate: {_sanitize_url(next_source)}")
+
             self._stop_event.wait(PUBLISH_RETRY_SEC)
 
 
