@@ -254,7 +254,16 @@ async def update_pen(
             # Also stop the active stream so it doesn't keep reading
             from app.services.camera_stream import stream_manager
             await stream_manager.stop_stream(pen_name)
-    
+
+    # Sync ROI polygon to live stream (hot-reload without restart)
+    if "roi_points" in update_data:
+        from app.services.camera_stream import stream_manager
+        pen_name = f"pen_{pen_id}"
+        existing_stream = stream_manager.streams.get(pen_name)
+        if existing_stream is not None:
+            existing_stream.roi_points = update_data["roi_points"]
+            logger.info(f"✅ ROI polygon updated live for {pen_name}: {update_data['roi_points']}")
+
     return pen
 
 

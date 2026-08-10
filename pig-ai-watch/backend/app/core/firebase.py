@@ -124,5 +124,17 @@ async def broadcast_alert(title: str, body: str, alert_type: str = "system", pen
         except Exception as e:
             logger.error(f"Error broadcasting push alert: {e}")
 
-    # Fire and forget
+    # Fire and forget — Firebase push
     asyncio.create_task(_send())
+
+    # Fire and forget — Email notification (no-ops when SMTP_ENABLED=False)
+    from app.services.email_sender import send_alert_email
+    asyncio.create_task(
+        send_alert_email(
+            title=title,
+            body=body,
+            alert_type=alert_type,
+            pen_id=pen_id,
+            severity=severity,
+        )
+    )

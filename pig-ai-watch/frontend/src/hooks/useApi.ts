@@ -1,9 +1,9 @@
 import { useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import api, { sowsApi, alertsApi, eventsApi, dashboardApi, pensApi, authApi, tasksApi, farrowingApi } from '@/api';
+import api, { sowsApi, alertsApi, eventsApi, dashboardApi, pensApi, authApi, farrowingApi } from '@/api';
 import type { SowCreate, SowUpdate, AlertCreate, EventCreate } from '@/types';
 
-// Generic API hook for tasks and farrowing pages
+// Generic API hook for farrowing and other pages
 // Returns the raw axios instance + specific API modules
 // Memoized so the reference is stable across renders (prevents infinite loops in useCallback/useEffect)
 export function useApi() {
@@ -14,7 +14,6 @@ export function useApi() {
     put: api.put.bind(api),
     delete: api.delete.bind(api),
     // Specific API modules
-    tasks: tasksApi,
     farrowing: farrowingApi,
     sows: sowsApi,
     pens: pensApi,

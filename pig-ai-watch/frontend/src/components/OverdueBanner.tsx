@@ -67,7 +67,7 @@ export function OverdueBanner() {
         </div>
         <div>
           <h3 className="text-orange-900 font-bold text-lg">{actionCount} sow(s) eligible for induction — contact veterinarian.</h3>
-          <p className="text-orange-800 text-sm">Day 116 reached. Pre-induction tasks have been auto-generated.</p>
+          <p className="text-orange-800 text-sm">Day 116 reached. Please consult your veterinarian for induction assessment.</p>
         </div>
       </div>
     );

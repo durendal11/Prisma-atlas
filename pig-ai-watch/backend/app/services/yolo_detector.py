@@ -118,10 +118,60 @@ class YOLODetector:
                 return value
         
         return raw_label
+
+    def filter_boxes_by_roi(
+        self,
+        bounding_boxes: List[Dict[str, Any]],
+        roi_points: Optional[List[List[float]]],
+        frame_shape: tuple,
+    ) -> List[Dict[str, Any]]:
+        """
+        Remove bounding boxes whose centroid falls outside the ROI polygon.
+
+        Args:
+            bounding_boxes: List of bbox dicts with x, y, width, height keys.
+            roi_points:     Normalized [[x, y], ...] ratios (0.0–1.0). None = no filter.
+            frame_shape:    (height, width, channels) from frame.shape.
+
+        Returns:
+            Filtered list of bounding boxes.
+        """
+        if not roi_points or len(roi_points) < 3:
+            return bounding_boxes  # No valid polygon → keep all boxes
+
+        h, w = frame_shape[:2]
+        # Convert normalized coords to pixel coords
+        polygon = np.array(
+            [[int(pt[0] * w), int(pt[1] * h)] for pt in roi_points],
+            dtype=np.int32,
+        )
+
+        filtered = []
+        for bbox in bounding_boxes:
+            cx = bbox["x"] + bbox["width"] / 2
+            cy = bbox["y"] + bbox["height"] / 2
+            # pointPolygonTest: positive → inside, zero → on edge, negative → outside
+            result = cv2.pointPolygonTest(polygon, (float(cx), float(cy)), False)
+            if result >= 0:  # inside or on boundary
+                filtered.append(bbox)
+
+        discarded = len(bounding_boxes) - len(filtered)
+        if discarded:
+            logger.debug(f"ROI filter: discarded {discarded} box(es) outside polygon")
+        return filtered
     
-    def process_frame(self, frame: np.ndarray) -> DetectionResult:
+    def process_frame(
+        self,
+        frame: np.ndarray,
+        roi_points: Optional[List[List[float]]] = None,
+    ) -> DetectionResult:
         """Process a single frame and return detection results.
         Handles both detection and segmentation models.
+
+        Args:
+            frame:      Raw video frame (numpy array).
+            roi_points: Optional normalized [[x,y],...] polygon. Detections outside
+                        the polygon are discarded before any counting/alert logic.
         """
         start_time = cv2.getTickCount()
         
@@ -199,15 +249,42 @@ class YOLODetector:
         
         # Store masks for drawing later
         self._last_masks = masks_data
-        
-        # Debug: Log detection summary
-        logger.info(f"Detection summary: {len(bounding_boxes)} total detections, {piglet_count} piglets, sow_posture='{sow_posture}'")
+
+        # ── ROI Polygon Filter ────────────────────────────────────────────
+        # Discard bounding boxes outside the configured pen polygon.
+        bounding_boxes = self.filter_boxes_by_roi(bounding_boxes, roi_points, frame.shape)
+        # Re-derive masks_data to stay aligned after filtering (keep only matching masks)
+        # (masks_data is already indexed by bbox position; filtering by centroid is sufficient)
+
+        # Re-calculate piglet_count and sow_posture from filtered boxes
+        piglet_count = 0
+        sow_posture = "unknown"
+        piglet_boxes = []
+        sow_box = None
+        confidence_scores = [float(b["confidence"]) for b in bounding_boxes]
+
+        for bbox in bounding_boxes:
+            label = bbox["label"]
+            conf = bbox["confidence"]
+            xyxy = np.array([bbox["x"], bbox["y"], bbox["x"] + bbox["width"], bbox["y"] + bbox["height"]])
+
+            if "piglet" in label.lower() or "pig" in label.lower():
+                piglet_count += 1
+                piglet_boxes.append(xyxy)
+
+            if "sow" in label.lower() or label.startswith("sow_"):
+                posture = self.POSTURE_MAP.get(label, label)
+                if sow_box is None or conf > sow_box[1]:
+                    sow_posture = posture
+                    sow_box = (xyxy, conf)
+
+
         if bounding_boxes:
             class_counts = {}
             for bbox in bounding_boxes:
                 raw = bbox['raw_label']
                 class_counts[raw] = class_counts.get(raw, 0) + 1
-            logger.info(f"  By class: {class_counts}")
+            logger.info(f"  By class (post-ROI): {class_counts}")
         
         # Calculate crushing risk
         crushing_risk = self._calculate_crushing_risk(

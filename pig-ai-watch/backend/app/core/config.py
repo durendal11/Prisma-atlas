@@ -126,6 +126,16 @@ class Settings(BaseSettings):
     CLOUDINARY_FOLDER: str = "pig-ai-watch"
     CLOUDINARY_SECURE: bool = True
 
+    # Email (SMTP) alert notifications
+    # Set SMTP_ENABLED=True and fill in credentials to enable email alerts.
+    SMTP_ENABLED: bool = False
+    SMTP_HOST: Optional[str] = None
+    SMTP_PORT: int = 587
+    SMTP_USERNAME: Optional[str] = None
+    SMTP_PASSWORD: Optional[str] = None
+    SMTP_FROM_EMAIL: Optional[str] = None
+    SMTP_FROM_NAME: str = "Pig AI Watch"
+
     @property
     def resolved_database_url(self) -> str:
         if self.DATABASE_URL:

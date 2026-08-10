@@ -21,6 +21,8 @@ class Pen(TenantAware, Base):
     camera_source = Column(String(255))
     # Optional edge-local camera URL used by edge workers. Keep camera_source for cloud stream path.
     edge_camera_source = Column(String(255))
+    # ROI polygon: list of [x, y] normalized ratios (0.0–1.0). NULL = no filtering.
+    roi_points = Column(JSON, nullable=True)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     

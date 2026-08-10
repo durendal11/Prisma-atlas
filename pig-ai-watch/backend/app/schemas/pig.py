@@ -23,6 +23,7 @@ class PenUpdate(BaseModel):
     edge_camera_source: Optional[str] = None
     is_active: Optional[bool] = None
     cleaning_interval_hours: Optional[int] = None
+    roi_points: Optional[List[List[float]]] = None  # [[x1,y1],[x2,y2],...] normalized 0.0–1.0
 
 
 class PenResponse(PenBase):
@@ -33,6 +34,7 @@ class PenResponse(PenBase):
     last_cleaned_at: Optional[datetime] = None
     next_cleaning_due: Optional[datetime] = None
     cleaning_interval_hours: Optional[int] = 24
+    roi_points: Optional[List[List[float]]] = None  # [[x1,y1],[x2,y2],...] normalized 0.0–1.0
     
     class Config:
         from_attributes = True

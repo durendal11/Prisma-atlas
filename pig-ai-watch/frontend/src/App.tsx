@@ -18,7 +18,6 @@ const SowArchivesPage = lazy(() => import('@/pages/SowArchivesPage'));
 const SowDetailPage = lazy(() => import('@/pages/SowDetailPage'));
 const SettingsPage = lazy(() => import('@/pages/SettingsPage'));
 const BehaviorLogsPage = lazy(() => import('@/pages/BehaviorLogsPage'));
-const TasksPage = lazy(() => import('@/pages/TasksPage'));
 const FarrowingPage = lazy(() => import('@/pages/FarrowingPage'));
 const CameraSetupPage = lazy(() => import('@/pages/CameraSetupPage'));
 const PenMonitorPage = lazy(() => import('@/pages/PenMonitorPage'));
@@ -123,7 +122,7 @@ export default function App() {
             <Route path="settings" element={<SettingsPage />} />
             <Route path="behavior-logs" element={<BehaviorLogsPage />} />
             <Route path="test-pen" element={<></>} />
-            <Route path="tasks" element={<TasksPage />} />
+            <Route path="tasks" element={<></>} />
             <Route path="farrowing" element={<FarrowingPage />} />
             <Route path="camera-setup" element={<CameraSetupPage />} />
             <Route path="pen/:penId" element={<PenMonitorPage />} />

@@ -9,7 +9,9 @@ import time as _time
 from typing import Dict, Optional, AsyncGenerator
 from datetime import datetime
 import logging
+from sqlalchemy import select
 from app.core.config import settings
+from app.core.database import AsyncSessionLocal
 from app.services.yolo_detector import get_detector, DetectionResult
 
 # Force RTSP over TCP - critical for TP-Link Tapo and many IP cameras
@@ -198,6 +200,8 @@ class CameraStream:
         self._last_reconnect_time = 0.0
         self._read_thread: Optional[threading.Thread] = None
         self._thread_should_run = False
+        # ROI polygon for this pen: [[x,y],...] normalized 0.0–1.0 or None
+        self.roi_points: Optional[list] = None
         
     def start(self) -> bool:
         """Start capturing from the video source."""
@@ -417,7 +421,7 @@ class CameraStream:
         
         if should_process:
             detector = get_detector()
-            detection = detector.process_frame(frame)
+            detection = detector.process_frame(frame, roi_points=self.roi_points)
             self.last_detection = detection
         
         # Draw detections on frame (use last detection if we skipped processing)
@@ -456,10 +460,11 @@ class CameraStream:
             return
         try:
             detector = get_detector()
-            detection = detector.process_frame(self.last_frame)
+            detection = detector.process_frame(self.last_frame, roi_points=self.roi_points)
             self.last_detection = detection
         except Exception as e:
             logger.debug(f"Detection error for pen {self.pen_id}: {e}")
+
 
 
 class StreamManager:
@@ -578,6 +583,18 @@ class StreamManager:
                 loop = asyncio.get_event_loop()
                 started = await loop.run_in_executor(None, stream.start)
                 if started:
+                    # Load ROI polygon from DB and attach to stream
+                    pen_number = self._extract_pen_number(pen_id)
+                    if pen_number is not None:
+                        try:
+                            from app.models.pig import Pen as PenModel
+                            async with AsyncSessionLocal() as _s:
+                                _roi = await _s.execute(
+                                    select(PenModel.roi_points).where(PenModel.id == pen_number)
+                                )
+                                stream.roi_points = _roi.scalar_one_or_none()
+                        except Exception as _e:
+                            logger.warning(f"Could not load roi_points for pen {pen_number}: {_e}")
                     self.streams[normalized_pen_id] = stream
                 else:
                     return None

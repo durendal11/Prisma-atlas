@@ -21,7 +21,8 @@ logger = logging.getLogger(__name__)
 
 # Correction 7: Crushing risk thresholds
 CRUSHING_PIGLET_DROP_PERCENT = 0.50      # >50% drop in visible piglets
-CRUSHING_DURATION_MINUTES = 20           # sustained for 20 minutes
+CRUSHING_DURATION_MINUTES = 0            # 0 = immediate alert on first qualifying snapshot
+                                          # (set > 0 to require sustained window before alerting)
 CRUSHING_SOW_POSTURES = {"sleeping", "sleeping_lactating", "lying_lateral", "sow-sleep", "sow-sleep-lactate"}
 
 # Correction 8: Inactivity thresholds
@@ -176,11 +177,13 @@ class FarrowingInferenceEngine:
 
     def _check_crushing_risk(self, snapshot: DetectionSnapshot, now: datetime) -> Optional[InferenceAlert]:
         """
-        AI flags prolonged sow lying with sudden drop in visible piglet detections
+        AI flags sow lying with sudden drop in visible piglet detections
         as potential crushing risk. NOT a direct detection.
-        
-        Rule: sow in lying/sleeping posture AND piglet count drops >50%
-              sustained for >20 minutes → alert.
+
+        Rule:
+          - Sow in lying/sleeping posture AND piglet count drops >50%
+          - If CRUSHING_DURATION_MINUTES == 0: alert immediately on first match
+          - If CRUSHING_DURATION_MINUTES  > 0: alert only after sustained window
         """
         if self._on_cooldown(self.state.last_crushing_alert_at, now):
             return None
@@ -197,31 +200,58 @@ class FarrowingInferenceEngine:
         drop_pct = (baseline - snapshot.piglet_count) / baseline if baseline > 0 else 0
 
         if drop_pct >= CRUSHING_PIGLET_DROP_PERCENT:
-            if self.state.piglet_drop_started_at is None:
-                self.state.piglet_drop_started_at = now
+
+            if CRUSHING_DURATION_MINUTES == 0:
+                # ── Immediate alert path ──────────────────────────────────
+                self.state.last_crushing_alert_at = now
+                self.state.piglet_drop_started_at = None
+                return InferenceAlert(
+                    type="crushing_risk",
+                    severity="critical",
+                    title="Potential Crushing Risk Detected",
+                    message=(
+                        f"Sow in lying posture ({snapshot.sow_posture}) with "
+                        f"piglet visibility dropped from {baseline} to {snapshot.piglet_count} "
+                        f"(>{CRUSHING_PIGLET_DROP_PERCENT*100:.0f}% drop). "
+                        f"Possible piglet crushing — check pen immediately."
+                    ),
+                    data={
+                        "baseline_piglets": baseline,
+                        "current_piglets": snapshot.piglet_count,
+                        "drop_percent": round(drop_pct * 100, 1),
+                        "sow_posture": snapshot.sow_posture,
+                        "immediate": True,
+                    }
+                )
+
             else:
-                drop_duration = (now - self.state.piglet_drop_started_at).total_seconds() / 60
-                if drop_duration >= CRUSHING_DURATION_MINUTES:
-                    self.state.last_crushing_alert_at = now
-                    self.state.piglet_drop_started_at = None
-                    return InferenceAlert(
-                        type="crushing_risk",
-                        severity="critical",
-                        title="Potential Crushing Risk Detected",
-                        message=(
-                            f"Sow in lying posture ({snapshot.sow_posture}) with "
-                            f"piglet visibility dropped from {baseline} to {snapshot.piglet_count} "
-                            f"(>{CRUSHING_PIGLET_DROP_PERCENT*100:.0f}% drop) for {drop_duration:.0f} minutes. "
-                            f"Possible piglet crushing — check pen immediately."
-                        ),
-                        data={
-                            "baseline_piglets": baseline,
-                            "current_piglets": snapshot.piglet_count,
-                            "drop_percent": round(drop_pct * 100, 1),
-                            "duration_minutes": round(drop_duration, 1),
-                            "sow_posture": snapshot.sow_posture,
-                        }
-                    )
+                # ── Sustained-window alert path ───────────────────────────
+                if self.state.piglet_drop_started_at is None:
+                    self.state.piglet_drop_started_at = now
+                else:
+                    drop_duration = (now - self.state.piglet_drop_started_at).total_seconds() / 60
+                    if drop_duration >= CRUSHING_DURATION_MINUTES:
+                        self.state.last_crushing_alert_at = now
+                        self.state.piglet_drop_started_at = None
+                        return InferenceAlert(
+                            type="crushing_risk",
+                            severity="critical",
+                            title="Potential Crushing Risk Detected",
+                            message=(
+                                f"Sow in lying posture ({snapshot.sow_posture}) with "
+                                f"piglet visibility dropped from {baseline} to {snapshot.piglet_count} "
+                                f"(>{CRUSHING_PIGLET_DROP_PERCENT*100:.0f}% drop) for {drop_duration:.0f} minutes. "
+                                f"Possible piglet crushing — check pen immediately."
+                            ),
+                            data={
+                                "baseline_piglets": baseline,
+                                "current_piglets": snapshot.piglet_count,
+                                "drop_percent": round(drop_pct * 100, 1),
+                                "duration_minutes": round(drop_duration, 1),
+                                "sow_posture": snapshot.sow_posture,
+                                "immediate": False,
+                            }
+                        )
         else:
             self.state.piglet_drop_started_at = None
 

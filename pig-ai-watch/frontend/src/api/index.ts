@@ -344,43 +344,6 @@ export const streamApi = {
   },
 };
 
-// Tasks API
-export const tasksApi = {
-  getAll: async (params?: Record<string, unknown>): Promise<unknown[]> => {
-    const response = await api.get('/api/tasks/', { params });
-    return response.data;
-  },
-  
-  getTemplates: async (): Promise<unknown[]> => {
-    const response = await api.get('/api/tasks/templates/');
-    return response.data;
-  },
-  
-  getDashboardSummary: async (): Promise<unknown> => {
-    const response = await api.get('/api/tasks/dashboard-summary');
-    return response.data;
-  },
-  
-  create: async (data: unknown): Promise<unknown> => {
-    const response = await api.post('/api/tasks/', data);
-    return response.data;
-  },
-  
-  update: async (id: number, data: unknown): Promise<unknown> => {
-    const response = await api.put(`/api/tasks/${id}`, data);
-    return response.data;
-  },
-  
-  startTask: async (id: number): Promise<unknown> => {
-    const response = await api.post(`/api/tasks/${id}/start`);
-    return response.data;
-  },
-  
-  completeTask: async (id: number, data?: unknown): Promise<unknown> => {
-    const response = await api.post(`/api/tasks/${id}/complete`, data);
-    return response.data;
-  },
-};
 
 // Farrowing API
 export const farrowingApi = {
