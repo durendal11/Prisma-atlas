@@ -2,6 +2,7 @@
   "name": "pig-ai-watch-frontend",
   "private": true,
   "version": "1.0.0",
+  "packageManager": "pnpm@9.15.0",
   "type": "module",
   "scripts": {
     "sync:onnx-assets": "node ./scripts/sync-onnx-runtime-assets.mjs",
