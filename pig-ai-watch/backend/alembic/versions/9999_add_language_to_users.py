@@ -16,11 +16,10 @@ branch_labels = None
 depends_on = None
 
 def upgrade() -> None:
-    # use batch_alter_table for sqlite compatibility
-    with op.batch_alter_table('users', schema=None) as batch_op:
-        batch_op.add_column(sa.Column('language', sa.String(length=10), server_default='en', nullable=True))
+    op.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS language VARCHAR(10) DEFAULT 'en'")
 
 
 def downgrade() -> None:
     with op.batch_alter_table('users', schema=None) as batch_op:
         batch_op.drop_column('language')
+
