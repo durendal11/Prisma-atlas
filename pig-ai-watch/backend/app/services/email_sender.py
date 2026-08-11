@@ -38,80 +38,191 @@ def _build_html_email(
     pen_id: Optional[int],
     severity: str,
 ) -> str:
-    """Build a clean HTML email body for the alert."""
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    """Build a modern, responsive HTML email for farm alerts."""
+    timestamp = datetime.now().strftime("%B %d, %Y · %I:%M %p")
+    sev_lower = severity.lower()
+    type_lower = alert_type.lower()
 
-    severity_color = {
-        "critical": "#dc2626",  # red-600
-        "high": "#ea580c",      # orange-600
-        "medium": "#d97706",    # amber-600
-        "low": "#65a30d",       # lime-600
-    }.get(severity.lower(), "#6b7280")
+    # Theme configuration based on alert type & severity
+    if sev_lower == "critical":
+        bg_gradient = "linear-gradient(135deg, #dc2626 0%, #991b1b 100%)"
+        hdr_bg = "#dc2626"
+        badge_bg = "#fef2f2"
+        badge_border = "#fecaca"
+        badge_text = "#991b1b"
+        icon_symbol = "🚨"
+        severity_label = "CRITICAL ALERT"
+    elif sev_lower == "high":
+        bg_gradient = "linear-gradient(135deg, #ea580c 0%, #c2410c 100%)"
+        hdr_bg = "#ea580c"
+        badge_bg = "#fff7ed"
+        badge_border = "#fed7aa"
+        badge_text = "#c2410c"
+        icon_symbol = "⚠️"
+        severity_label = "HIGH PRIORITY ALERT"
+    elif sev_lower == "medium":
+        bg_gradient = "linear-gradient(135deg, #d97706 0%, #b45309 100%)"
+        hdr_bg = "#d97706"
+        badge_bg = "#fef3c7"
+        badge_border = "#fde68a"
+        badge_text = "#b45309"
+        icon_symbol = "⚡"
+        severity_label = "MEDIUM ALERT"
+    else:
+        bg_gradient = "linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%)"
+        hdr_bg = "#2563eb"
+        badge_bg = "#eff6ff"
+        badge_border = "#bfdbfe"
+        badge_text = "#1e40af"
+        icon_symbol = "ℹ️"
+        severity_label = "SYSTEM ADVISORY"
 
-    pen_info = f"Pen {pen_id}" if pen_id is not None else "All Pens"
+    pen_info = f"Pen #{pen_id}" if pen_id is not None else "All Pens / System"
+    app_url = getattr(settings, "APP_URL", "https://prisma-atlas.duckdns.org")
+    target_url = f"{app_url}/pen/{pen_id}" if pen_id else f"{app_url}/alerts"
 
-    return f"""
-<!DOCTYPE html>
+    # Contextual checklist recommendations based on alert type
+    if "crushing" in type_lower or "piglet" in type_lower:
+        type_title = "PIGLET SAFETY WARNING"
+        btn_text = "📹 Open Live Camera & View Pen"
+        checklist_items = [
+            "Inspect pen immediately to check sow posture and piglet position.",
+            "Verify piglets are safely inside the protected creep zone.",
+            "Ensure creep heating lamps are active to attract piglets away from sow.",
+        ]
+    elif "farrowing" in type_lower or "posture" in type_lower or "gestation" in type_lower:
+        type_title = "SOW & FARROWING ADVISORY"
+        btn_text = "📊 View Sow Farrowing Metrics"
+        checklist_items = [
+            "Check sow posture and monitor interval between piglet births.",
+            "Confirm adequate water supply and bedding condition in pen.",
+            "Contact farm supervisor if prolonged recumbency or distress is observed.",
+        ]
+    else:
+        type_title = alert_type.replace("_", " ").upper()
+        btn_text = "🖥️ Open Pig AI Watch Dashboard"
+        checklist_items = [
+            "Log in to Pig AI Watch dashboard to review event telemetry.",
+            "Acknowledge or resolve the alert status once addressed.",
+        ]
+
+    checklist_html = "".join([
+        f'<li style="margin-bottom:8px;color:#374151;font-size:14px;line-height:1.5;">{item}</li>'
+        for item in checklist_items
+    ])
+
+    return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>{title}</title>
 </head>
-<body style="margin:0;padding:0;background:#f3f4f6;font-family:Arial,Helvetica,sans-serif;">
-  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f3f4f6;padding:32px 0;">
+<body style="margin:0;padding:0;background-color:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f1f5f9;padding:32px 16px;">
     <tr>
       <td align="center">
-        <table width="560" cellpadding="0" cellspacing="0"
-               style="background:#ffffff;border-radius:12px;overflow:hidden;
-                      box-shadow:0 2px 8px rgba(0,0,0,0.08);">
+        <table width="100%" cellpadding="0" cellspacing="0" style="max-width:580px;background-color:#ffffff;border-radius:16px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,0.08);border:1px solid #e2e8f0;">
 
-          <!-- Header -->
+          <!-- Top Brand Bar -->
           <tr>
-            <td style="background:{severity_color};padding:20px 28px;">
-              <span style="color:#ffffff;font-size:20px;font-weight:700;">
-                🐷 Pig AI Watch — Alert
-              </span>
+            <td style="background-color:#0f172a;padding:16px 28px;">
+              <table width="100%" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td>
+                    <span style="color:#ffffff;font-size:18px;font-weight:800;letter-spacing:-0.02em;">
+                      🐷 PIG AI WATCH
+                    </span>
+                    <span style="color:#94a3b8;font-size:12px;margin-left:8px;font-weight:500;">
+                      Farm Monitoring System
+                    </span>
+                  </td>
+                  <td align="right">
+                    <span style="background-color:rgba(255,255,255,0.12);color:#e2e8f0;font-size:11px;font-weight:600;padding:4px 10px;border-radius:20px;text-transform:uppercase;">
+                      {type_title}
+                    </span>
+                  </td>
+                </tr>
+              </table>
             </td>
           </tr>
 
-          <!-- Body -->
+          <!-- Gradient Alert Header -->
           <tr>
-            <td style="padding:28px;">
-              <p style="margin:0 0 8px;color:#374151;font-size:13px;text-transform:uppercase;
-                         letter-spacing:0.05em;font-weight:600;">
-                {severity.upper()} · {alert_type.replace("_", " ").title()}
-              </p>
-              <h2 style="margin:0 0 16px;color:#111827;font-size:20px;">{title}</h2>
-              <p style="margin:0 0 24px;color:#4b5563;font-size:15px;line-height:1.6;">{body}</p>
-
-              <table cellpadding="0" cellspacing="0"
-                     style="background:#f9fafb;border:1px solid #e5e7eb;
-                            border-radius:8px;width:100%;margin-bottom:24px;">
+            <td style="background:{bg_gradient};background-color:{hdr_bg};padding:32px 28px;text-align:left;">
+              <table cellpadding="0" cellspacing="0" style="margin-bottom:12px;">
                 <tr>
-                  <td style="padding:14px 18px;">
-                    <span style="color:#6b7280;font-size:13px;">📍 Location</span><br>
-                    <strong style="color:#111827;font-size:14px;">{pen_info}</strong>
+                  <td style="background-color:rgba(255,255,255,0.2);padding:4px 12px;border-radius:14px;color:#ffffff;font-size:12px;font-weight:700;letter-spacing:0.05em;">
+                    {icon_symbol} {severity_label}
                   </td>
-                  <td style="padding:14px 18px;border-left:1px solid #e5e7eb;">
-                    <span style="color:#6b7280;font-size:13px;">🕐 Time</span><br>
-                    <strong style="color:#111827;font-size:14px;">{timestamp}</strong>
+                </tr>
+              </table>
+              <h1 style="margin:0;color:#ffffff;font-size:22px;font-weight:800;line-height:1.3;letter-spacing:-0.01em;">
+                {title}
+              </h1>
+            </td>
+          </tr>
+
+          <!-- Main Content Area -->
+          <tr>
+            <td style="padding:28px 28px 20px 28px;background-color:#ffffff;">
+              <p style="margin:0 0 20px 0;color:#334155;font-size:15px;line-height:1.6;font-weight:400;">
+                {body}
+              </p>
+
+              <!-- Telemetry Card Grid -->
+              <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;margin-bottom:24px;">
+                <tr>
+                  <td width="50%" style="padding:16px 20px;border-right:1px solid #e2e8f0;">
+                    <span style="color:#64748b;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;display:block;margin-bottom:4px;">
+                      📍 Location
+                    </span>
+                    <strong style="color:#0f172a;font-size:16px;font-weight:700;">
+                      {pen_info}
+                    </strong>
+                  </td>
+                  <td width="50%" style="padding:16px 20px;">
+                    <span style="color:#64748b;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.05em;display:block;margin-bottom:4px;">
+                      🕐 Time Detected
+                    </span>
+                    <strong style="color:#0f172a;font-size:14px;font-weight:600;">
+                      {timestamp}
+                    </strong>
                   </td>
                 </tr>
               </table>
 
-              <p style="margin:0;color:#9ca3af;font-size:12px;">
-                This alert was generated automatically by Pig AI Watch.<br>
-                Please check the pen and take appropriate action immediately.
-              </p>
+              <!-- Recommended Action Box -->
+              <div style="background-color:{badge_bg};border:1px solid {badge_border};border-radius:12px;padding:20px;margin-bottom:28px;">
+                <h3 style="margin:0 0 12px 0;color:{badge_text};font-size:14px;font-weight:700;text-transform:uppercase;letter-spacing:0.03em;">
+                  📋 Recommended Action Steps:
+                </h3>
+                <ul style="margin:0;padding-left:20px;">
+                  {checklist_html}
+                </ul>
+              </div>
+
+              <!-- Primary Action CTA Button -->
+              <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:12px;">
+                <tr>
+                  <td align="center">
+                    <a href="{target_url}" target="_blank" style="display:inline-block;background-color:#0f172a;color:#ffffff;font-size:15px;font-weight:700;text-decoration:none;padding:14px 32px;border-radius:10px;box-shadow:0 2px 6px rgba(15,23,42,0.25);">
+                      {btn_text}
+                    </a>
+                  </td>
+                </tr>
+              </table>
             </td>
           </tr>
 
           <!-- Footer -->
           <tr>
-            <td style="padding:16px 28px;background:#f9fafb;border-top:1px solid #e5e7eb;">
-              <p style="margin:0;color:#9ca3af;font-size:11px;text-align:center;">
-                Pig AI Watch Monitoring System &mdash; Do not reply to this email.
+            <td style="padding:20px 28px;background-color:#f8fafc;border-top:1px solid #e2e8f0;text-align:center;">
+              <p style="margin:0 0 6px 0;color:#64748b;font-size:12px;font-weight:500;">
+                Pig AI Watch Monitoring & Alert System
+              </p>
+              <p style="margin:0;color:#94a3b8;font-size:11px;">
+                Automated alert notification · Please do not reply directly to this email.
               </p>
             </td>
           </tr>
@@ -121,8 +232,7 @@ def _build_html_email(
     </tr>
   </table>
 </body>
-</html>
-"""
+</html>"""
 
 
 def _send_emails_blocking(
