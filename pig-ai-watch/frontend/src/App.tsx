@@ -12,6 +12,7 @@ const LoginPage = lazy(() => import('@/pages/LoginPage'));
 const DashboardPage = lazy(() => import('@/pages/DashboardPage'));
 const LiveMonitoringPage = lazy(() => import('@/pages/LiveMonitoringPage'));
 const AlertsPage = lazy(() => import('@/pages/AlertsPage'));
+const AlertArchivesPage = lazy(() => import('@/pages/AlertArchivesPage'));
 const EventLogsPage = lazy(() => import('@/pages/EventLogsPage'));
 const SowProfilesPage = lazy(() => import('@/pages/SowProfilesPage'));
 const SowArchivesPage = lazy(() => import('@/pages/SowArchivesPage'));
@@ -115,6 +116,7 @@ export default function App() {
             <Route path="monitoring" element={<LiveMonitoringPage />} />
             <Route path="test-pen" element={<></>} />
             <Route path="alerts" element={<AlertsPage />} />
+            <Route path="alerts/archive" element={<AlertArchivesPage />} />
             <Route path="events" element={<EventLogsPage />} />
             <Route path="sows" element={<SowProfilesPage />} />
             <Route path="sows/archives" element={<SowArchivesPage />} />

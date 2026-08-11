@@ -125,28 +125,28 @@ export default function RecordingSchedulePage() {
 
       <div className="bg-white dark:bg-slate-800 p-6 rounded-xl shadow-sm border border-gray-100 dark:border-slate-700">
         <div className="flex justify-between items-center mb-6">
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2 items-center">
+            <span className="text-xs font-semibold text-gray-500 dark:text-slate-400 uppercase tracking-wider">Paint Mode:</span>
             <button
               onClick={() => setActiveMode('detection')}
-              className={`px-4 py-2 rounded-lg text-sm font-medium border ${
-                activeMode === 'detection' ? 'border-amber-500 bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400' : 'border-gray-200 dark:border-slate-600 text-gray-600 dark:text-slate-300'
+              className={`px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${
+                activeMode === 'detection' ? 'border-amber-500 bg-amber-500 text-white shadow-sm' : 'border-gray-200 dark:border-slate-600 text-gray-600 dark:text-slate-300 hover:bg-gray-50 dark:hover:bg-slate-700'
               }`}
             >
-              Farrowing / Crushing Detection
+              Farrowing / Crushing Detection (Active)
             </button>
             <button
               onClick={() => setActiveMode('off')}
-              className={`px-4 py-2 rounded-lg text-sm font-medium border ${
-                activeMode === 'off' ? 'border-gray-500 bg-gray-50 dark:bg-slate-700 text-gray-700 dark:text-gray-200' : 'border-gray-200 dark:border-slate-600 text-gray-600 dark:text-slate-300'
+              className={`px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${
+                activeMode === 'off' ? 'border-gray-600 bg-gray-700 text-white shadow-sm' : 'border-gray-200 dark:border-slate-600 text-gray-600 dark:text-slate-300 hover:bg-gray-50 dark:hover:bg-slate-700'
               }`}
             >
-              Off
+              Off (Eraser)
             </button>
           </div>
-          <div className="flex gap-2">
-            <button onClick={fillAll} className="text-sm font-medium text-primary-600 hover:underline">Select All</button>
-            <span className="text-gray-300">|</span>
-            <button onClick={clearAll} className="text-sm font-medium text-gray-500 hover:underline">Clear All</button>
+          <div className="flex gap-2 items-center">
+            <button onClick={fillAll} className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300 hover:bg-amber-200 transition-colors">Enable 24/7 Detection</button>
+            <button onClick={clearAll} className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-gray-100 text-gray-700 dark:bg-slate-700 dark:text-slate-300 hover:bg-gray-200 transition-colors">Turn Off All</button>
           </div>
         </div>
 

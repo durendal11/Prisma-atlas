@@ -264,7 +264,13 @@ async def run_checker():
             expected_date = sow.expected_farrowing_date.date() if isinstance(sow.expected_farrowing_date, datetime) else sow.expected_farrowing_date
             days_overdue = (date.today() - expected_date).days
             
-            if days_overdue == 1:
+            if days_overdue <= 0:
+                if sow.status == 'overdue_watch' or sow.intensified_monitoring or sow.prolonged_gestation:
+                    sow.status = 'pregnant'
+                    sow.intensified_monitoring = False
+                    sow.prolonged_gestation = False
+                    await db.commit()
+            elif days_overdue == 1:
                 if not sow.intensified_monitoring:
                     await handle_tier1_watch(sow, db)
             elif days_overdue == 2:

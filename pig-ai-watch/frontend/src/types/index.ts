@@ -61,6 +61,8 @@ export interface Alert {
   pen_id: number | null;
   is_read: boolean;
   is_resolved: boolean;
+  is_archived?: boolean;
+  archived_at?: string | null;
   resolved_at: string | null;
   resolved_by: number | null;
   detection_data: string | null;

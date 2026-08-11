@@ -99,9 +99,91 @@ async def get_alerts(
     if conditions:
         query = query.where(and_(*conditions))
     
+    # Filter out archived alerts unless explicitly requested
+    query = query.where(Alert.is_archived == False)
+    
     query = query.offset(skip).limit(limit).order_by(Alert.created_at.desc())
     result = await db.execute(query)
     return result.scalars().all()
+
+
+@router.get("/archived", response_model=List[AlertResponse])
+async def get_archived_alerts(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(100, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Get all archived alerts."""
+    query = (
+        select(Alert)
+        .where(Alert.is_archived == True)
+        .order_by(Alert.archived_at.desc(), Alert.created_at.desc())
+        .offset(skip)
+        .limit(limit)
+    )
+    result = await db.execute(query)
+    return result.scalars().all()
+
+
+@router.post("/archive-all")
+async def archive_all_alerts(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Archive all unarchived alerts."""
+    result = await db.execute(
+        select(Alert).where(Alert.is_archived == False)
+    )
+    alerts = result.scalars().all()
+    
+    now = datetime.utcnow()
+    for alert in alerts:
+        alert.is_archived = True
+        alert.archived_at = now
+    
+    await db.commit()
+    return {"message": f"Archived {len(alerts)} alerts", "count": len(alerts)}
+
+
+@router.delete("/archived-read")
+async def delete_archived_read_alerts(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Delete all archived alerts that are marked as read."""
+    result = await db.execute(
+        select(Alert).where(and_(Alert.is_archived == True, Alert.is_read == True))
+    )
+    alerts = result.scalars().all()
+    
+    deleted_count = len(alerts)
+    for alert in alerts:
+        await db.delete(alert)
+    
+    await db.commit()
+    return {"message": f"Deleted {deleted_count} read archived alerts", "count": deleted_count}
+
+
+@router.delete("/{alert_id}")
+async def delete_alert(
+    alert_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Delete a specific alert."""
+    result = await db.execute(select(Alert).where(Alert.id == alert_id))
+    alert = result.scalar_one_or_none()
+    
+    if not alert:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Alert not found"
+        )
+    
+    await db.delete(alert)
+    await db.commit()
+    return {"message": f"Alert {alert_id} deleted"}
 
 
 @router.get("/stats")

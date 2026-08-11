@@ -107,6 +107,7 @@ class AlertCreate(AlertBase):
 class AlertUpdate(BaseModel):
     is_read: Optional[bool] = None
     is_resolved: Optional[bool] = None
+    is_archived: Optional[bool] = None
 
 
 class AlertResponse(AlertBase):
@@ -115,6 +116,8 @@ class AlertResponse(AlertBase):
     pen_id: Optional[int]
     is_read: bool
     is_resolved: bool
+    is_archived: Optional[bool] = False
+    archived_at: Optional[datetime] = None
     resolved_at: Optional[datetime]
     resolved_by: Optional[int]
     detection_data: Optional[str]

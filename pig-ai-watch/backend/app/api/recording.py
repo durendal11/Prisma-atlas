@@ -57,6 +57,8 @@ def _normalize_schedule(raw_schedule) -> List[str]:
 
     return normalized
 
+from sqlalchemy.orm.attributes import flag_modified
+
 @router.get("/schedules/{pen_id}")
 async def get_recording_schedule(pen_id: int, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(RecordingSchedule).where(RecordingSchedule.pen_id == pen_id))
@@ -81,6 +83,7 @@ async def update_recording_schedule(
     if schedule:
         schedule.schedule_json = schedule_data
         schedule.updated_at = datetime.utcnow()
+        flag_modified(schedule, "schedule_json")
     else:
         new_schedule = RecordingSchedule(pen_id=pen_id, schedule_json=schedule_data)
         db.add(new_schedule)

@@ -28,7 +28,7 @@ EDGE_API_KEY = os.getenv("EDGE_API_KEY", "")
 CONFIG_REFRESH_SEC = int(os.getenv("EDGE_PUBLISH_CONFIG_REFRESH_SEC", "30"))
 HTTP_TIMEOUT_SEC = float(os.getenv("EDGE_PUBLISH_HTTP_TIMEOUT_SEC", "15"))
 FAIL_FAST_SEC = float(os.getenv("EDGE_PUBLISH_FAIL_FAST_SEC", "12"))
-INPUT_THREAD_QUEUE_SIZE = int(os.getenv("EDGE_PUBLISH_THREAD_QUEUE_SIZE", "64"))
+INPUT_THREAD_QUEUE_SIZE = int(os.getenv("EDGE_PUBLISH_THREAD_QUEUE_SIZE", "1024"))
 TRY_STREAM2_FALLBACK = os.getenv("EDGE_PUBLISH_TRY_STREAM2", "true").strip().lower() in {
     "1",
     "true",
@@ -182,12 +182,16 @@ class PushWorker(threading.Thread):
                 [
                     "-rtsp_transport",
                     "tcp",
+                    "-probesize",
+                    "32",
+                    "-analyzeduration",
+                    "0",
                     "-fflags",
                     "nobuffer",
                     "-flags",
                     "low_delay",
                     "-max_delay",
-                    "100000",
+                    "500000",
                 ]
             )
 

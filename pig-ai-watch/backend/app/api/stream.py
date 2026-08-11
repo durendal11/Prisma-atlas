@@ -85,11 +85,26 @@ async def whep_sdp_offer(
                 headers={
                     "Content-Type": "application/sdp",
                     "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Methods": "POST, OPTIONS",
+                    "Access-Control-Allow-Headers": "Content-Type, Authorization",
                     "Location": location
                 }
             )
         except Exception as exc:
             raise HTTPException(status_code=502, detail=f"MediaMTX WebRTC unavailable: {exc}")
+
+
+@router.options("/{pen_id}/whep")
+async def whep_options(pen_id: str):
+    from fastapi import Response
+    return Response(
+        status_code=200,
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "POST, OPTIONS",
+            "Access-Control-Allow-Headers": "Content-Type, Authorization",
+        }
+    )
 
 
 @router.get("/{pen_id}/snapshot")

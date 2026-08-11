@@ -1325,8 +1325,8 @@ async def get_overdue_sows(db: AsyncSession = Depends(get_db)):
         exp_date = sow.expected_farrowing_date.date() if isinstance(sow.expected_farrowing_date, datetime) else sow.expected_farrowing_date
         days_overdue = (datetime.utcnow().date() - exp_date).days
         
-        if days_overdue > 0 or sow.status == 'overdue_watch':
-            tier = 1 if days_overdue == 1 else (2 if days_overdue == 2 else (3 if days_overdue >= 3 else 0))
+        if days_overdue > 0:
+            tier = 1 if days_overdue == 1 else (2 if days_overdue == 2 else (3 if days_overdue >= 3 else 1))
             if sow.prolonged_gestation:
                 tier = 3
                 

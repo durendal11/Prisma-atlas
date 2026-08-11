@@ -84,6 +84,8 @@ class Alert(TenantAware, Base):
     pen_id = Column(Integer, ForeignKey("pens.id"))
     is_read = Column(Boolean, default=False)
     is_resolved = Column(Boolean, default=False)
+    is_archived = Column(Boolean, default=False, nullable=False)
+    archived_at = Column(DateTime(timezone=True))
     resolved_at = Column(DateTime(timezone=True))
     resolved_by = Column(Integer, ForeignKey("users.id"))
     detection_data = Column(Text)  # JSON string with detection details

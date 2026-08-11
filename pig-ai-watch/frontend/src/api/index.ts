@@ -227,6 +227,26 @@ export const alertsApi = {
     return response.data;
   },
 
+  archiveAll: async (): Promise<{ message: string; count: number }> => {
+    const response = await api.post('/api/alerts/archive-all');
+    return response.data;
+  },
+
+  getArchived: async (params?: { skip?: number; limit?: number }): Promise<Alert[]> => {
+    const response = await api.get('/api/alerts/archived', { params });
+    return response.data;
+  },
+
+  deleteArchivedRead: async (): Promise<{ message: string; count: number }> => {
+    const response = await api.delete('/api/alerts/archived-read');
+    return response.data;
+  },
+
+  deleteAlert: async (id: number): Promise<{ message: string }> => {
+    const response = await api.delete(`/api/alerts/${id}`);
+    return response.data;
+  },
+
   createTest: async (penId: number = 1): Promise<Alert> => {
     const response = await api.post(`/api/alerts/test?pen_id=${penId}`);
     return response.data;

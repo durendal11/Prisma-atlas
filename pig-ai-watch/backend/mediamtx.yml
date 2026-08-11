@@ -9,6 +9,8 @@ apiAddress: 127.0.0.1:9997
 # RTSP server settings
 rtspAddress: :8554
 rtspTransports: [tcp]
+readBufferCount: 2048
+writeQueueSize: 2048
 
 # HLS for low-latency browser access
 hlsAddress: :8888

@@ -44,6 +44,10 @@ export const WebRTCVideoPlayer: React.FC<WebRTCVideoPlayerProps> = ({
       pc.ontrack = (event) => {
         if (videoRef.current && event.streams[0]) {
           videoRef.current.srcObject = event.streams[0];
+          videoRef.current.muted = true;
+          videoRef.current.playsInline = true;
+          videoRef.current.setAttribute('playsinline', 'true');
+          videoRef.current.setAttribute('webkit-playsinline', 'true');
           videoRef.current.play().catch((e) => console.warn('Autoplay prevented:', e));
         }
       };
@@ -106,6 +110,10 @@ export const WebRTCVideoPlayer: React.FC<WebRTCVideoPlayerProps> = ({
         playsInline
         muted
         className="w-full h-full object-cover rounded-xl"
+        style={{
+          transform: 'translateZ(0)',
+          willChange: 'transform',
+        }}
       />
 
       {status === 'connecting' && (

@@ -177,7 +177,7 @@ class ONNXDetector {
       }
 
       const options: ort.InferenceSession.SessionOptions = {
-        executionProviders: ['wasm'],
+        executionProviders: ['webgl', 'wasm'],
         graphOptimizationLevel: 'all',
       };
 

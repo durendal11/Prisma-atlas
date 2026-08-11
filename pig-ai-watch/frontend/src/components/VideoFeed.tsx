@@ -62,6 +62,7 @@ export default function VideoFeed({
   const [modelLoaded, setModelLoaded] = useState<boolean>(false);
   
   const fpsHistoryRef = useRef<number[]>([]);
+  const isDetectingRef = useRef<boolean>(false);
 
   // Load ONNX model
   const loadModel = useCallback(async () => {
@@ -170,13 +171,19 @@ export default function VideoFeed({
     ctx.fillText(`Inference: ${inferenceTime.toFixed(0)}ms`, overlay.width - 150, 55);
   }, [fps]);
 
-  // Main detection loop - runs on every animation frame
+  // Main detection loop - runs non-blocking on every animation frame
   const runDetection = useCallback(async () => {
     const video = videoRef.current;
     if (!video || video.readyState < 2 || !onnxDetector.isReady()) {
       animationFrameRef.current = requestAnimationFrame(runDetection);
       return;
     }
+
+    // Request next frame immediately so video rendering is never blocked
+    animationFrameRef.current = requestAnimationFrame(runDetection);
+
+    if (isDetectingRef.current) return;
+    isDetectingRef.current = true;
 
     try {
       // Run detection
@@ -206,10 +213,9 @@ export default function VideoFeed({
 
     } catch (error) {
       console.error('Detection error:', error);
+    } finally {
+      isDetectingRef.current = false;
     }
-
-    // Continue loop
-    animationFrameRef.current = requestAnimationFrame(runDetection);
   }, [drawDetections]);
 
   // Request camera permission and start stream

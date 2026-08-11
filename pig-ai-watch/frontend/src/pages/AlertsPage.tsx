@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useNavigate } from 'react-router-dom';
 import { AlertCard } from '@/components';
-import { useAlerts, useAlertStats, useUpdateAlert, useMarkAllAlertsRead } from '@/hooks';
+import { useAlerts, useAlertStats, useUpdateAlert, useMarkAllAlertsRead, useArchiveAllAlerts } from '@/hooks';
 import { PageSkeleton, useLoading } from '@/components/ui/Skeleton';
 import { PageInfoButton } from '@/components/ui/PageInfoModal';
 import { 
@@ -17,7 +17,8 @@ import {
   CloudLightning,
   ChevronRight,
   ShieldAlert,
-  ChevronDown
+  ChevronDown,
+  Archive
 } from 'lucide-react';
 import clsx from 'clsx';
 import toast from 'react-hot-toast';
@@ -60,6 +61,14 @@ export default function AlertsPage() {
   const { data: stats } = useAlertStats();
   const updateAlert = useUpdateAlert();
   const markAllRead = useMarkAllAlertsRead();
+  const archiveAll = useArchiveAllAlerts();
+
+  const handleArchiveAll = () => {
+    archiveAll.mutate(undefined, {
+      onSuccess: (res) => toast.success(res.message || 'All alerts archived'),
+      onError: () => toast.error('Failed to archive alerts'),
+    });
+  };
 
   const handleResolveAlert = (alertId: number) => {
     updateAlert.mutate(
@@ -152,6 +161,23 @@ export default function AlertsPage() {
               >
                 <CheckCircle className="h-3.5 w-3.5" />
                 Mark All Read
+              </button>
+              <button
+                onClick={handleArchiveAll}
+                disabled={archiveAll.isPending}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/20 hover:bg-white/30 backdrop-blur-sm text-white text-xs font-medium transition-colors disabled:opacity-50"
+                title="Archive all current alerts"
+              >
+                <Archive className="h-3.5 w-3.5" />
+                Archive All
+              </button>
+              <button
+                onClick={() => navigate('/alerts/archive')}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-indigo-900/60 hover:bg-indigo-900/80 backdrop-blur-sm text-white text-xs font-medium transition-colors border border-indigo-400/30"
+                title="View archived notifications"
+              >
+                <Archive className="h-3.5 w-3.5 text-indigo-300" />
+                View Archive
               </button>
             </div>
           </div>

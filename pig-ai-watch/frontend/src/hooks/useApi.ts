@@ -203,6 +203,52 @@ export function useMarkAllAlertsRead() {
   });
 }
 
+export function useArchivedAlerts() {
+  return useQuery({
+    queryKey: ['archivedAlerts'],
+    queryFn: () => alertsApi.getArchived(),
+    refetchInterval: 15000,
+  });
+}
+
+export function useArchiveAllAlerts() {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: alertsApi.archiveAll,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['alerts'] });
+      queryClient.invalidateQueries({ queryKey: ['archivedAlerts'] });
+      queryClient.invalidateQueries({ queryKey: ['alertStats'] });
+    },
+  });
+}
+
+export function useDeleteArchivedReadAlerts() {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: alertsApi.deleteArchivedRead,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['archivedAlerts'] });
+      queryClient.invalidateQueries({ queryKey: ['alertStats'] });
+    },
+  });
+}
+
+export function useDeleteAlert() {
+  const queryClient = useQueryClient();
+  
+  return useMutation({
+    mutationFn: (id: number) => alertsApi.deleteAlert(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['alerts'] });
+      queryClient.invalidateQueries({ queryKey: ['archivedAlerts'] });
+      queryClient.invalidateQueries({ queryKey: ['alertStats'] });
+    },
+  });
+}
+
 // Events hooks
 export function useEvents(params?: {
   type?: string;
