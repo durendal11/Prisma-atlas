@@ -31,9 +31,11 @@ from app.schemas.pig import PenCreate, PenResponse, PenUpdate
 router = APIRouter(prefix="/api/pens", tags=["Pens"])
 
 
-def _canonical_pen_name(name: str) -> str:
+def _canonical_pen_name(name: Optional[str]) -> str:
     """Return a canonical key used for duplicate detection."""
-    cleaned = re.sub(r"[_\-]+", " ", name.strip().lower())
+    if not name:
+        return ""
+    cleaned = re.sub(r"[_\-]+", " ", str(name).strip().lower())
     cleaned = re.sub(r"\s+", " ", cleaned)
 
     # Treat pen_1, pen-1, pen 1, and Pen1 as the same logical pen.
@@ -44,13 +46,15 @@ def _canonical_pen_name(name: str) -> str:
     return cleaned
 
 
-def _normalize_pen_name(name: str) -> str:
+def _normalize_pen_name(name: Optional[str]) -> str:
     """Normalize user input into a consistent stored pen name."""
+    if not name:
+        return ""
     canonical = _canonical_pen_name(name)
     match = re.fullmatch(r"pen\s(\d+)", canonical)
     if match:
         return f"Pen {int(match.group(1))}"
-    return re.sub(r"\s+", " ", name.strip())
+    return re.sub(r"\s+", " ", str(name).strip())
 
 
 async def _find_pen_by_canonical_name(
@@ -96,8 +100,9 @@ async def get_pens(
     
     # Serialize and return with no-cache headers to prevent stale data on refresh
     from fastapi.encoders import jsonable_encoder
+    validated_pens = [PenResponse.model_validate(p) for p in pens]
     return JSONResponse(
-        content=jsonable_encoder(pens),
+        content=jsonable_encoder(validated_pens),
         headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"}
     )
 
@@ -133,6 +138,7 @@ async def create_pen(
 
     pen_payload = pen_data.model_dump()
     pen_payload["name"] = normalized_name
+    pen_payload["owner_id"] = current_user.id
 
     new_pen = Pen(**pen_payload)
     db.add(new_pen)

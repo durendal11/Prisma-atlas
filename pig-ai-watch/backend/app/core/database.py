@@ -54,7 +54,7 @@ def _add_tenant_filter(execute_state):
             execute_state.statement = execute_state.statement.options(
                 with_loader_criteria(
                     TenantAware,
-                    lambda cls: cls.owner_id == tenant_id,
+                    lambda cls: (cls.owner_id == tenant_id) | (cls.owner_id.is_(None)),
                     include_aliases=True
                 )
             )
