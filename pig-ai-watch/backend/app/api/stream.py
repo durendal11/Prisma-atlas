@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Query, HTTPException, status
+from fastapi import APIRouter, Depends, Query, HTTPException, status, Request
 from fastapi.responses import StreamingResponse, JSONResponse
 from app.core.config import settings
 from app.core.security import get_current_user, verify_token
@@ -49,6 +49,47 @@ async def get_video_stream(
             "Expires": "0"
         }
     )
+
+
+@router.post("/{pen_id}/whep")
+async def whep_sdp_offer(
+    pen_id: str,
+    request: Request,
+    token: Optional[str] = Query(None)
+):
+    """Proxy WebRTC WHEP SDP offer to MediaMTX for sub-second video streaming."""
+    import httpx
+    from fastapi import Response
+
+    if not token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token required")
+    username = verify_token(token)
+    if not username:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid token")
+
+    body = await request.body()
+    normalized_pen = f"pen_{pen_id}" if pen_id.isdigit() else pen_id
+
+    mediamtx_url = f"http://127.0.0.1:8889/{normalized_pen}/whep"
+    async with httpx.AsyncClient(timeout=5.0) as client:
+        try:
+            resp = await client.post(
+                mediamtx_url,
+                content=body,
+                headers={"Content-Type": "application/sdp"}
+            )
+            location = resp.headers.get("Location", "")
+            return Response(
+                content=resp.content,
+                status_code=resp.status_code,
+                headers={
+                    "Content-Type": "application/sdp",
+                    "Access-Control-Allow-Origin": "*",
+                    "Location": location
+                }
+            )
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=f"MediaMTX WebRTC unavailable: {exc}")
 
 
 @router.get("/{pen_id}/snapshot")

@@ -5,6 +5,7 @@ export { default as RiskGauge } from './RiskGauge';
 export { default as CrushingRiskGauge } from './CrushingRiskGauge';
 export { default as VideoFeed } from './VideoFeed';
 export { RTSPVideoFeed } from './RTSPVideoFeed';
+export { WebRTCVideoPlayer } from './WebRTCVideoPlayer';
 export type { CameraConnectionStatus } from './RTSPVideoFeed';
 export { default as AlertCard } from './AlertCard';
 export { default as EventListItem } from './EventListItem';

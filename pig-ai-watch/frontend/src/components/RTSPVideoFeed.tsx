@@ -3,6 +3,7 @@ import { useAuthStore, useDetectionStore } from '@/store';
 import { Camera, RefreshCw, AlertCircle, Wifi, WifiOff, Activity, AlertTriangle, Cpu, VideoOff } from 'lucide-react';
 import { onnxDetector, DetectionResult, Detection, drawRiskHighlights } from '@/utils/onnxDetector';
 import type { ProximityAlert } from '@/utils/onnxDetector';
+import { WebRTCVideoPlayer } from './WebRTCVideoPlayer';
 
 // ── Connection status type ──────────────────────────────────────────────────
 export type CameraConnectionStatus = 'probing' | 'connected' | 'disconnected' | 'error';
@@ -83,6 +84,7 @@ export const RTSPVideoFeed: React.FC<RTSPVideoFeedProps> = ({
   const [fps, setFps] = useState<number>(0);
   const [isPaused, setIsPaused] = useState<boolean>(!isVisible);
   const [connectionStatus, setConnectionStatus] = useState<CameraConnectionStatus>('probing');
+  const [useWebRTC, setUseWebRTC] = useState<boolean>(true);
   const { token } = useAuthStore();
   const setDetection = useDetectionStore((s) => s.setDetection);
 
@@ -592,21 +594,36 @@ export const RTSPVideoFeed: React.FC<RTSPVideoFeedProps> = ({
 
         {streamUrl && connectionStatus === 'connected' && !error && (
           <>
-            <img
-              ref={imgRef}
-              src={streamUrl}
-              alt={`Pen ${penId} camera feed`}
-              className="w-full h-full object-contain"
-              style={{
-                imageRendering: 'auto',
-                willChange: 'contents',       // Hint browser to optimize repaints
-                backfaceVisibility: 'hidden',  // Force GPU layer for smoother updates
-                transform: 'translateZ(0)',    // GPU compositing
-              }}
-              onLoad={handleImageLoad}
-              onError={handleImageError}
-              crossOrigin="anonymous"
-            />
+            {useWebRTC && token ? (
+              <WebRTCVideoPlayer
+                penId={penId}
+                token={token}
+                className="w-full h-full object-contain"
+                onConnected={() => {
+                  setLoading(false);
+                  setError(null);
+                }}
+                onError={() => {
+                  setUseWebRTC(false);
+                }}
+              />
+            ) : (
+              <img
+                ref={imgRef}
+                src={streamUrl}
+                alt={`Pen ${penId} camera feed`}
+                className="w-full h-full object-contain"
+                style={{
+                  imageRendering: 'auto',
+                  willChange: 'contents',       // Hint browser to optimize repaints
+                  backfaceVisibility: 'hidden',  // Force GPU layer for smoother updates
+                  transform: 'translateZ(0)',    // GPU compositing
+                }}
+                onLoad={handleImageLoad}
+                onError={handleImageError}
+                crossOrigin="anonymous"
+              />
+            )}
             {/* Hidden canvas for frame capture */}
             <canvas ref={canvasRef} className="hidden" />
             {/* Overlay canvas for detection visualization */}

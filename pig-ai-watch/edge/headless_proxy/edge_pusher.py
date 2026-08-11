@@ -53,6 +53,7 @@ FORCE_RE_FOR_ALL_INPUTS = os.getenv("EDGE_PUBLISH_FORCE_RE", "false").strip().lo
     "yes",
     "on",
 }
+PUBLISH_CODEC = os.getenv("EDGE_PUBLISH_CODEC", "auto").strip().lower()
 
 
 def _is_realtime_source(url: str) -> bool:
@@ -186,7 +187,7 @@ class PushWorker(threading.Thread):
                     "-flags",
                     "low_delay",
                     "-max_delay",
-                    "500000",
+                    "100000",
                 ]
             )
 
@@ -194,20 +195,22 @@ class PushWorker(threading.Thread):
         if FORCE_RE_FOR_ALL_INPUTS or not _is_realtime_source(source_url):
             cmd.append("-re")
 
+        codec = PUBLISH_CODEC
+        if codec == "auto":
+            codec = "copy" if source_url.lower().startswith("rtsp://") else "h264"
+
+        if codec == "copy":
+            v_flags = ["-c:v", "copy"]
+        else:
+            v_flags = ["-c:v", "libx264", "-preset", "ultrafast", "-tune", "zerolatency", "-g", "30"]
+
         cmd.extend(
             [
                 "-thread_queue_size",
                 str(INPUT_THREAD_QUEUE_SIZE),
                 "-i",
                 source_url,
-                "-c:v",
-                "libx264",
-                "-preset",
-                "ultrafast",
-                "-tune",
-                "zerolatency",
-                "-g",
-                "30",
+                *v_flags,
                 "-an",
                 "-loglevel",
                 "warning",

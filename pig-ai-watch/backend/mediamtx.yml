@@ -10,11 +10,14 @@ apiAddress: 127.0.0.1:9997
 rtspAddress: :8554
 rtspTransports: [tcp]
 
-# HLS for future mobile/browser access (no special app needed)
+# HLS for low-latency browser access
 hlsAddress: :8888
 hlsAlwaysRemux: yes
+hlsVariant: lowLatency
+hlsSegmentDuration: 1s
+hlsPartDuration: 200ms
 
-# WebRTC for ultra-low-latency browser streaming (future)
+# WebRTC for ultra-low-latency browser streaming
 webrtcAddress: :8889
 
 # Paths — managed dynamically by the backend via MediaMTX REST API.

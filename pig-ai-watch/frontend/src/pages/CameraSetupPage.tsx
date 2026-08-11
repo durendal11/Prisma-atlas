@@ -176,12 +176,13 @@ function buildRtspUrl(config: CameraConfig): string {
   const brand = CAMERA_BRANDS.find(b => b.name === config.brand);
   if (!brand || !brand.rtspTemplate) return config.rtspUrl;
 
+  const defaultPath = config.penId ? `pen_${config.penId}` : 'pen_1';
   return brand.rtspTemplate
     .replace('{username}', config.username || 'admin')
     .replace('{password}', config.password || 'password')
     .replace('{ip}', config.ipAddress || '192.168.1.100')
     .replace('{port}', String(config.port || 554))
-    .replace('{rtspPath}', config.rtspPath || 'pen_1');
+    .replace('{rtspPath}', config.rtspPath || defaultPath);
 }
 
 function buildEdgeLocalRtspUrl(config: CameraConfig): string {
