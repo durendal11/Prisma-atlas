@@ -226,6 +226,11 @@ export const alertsApi = {
     const response = await api.post('/api/alerts/mark-all-read');
     return response.data;
   },
+
+  createTest: async (penId: number = 1): Promise<Alert> => {
+    const response = await api.post(`/api/alerts/test?pen_id=${penId}`);
+    return response.data;
+  },
 };
 
 // Events API

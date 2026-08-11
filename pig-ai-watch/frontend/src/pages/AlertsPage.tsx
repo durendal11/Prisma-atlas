@@ -22,6 +22,8 @@ import {
 import clsx from 'clsx';
 import toast from 'react-hot-toast';
 
+import { alertsApi } from '@/api';
+
 const severityOptions = ['all', 'critical', 'high', 'medium', 'low'];
 const typeOptions = ['all', 'crushing_risk', 'posture_change', 'piglet_count_change', 'system'];
 
@@ -32,6 +34,20 @@ export default function AlertsPage() {
   const [type, setType] = useState('all');
   const [showResolved, setShowResolved] = useState(false);
   const [isInfoOpen, setIsInfoOpen] = useState(false);
+  const [isSendingTest, setIsSendingTest] = useState(false);
+
+  const handleSendTestAlert = async () => {
+    setIsSendingTest(true);
+    try {
+      await alertsApi.createTest(1);
+      toast.success('Test alert created & email notification triggered!');
+      refetch();
+    } catch {
+      toast.error('Failed to trigger test alert');
+    } finally {
+      setIsSendingTest(false);
+    }
+  };
 
   const { data: alerts, isLoading: loadingAlerts, refetch, isRefetching } = useAlerts({
     severity: severity === 'all' ? undefined : severity,
@@ -113,6 +129,15 @@ export default function AlertsPage() {
               <PageInfoButton onClick={() => setIsInfoOpen(true)} className="text-white hover:bg-white/20" />
             </div>
             <div className="flex items-center gap-2">
+              <button
+                onClick={handleSendTestAlert}
+                disabled={isSendingTest}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/20 hover:bg-white/30 backdrop-blur-sm text-white text-xs font-medium transition-colors disabled:opacity-50"
+                title="Send a test alert & email notification"
+              >
+                <Bell className={clsx('h-3.5 w-3.5', isSendingTest && 'animate-bounce')} />
+                {isSendingTest ? 'Sending...' : 'Test Email Alert'}
+              </button>
               <button
                 onClick={() => refetch()}
                 disabled={isRefetching}
