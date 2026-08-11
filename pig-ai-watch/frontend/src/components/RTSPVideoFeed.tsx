@@ -97,6 +97,8 @@ export const RTSPVideoFeed: React.FC<RTSPVideoFeedProps> = ({
     }
   }, [connectionStatus, onConnectionStatus]);
 
+const fastProbeCache = new Map<string, { timestamp: number; data: any }>();
+
   // ── Probe camera status FIRST, then decide whether to stream ──────────────
   useEffect(() => {
     if (!token) {
@@ -107,6 +109,22 @@ export const RTSPVideoFeed: React.FC<RTSPVideoFeedProps> = ({
     }
 
     let cancelled = false;
+    const cached = fastProbeCache.get(penId);
+    const now = Date.now();
+
+    // Fast-path: if camera was probed within the last 60 seconds, connect instantly in 0ms!
+    if (cached && (now - cached.timestamp < 60000)) {
+      setConnectionStatus('connected');
+      const url = `/api/stream/${penId}?token=${token}`;
+      setStreamUrl(url);
+      setLoading(false);
+      if (cached.data.camera_info) setCameraInfo(cached.data.camera_info);
+      if (cached.data.has_last_detection && cached.data.last_detection) setDetectionData(cached.data.last_detection);
+    } else {
+      setConnectionStatus('probing');
+      setLoading(true);
+    }
+
     const probeCamera = async () => {
       try {
         const response = await fetch(`/api/stream/${penId}/status`, {
@@ -116,6 +134,7 @@ export const RTSPVideoFeed: React.FC<RTSPVideoFeedProps> = ({
 
         if (response.ok) {
           const data = await response.json();
+          fastProbeCache.set(penId, { timestamp: Date.now(), data });
 
           if (data.camera_info) {
             setCameraInfo(data.camera_info);
@@ -131,15 +150,14 @@ export const RTSPVideoFeed: React.FC<RTSPVideoFeedProps> = ({
           if (isRunning && hasSource) {
             // Camera is running — safe to connect stream
             setConnectionStatus('connected');
-            const url = `/api/stream/${penId}?token=${token}&t=${Date.now()}`;
+            const url = `/api/stream/${penId}?token=${token}`;
             setStreamUrl(url);
             setLoading(false);
             setReconnectAttempts(0);
           } else if (hasSource && !isRunning) {
             // Source configured but stream not running — try to connect anyway
-            // (backend may start on first request)
             setConnectionStatus('connected');
-            const url = `/api/stream/${penId}?token=${token}&t=${Date.now()}`;
+            const url = `/api/stream/${penId}?token=${token}`;
             setStreamUrl(url);
             setLoading(false);
             setReconnectAttempts(0);
@@ -166,8 +184,6 @@ export const RTSPVideoFeed: React.FC<RTSPVideoFeedProps> = ({
       }
     };
 
-    setConnectionStatus('probing');
-    setLoading(true);
     probeCamera();
 
     return () => {

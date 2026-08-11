@@ -86,6 +86,10 @@ def _ensure_archive_columns(sync_conn):
             "is_archived": "BOOLEAN NOT NULL DEFAULT FALSE",
             "archived_at": "TIMESTAMP",
         },
+        "alerts": {
+            "is_archived": "BOOLEAN NOT NULL DEFAULT FALSE",
+            "archived_at": "TIMESTAMP",
+        },
         "behavior_logs": {
             "is_archived": "BOOLEAN NOT NULL DEFAULT FALSE",
             "archived_at": "TIMESTAMP",

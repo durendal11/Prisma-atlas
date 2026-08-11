@@ -78,33 +78,33 @@ export default function AlertCard({ alert, onClick, onResolve }: AlertCardProps)
       )}
       onClick={onClick}
     >
-      <div className="flex items-start gap-3">
+      <div className="flex items-start gap-2.5 sm:gap-3">
         <div className={clsx(
-          'p-2.5 rounded-xl transition-transform duration-300 group-hover:scale-110',
+          'p-2 sm:p-2.5 rounded-xl transition-transform duration-300 group-hover:scale-110 shrink-0 mt-0.5',
           config.iconBg
         )}>
-          <Icon className={clsx('h-5 w-5', config.iconColor)} />
+          <Icon className={clsx('h-4 w-4 sm:h-5 sm:w-5', config.iconColor)} />
         </div>
         
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 flex-wrap">
-            <h3 className="font-semibold text-gray-900 dark:text-white">{alert.title}</h3>
+          <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
+            <h3 className="font-semibold text-xs sm:text-sm text-gray-900 dark:text-white leading-tight">{alert.title}</h3>
             <span className={clsx(
-              'text-xs px-2.5 py-1 rounded-full font-medium capitalize transition-transform duration-200 hover:scale-105',
+              'text-[10px] sm:text-xs px-2 py-0.5 rounded-full font-medium capitalize shrink-0',
               config.badge
             )}>
               {alert.severity}
             </span>
             {!alert.is_read && (
-              <span className="h-2.5 w-2.5 bg-primary-500 rounded-full animate-pulse shadow-lg shadow-primary-500/50" />
+              <span className="h-2 w-2 sm:h-2.5 sm:w-2.5 bg-primary-500 rounded-full animate-pulse shadow-lg shadow-primary-500/50 shrink-0" />
             )}
           </div>
           
           {alert.message && (
-            <p className="mt-1.5 text-sm text-gray-600 dark:text-slate-300 line-clamp-2">{alert.message}</p>
+            <p className="mt-1 text-xs sm:text-sm text-gray-600 dark:text-slate-300 line-clamp-2">{alert.message}</p>
           )}
           
-          <div className="mt-2.5 flex items-center gap-4 text-xs text-gray-500 dark:text-slate-400">
+          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] sm:text-xs text-gray-500 dark:text-slate-400">
             <span className="flex items-center gap-1">
               <span className="h-1 w-1 rounded-full bg-gray-400 dark:bg-slate-500"></span>
               {format(new Date(alert.created_at), 'MMM d, HH:mm')}
@@ -114,7 +114,7 @@ export default function AlertCard({ alert, onClick, onResolve }: AlertCardProps)
           </div>
         </div>
 
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-1.5 shrink-0">
           {!alert.is_resolved && onResolve && (
             <button
               onClick={(e) => {

@@ -58,36 +58,36 @@ export default function AlertArchivesPage() {
             <circle cx="80" cy="140" r="50" fill="white" />
           </svg>
         </div>
-        <div className="relative px-5 sm:px-8 py-5">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="relative px-4 sm:px-8 py-4 sm:py-5">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div className="flex items-center gap-3">
               <button
                 onClick={() => navigate('/alerts')}
-                className="p-2 rounded-xl bg-white/10 hover:bg-white/20 text-white backdrop-blur-sm transition-colors"
+                className="p-2 rounded-xl bg-white/10 hover:bg-white/20 text-white backdrop-blur-sm transition-colors shrink-0"
                 title="Back to active alerts"
               >
                 <ArrowLeft className="h-5 w-5" />
               </button>
               <div>
-                <h1 className="text-2xl sm:text-3xl font-bold text-white tracking-tight flex items-center gap-2">
-                  <Archive className="h-7 w-7 text-indigo-300" />
+                <h1 className="text-xl sm:text-3xl font-bold text-white tracking-tight flex items-center gap-2">
+                  <Archive className="h-5 w-5 sm:h-7 sm:w-7 text-indigo-300 shrink-0" />
                   Alert Archives
                 </h1>
-                <p className="text-white/70 text-sm">Review and manage archived notifications</p>
+                <p className="text-white/70 text-xs sm:text-sm">Review and manage archived notifications</p>
               </div>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <button
                 onClick={() => refetch()}
                 disabled={isRefetching}
-                className="p-2 rounded-xl bg-white/15 hover:bg-white/25 text-white/80 backdrop-blur-sm transition-colors"
+                className="p-2 rounded-xl bg-white/15 hover:bg-white/25 text-white/80 backdrop-blur-sm transition-colors shrink-0"
               >
                 <RefreshCw className={clsx('h-4 w-4', isRefetching && 'animate-spin')} />
               </button>
               <button
                 onClick={handleDeleteRead}
                 disabled={deleteArchivedRead.isPending || readCount === 0}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-red-500/80 hover:bg-red-600 backdrop-blur-sm text-white text-xs font-medium transition-colors disabled:opacity-50"
+                className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-xl bg-red-500/80 hover:bg-red-600 backdrop-blur-sm text-white text-[11px] sm:text-xs font-medium transition-colors disabled:opacity-50 whitespace-nowrap"
                 title="Delete all archived notifications marked as read"
               >
                 <Trash2 className="h-3.5 w-3.5" />

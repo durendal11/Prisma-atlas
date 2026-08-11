@@ -99,12 +99,15 @@ async def get_alerts(
     if conditions:
         query = query.where(and_(*conditions))
     
-    # Filter out archived alerts unless explicitly requested
-    query = query.where(Alert.is_archived == False)
-    
     query = query.offset(skip).limit(limit).order_by(Alert.created_at.desc())
-    result = await db.execute(query)
-    return result.scalars().all()
+    try:
+        # Filter out archived alerts if column exists in DB schema
+        result = await db.execute(query.where(Alert.is_archived == False))
+        return result.scalars().all()
+    except Exception:
+        # Fallback if DB table has not executed startup column patch yet
+        result = await db.execute(query)
+        return result.scalars().all()
 
 
 @router.get("/archived", response_model=List[AlertResponse])
@@ -115,15 +118,18 @@ async def get_archived_alerts(
     current_user: User = Depends(get_current_user)
 ):
     """Get all archived alerts."""
-    query = (
-        select(Alert)
-        .where(Alert.is_archived == True)
-        .order_by(Alert.archived_at.desc(), Alert.created_at.desc())
-        .offset(skip)
-        .limit(limit)
-    )
-    result = await db.execute(query)
-    return result.scalars().all()
+    try:
+        query = (
+            select(Alert)
+            .where(Alert.is_archived == True)
+            .order_by(Alert.archived_at.desc(), Alert.created_at.desc())
+            .offset(skip)
+            .limit(limit)
+        )
+        result = await db.execute(query)
+        return result.scalars().all()
+    except Exception:
+        return []
 
 
 @router.post("/archive-all")

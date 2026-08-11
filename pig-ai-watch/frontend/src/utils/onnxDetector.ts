@@ -158,7 +158,7 @@ class ONNXDetector {
     console.log('ONNX wasm paths:', ort.env.wasm.wasmPaths);
 
     try {
-      const response = await fetch(modelPath, { cache: 'no-store' });
+      const response = await fetch(modelPath, { cache: 'force-cache' });
       if (!response.ok) {
         throw new Error(`Model fetch failed: HTTP ${response.status} ${response.statusText}`);
       }

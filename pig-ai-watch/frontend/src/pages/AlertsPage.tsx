@@ -128,36 +128,37 @@ export default function AlertsPage() {
             <circle cx="80" cy="140" r="50" fill="white" />
           </svg>
         </div>
-        <div className="relative px-5 sm:px-8 py-5">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="flex items-center gap-3">
+        <div className="relative px-4 sm:px-8 py-4 sm:py-5">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="flex items-center justify-between sm:justify-start gap-3">
               <div>
-                <h1 className="text-2xl sm:text-3xl font-bold text-white tracking-tight">Alerts</h1>
-                <p className="text-white/70 text-sm">Monitor and manage system alerts</p>
+                <h1 className="text-xl sm:text-3xl font-bold text-white tracking-tight">Alerts</h1>
+                <p className="text-white/70 text-xs sm:text-sm">Monitor and manage system alerts</p>
               </div>
-              <PageInfoButton onClick={() => setIsInfoOpen(true)} className="text-white hover:bg-white/20" />
+              <PageInfoButton onClick={() => setIsInfoOpen(true)} className="text-white hover:bg-white/20 shrink-0" />
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <button
                 onClick={handleSendTestAlert}
                 disabled={isSendingTest}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/20 hover:bg-white/30 backdrop-blur-sm text-white text-xs font-medium transition-colors disabled:opacity-50"
+                className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-xl bg-white/20 hover:bg-white/30 backdrop-blur-sm text-white text-[11px] sm:text-xs font-medium transition-colors disabled:opacity-50"
                 title="Send a test alert & email notification"
               >
                 <Bell className={clsx('h-3.5 w-3.5', isSendingTest && 'animate-bounce')} />
-                {isSendingTest ? 'Sending...' : 'Test Email Alert'}
+                <span className="whitespace-nowrap">{isSendingTest ? 'Sending...' : 'Test Email Alert'}</span>
               </button>
               <button
                 onClick={() => refetch()}
                 disabled={isRefetching}
-                className="p-2 rounded-xl bg-white/15 hover:bg-white/25 text-white/80 backdrop-blur-sm transition-colors"
+                className="p-2 rounded-xl bg-white/15 hover:bg-white/25 text-white/80 backdrop-blur-sm transition-colors shrink-0"
+                title="Refresh alerts"
               >
                 <RefreshCw className={clsx('h-4 w-4', isRefetching && 'animate-spin')} />
               </button>
               <button
                 onClick={handleMarkAllRead}
                 disabled={markAllRead.isPending}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/20 hover:bg-white/30 backdrop-blur-sm text-white text-xs font-medium transition-colors disabled:opacity-50"
+                className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-xl bg-white/20 hover:bg-white/30 backdrop-blur-sm text-white text-[11px] sm:text-xs font-medium transition-colors disabled:opacity-50 whitespace-nowrap"
               >
                 <CheckCircle className="h-3.5 w-3.5" />
                 Mark All Read
@@ -165,7 +166,7 @@ export default function AlertsPage() {
               <button
                 onClick={handleArchiveAll}
                 disabled={archiveAll.isPending}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/20 hover:bg-white/30 backdrop-blur-sm text-white text-xs font-medium transition-colors disabled:opacity-50"
+                className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-xl bg-white/20 hover:bg-white/30 backdrop-blur-sm text-white text-[11px] sm:text-xs font-medium transition-colors disabled:opacity-50 whitespace-nowrap"
                 title="Archive all current alerts"
               >
                 <Archive className="h-3.5 w-3.5" />
@@ -173,7 +174,7 @@ export default function AlertsPage() {
               </button>
               <button
                 onClick={() => navigate('/alerts/archive')}
-                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-indigo-900/60 hover:bg-indigo-900/80 backdrop-blur-sm text-white text-xs font-medium transition-colors border border-indigo-400/30"
+                className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-2 rounded-xl bg-indigo-900/60 hover:bg-indigo-900/80 backdrop-blur-sm text-white text-[11px] sm:text-xs font-medium transition-colors border border-indigo-400/30 whitespace-nowrap"
                 title="View archived notifications"
               >
                 <Archive className="h-3.5 w-3.5 text-indigo-300" />
@@ -185,38 +186,38 @@ export default function AlertsPage() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <div className="bg-white dark:bg-slate-800/60 rounded-2xl border border-gray-200/60 dark:border-slate-700/50 p-4 shadow-sm hover:shadow-md transition-all duration-200 group">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 sm:gap-3">
+        <div className="bg-white dark:bg-slate-800/60 rounded-2xl border border-gray-200/60 dark:border-slate-700/50 p-3 sm:p-4 shadow-sm hover:shadow-md transition-all duration-200 group">
           <div className="flex items-center gap-2">
             <Bell className="h-4 w-4 text-primary-500 dark:text-primary-400 group-hover:scale-110 transition-transform duration-200" />
             <span className="text-xs text-gray-500 dark:text-slate-400">Unread</span>
           </div>
-          <p className="text-2xl font-bold mt-1 text-gray-900 dark:text-white">{stats?.unread_count || 0}</p>
+          <p className="text-xl sm:text-2xl font-bold mt-1 text-gray-900 dark:text-white">{stats?.unread_count || 0}</p>
         </div>
-        <div className="bg-red-50 dark:bg-red-900/30 rounded-2xl border border-red-200/60 dark:border-red-700/50 p-4 shadow-sm hover:shadow-md transition-all duration-200 group">
+        <div className="bg-red-50 dark:bg-red-900/30 rounded-2xl border border-red-200/60 dark:border-red-700/50 p-3 sm:p-4 shadow-sm hover:shadow-md transition-all duration-200 group">
           <div className="flex items-center gap-2">
             <AlertTriangle className="h-4 w-4 text-red-500 dark:text-red-400 group-hover:scale-110 transition-transform duration-200" />
             <span className="text-xs text-red-600 dark:text-red-400">Critical</span>
           </div>
-          <p className="text-2xl font-bold mt-1 text-red-700 dark:text-red-300">
+          <p className="text-xl sm:text-2xl font-bold mt-1 text-red-700 dark:text-red-300">
             {stats?.unresolved_by_severity?.critical || 0}
           </p>
         </div>
-        <div className="bg-orange-50 dark:bg-orange-900/30 rounded-2xl border border-orange-200/60 dark:border-orange-700/50 p-4 shadow-sm hover:shadow-md transition-all duration-200 group">
+        <div className="bg-orange-50 dark:bg-orange-900/30 rounded-2xl border border-orange-200/60 dark:border-orange-700/50 p-3 sm:p-4 shadow-sm hover:shadow-md transition-all duration-200 group">
           <div className="flex items-center gap-2">
             <AlertTriangle className="h-4 w-4 text-orange-500 dark:text-orange-400 group-hover:scale-110 transition-transform duration-200" />
             <span className="text-xs text-orange-600 dark:text-orange-400">High</span>
           </div>
-          <p className="text-2xl font-bold mt-1 text-orange-700 dark:text-orange-300">
+          <p className="text-xl sm:text-2xl font-bold mt-1 text-orange-700 dark:text-orange-300">
             {stats?.unresolved_by_severity?.high || 0}
           </p>
         </div>
-        <div className="bg-yellow-50 dark:bg-yellow-900/30 rounded-2xl border border-yellow-200/60 dark:border-yellow-700/50 p-4 shadow-sm hover:shadow-md transition-all duration-200 group">
+        <div className="bg-yellow-50 dark:bg-yellow-900/30 rounded-2xl border border-yellow-200/60 dark:border-yellow-700/50 p-3 sm:p-4 shadow-sm hover:shadow-md transition-all duration-200 group">
           <div className="flex items-center gap-2">
             <AlertTriangle className="h-4 w-4 text-yellow-500 dark:text-yellow-400 group-hover:scale-110 transition-transform duration-200" />
-            <span className="text-xs text-yellow-600 dark:text-yellow-400">Medium/Low</span>
+            <span className="text-xs text-yellow-600 dark:text-yellow-400">Med / Low</span>
           </div>
-          <p className="text-2xl font-bold mt-1 text-yellow-700 dark:text-yellow-300">
+          <p className="text-xl sm:text-2xl font-bold mt-1 text-yellow-700 dark:text-yellow-300">
             {(stats?.unresolved_by_severity?.medium || 0) + 
              (stats?.unresolved_by_severity?.low || 0)}
           </p>
@@ -224,19 +225,19 @@ export default function AlertsPage() {
       </div>
 
       {/* Filters */}
-      <div className="bg-white dark:bg-slate-800/60 rounded-2xl border border-gray-200/60 dark:border-slate-700/50 p-4 shadow-sm">
+      <div className="bg-white dark:bg-slate-800/60 rounded-2xl border border-gray-200/60 dark:border-slate-700/50 p-3.5 sm:p-4 shadow-sm">
         <div className="flex items-center gap-2 mb-3">
           <Filter className="h-4 w-4 text-gray-400 dark:text-slate-500" />
-          <span className="text-sm font-medium text-gray-700 dark:text-slate-300">Filters</span>
+          <span className="text-xs sm:text-sm font-medium text-gray-700 dark:text-slate-300">Filters</span>
         </div>
         
-        <div className="flex flex-wrap gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 w-full">
           <div>
             <label className="block text-xs text-gray-400 dark:text-slate-500 mb-1">Severity</label>
             <select
               value={severity}
               onChange={(e) => setSeverity(e.target.value)}
-              className="px-3 py-1.5 border border-gray-200/60 dark:border-slate-600 rounded-xl text-sm focus:ring-2 focus:ring-primary-500 dark:focus:ring-primary-400 bg-white dark:bg-slate-700/50 text-gray-900 dark:text-white transition-all"
+              className="w-full px-3 py-2 border border-gray-200/60 dark:border-slate-600 rounded-xl text-xs sm:text-sm focus:ring-2 focus:ring-primary-500 dark:focus:ring-primary-400 bg-white dark:bg-slate-700/50 text-gray-900 dark:text-white transition-all"
             >
               {severityOptions.map((opt) => (
                 <option key={opt} value={opt} className="capitalize dark:bg-slate-700">
@@ -251,7 +252,7 @@ export default function AlertsPage() {
             <select
               value={type}
               onChange={(e) => setType(e.target.value)}
-              className="px-3 py-1.5 border border-gray-200/60 dark:border-slate-600 rounded-xl text-sm focus:ring-2 focus:ring-primary-500 dark:focus:ring-primary-400 bg-white dark:bg-slate-700/50 text-gray-900 dark:text-white transition-all"
+              className="w-full px-3 py-2 border border-gray-200/60 dark:border-slate-600 rounded-xl text-xs sm:text-sm focus:ring-2 focus:ring-primary-500 dark:focus:ring-primary-400 bg-white dark:bg-slate-700/50 text-gray-900 dark:text-white transition-all"
             >
               {typeOptions.map((opt) => (
                 <option key={opt} value={opt} className="dark:bg-slate-700">
@@ -261,15 +262,15 @@ export default function AlertsPage() {
             </select>
           </div>
 
-          <div className="flex items-end">
-            <label className="flex items-center gap-2 cursor-pointer group">
+          <div className="flex items-center sm:items-end pt-1 sm:pt-0">
+            <label className="flex items-center gap-2 cursor-pointer group py-1">
               <input
                 type="checkbox"
                 checked={showResolved}
                 onChange={(e) => setShowResolved(e.target.checked)}
                 className="w-4 h-4 rounded border-gray-300 dark:border-slate-600 text-primary-500 focus:ring-primary-500 dark:focus:ring-primary-400 dark:bg-slate-700 transition-all"
               />
-              <span className="text-sm text-gray-600 dark:text-slate-400 group-hover:text-gray-900 dark:group-hover:text-white transition-colors">Show resolved</span>
+              <span className="text-xs sm:text-sm text-gray-600 dark:text-slate-400 group-hover:text-gray-900 dark:group-hover:text-white transition-colors">Show resolved</span>
             </label>
           </div>
         </div>

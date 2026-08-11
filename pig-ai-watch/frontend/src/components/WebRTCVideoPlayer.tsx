@@ -19,10 +19,21 @@ export const WebRTCVideoPlayer: React.FC<WebRTCVideoPlayerProps> = ({
   const videoRef = useRef<HTMLVideoElement>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const [status, setStatus] = useState<'connecting' | 'connected' | 'failed'>('connecting');
+  const [isBuffering, setIsBuffering] = useState<boolean>(true);
   const [errorMessage, setErrorMessage] = useState<string>('');
+
+  const handleFrameReady = useCallback(() => {
+    // 350ms buffer for initial keyframe GOP decoding stabilization
+    setTimeout(() => {
+      setIsBuffering(false);
+      setStatus('connected');
+      onConnected?.();
+    }, 350);
+  }, [onConnected]);
 
   const connectWebRTC = useCallback(async () => {
     setStatus('connecting');
+    setIsBuffering(true);
     setErrorMessage('');
 
     if (pcRef.current) {
@@ -54,10 +65,10 @@ export const WebRTCVideoPlayer: React.FC<WebRTCVideoPlayerProps> = ({
 
       pc.onconnectionstatechange = () => {
         if (pc.connectionState === 'connected') {
-          setStatus('connected');
-          onConnected?.();
+          // Keep buffering until video element fires onPlaying / frame render
         } else if (pc.connectionState === 'failed' || pc.connectionState === 'closed') {
           setStatus('failed');
+          setIsBuffering(false);
           const msg = 'WebRTC connection failed';
           setErrorMessage(msg);
           onError?.(msg);
@@ -83,11 +94,12 @@ export const WebRTCVideoPlayer: React.FC<WebRTCVideoPlayerProps> = ({
     } catch (err: any) {
       console.warn('WebRTC connection error:', err);
       setStatus('failed');
+      setIsBuffering(false);
       const msg = err.message || 'Failed to establish WebRTC stream';
       setErrorMessage(msg);
       onError?.(msg);
     }
-  }, [penId, token, onConnected, onError]);
+  }, [penId, token, onError]);
 
   useEffect(() => {
     if (penId && token) {
@@ -109,6 +121,8 @@ export const WebRTCVideoPlayer: React.FC<WebRTCVideoPlayerProps> = ({
         autoPlay
         playsInline
         muted
+        onPlaying={handleFrameReady}
+        onLoadedData={handleFrameReady}
         className="w-full h-full object-cover rounded-xl"
         style={{
           transform: 'translateZ(0)',
@@ -116,15 +130,21 @@ export const WebRTCVideoPlayer: React.FC<WebRTCVideoPlayerProps> = ({
         }}
       />
 
-      {status === 'connecting' && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950/80 text-white gap-2 backdrop-blur-sm">
-          <Loader2 className="h-8 w-8 animate-spin text-primary-500" />
-          <span className="text-xs font-medium text-slate-300">Connecting WebRTC Ultra-Low Latency...</span>
+      {(status === 'connecting' || isBuffering) && status !== 'failed' && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950/90 text-white gap-3 backdrop-blur-md transition-opacity duration-300 pointer-events-none">
+          <div className="relative flex items-center justify-center">
+            <div className="absolute w-12 h-12 rounded-full border-2 border-emerald-500/40 animate-ping" />
+            <Loader2 className="h-8 w-8 animate-spin text-emerald-400" />
+          </div>
+          <div className="text-center space-y-0.5">
+            <span className="text-xs font-semibold tracking-wide text-emerald-300 uppercase">Synchronizing 60 FPS Feed...</span>
+            <p className="text-[11px] text-slate-400">Buffering smooth video frames</p>
+          </div>
         </div>
       )}
 
-      {status === 'connected' && (
-        <div className="absolute top-3 left-3 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/80 text-white text-[10px] font-semibold tracking-wider uppercase backdrop-blur-md shadow-lg">
+      {status === 'connected' && !isBuffering && (
+        <div className="absolute top-3 left-3 flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/80 text-white text-[10px] font-semibold tracking-wider uppercase backdrop-blur-md shadow-lg animate-fade-in">
           <Wifi className="h-3 w-3 animate-pulse" />
           <span>WebRTC 60FPS</span>
         </div>
