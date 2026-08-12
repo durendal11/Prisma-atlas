@@ -48,6 +48,7 @@ export interface ProximityAlert {
   sowIndex: number;
   distance: number;
   riskContribution: number;
+  isOnTop?: boolean;
 }
 
 export interface AnalyticsData {
@@ -421,6 +422,9 @@ class ONNXDetector {
       const sowXNorm = sow.centerX / inputSize;
       const sowYNorm = sow.centerY / inputSize;
 
+      const sowPostureLower = (sow.posture || '').toLowerCase();
+      const isRestingNursing = ['nursing', 'lactating', 'sleeping', 'sow-sleep-lactating', 'lying'].some(p => sowPostureLower.includes(p));
+
       piglets.forEach((piglet, pigletIndex) => {
         const pigletXNorm = piglet.centerX / inputSize;
         const pigletYNorm = piglet.centerY / inputSize;
@@ -431,8 +435,27 @@ class ONNXDetector {
         const inWarningZone = dx <= halfWarningW && dy <= halfWarningH;
 
         if (inDangerZone || inWarningZone) {
+          // Compute piglet inclusion ratio inside sow box
+          const pW = Math.max(0, piglet.bbox[2] - piglet.bbox[0]);
+          const pH = Math.max(0, piglet.bbox[3] - piglet.bbox[1]);
+          const pArea = pW * pH;
+
+          const interX1 = Math.max(sow.bbox[0], piglet.bbox[0]);
+          const interY1 = Math.max(sow.bbox[1], piglet.bbox[1]);
+          const interX2 = Math.min(sow.bbox[2], piglet.bbox[2]);
+          const interY2 = Math.min(sow.bbox[3], piglet.bbox[3]);
+
+          const interW = Math.max(0, interX2 - interX1);
+          const interH = Math.max(0, interY2 - interY1);
+          const interArea = interW * interH;
+
+          const inclusionRatio = pArea > 0 ? interArea / pArea : 0;
+          const isOnTop = isRestingNursing && inclusionRatio >= 0.80;
+
           let riskContribution = 0;
-          if (inDangerZone) {
+          if (isOnTop) {
+            riskContribution = 0.05; // Minimal risk for piglet resting/nursing on top of sow
+          } else if (inDangerZone) {
             riskContribution = 0.3;
           } else {
             const dxRatio = halfWarningW > 0 ? dx / halfWarningW : 1;
@@ -442,7 +465,7 @@ class ONNXDetector {
           }
 
           const distance = Math.sqrt(dx * dx + dy * dy);
-          alerts.push({ pigletIndex, sowIndex, distance, riskContribution });
+          alerts.push({ pigletIndex, sowIndex, distance, riskContribution, isOnTop });
         }
       });
     });
@@ -750,29 +773,32 @@ export function drawRiskHighlights(
     const w = (x2 - x1) * scaleX;
     const h = (y2 - y1) * scaleY;
 
-    const isCritical = alert.riskContribution >= 0.3;
-    const color = isCritical ? 'rgba(249, 115, 22,' : 'rgba(245, 158, 11,'; // orange-500 / amber-500
+    const isOnTop = alert.isOnTop === true;
+    const isCritical = !isOnTop && alert.riskContribution >= 0.3;
+    const color = isOnTop
+      ? 'rgba(6, 182, 212,'
+      : (isCritical ? 'rgba(249, 115, 22,' : 'rgba(245, 158, 11,'); // cyan-500 / orange-500 / amber-500
 
     // Glow effect
-    ctx.shadowColor = isCritical ? '#f97316' : '#f59e0b';
-    ctx.shadowBlur = 8 * pulse;
+    ctx.shadowColor = isOnTop ? '#06b6d4' : (isCritical ? '#f97316' : '#f59e0b');
+    ctx.shadowBlur = isOnTop ? 4 : 8 * pulse;
 
     // Highlighted bounding box
-    ctx.strokeStyle = `${color}${pulse.toFixed(2)})`;
-    ctx.lineWidth = isCritical ? 2.5 : 1.8;
+    ctx.strokeStyle = `${color}${isOnTop ? '0.75' : pulse.toFixed(2)})`;
+    ctx.lineWidth = isOnTop ? 1.5 : (isCritical ? 2.5 : 1.8);
     ctx.strokeRect(sx1, sy1, w, h);
 
     // Reset shadow for label
     ctx.shadowBlur = 0;
 
     // Risk label above the box
-    const label = isCritical ? 'HIGH RISK' : 'NEARBY';
+    const label = isOnTop ? 'ON TOP' : (isCritical ? 'HIGH RISK' : 'NEARBY');
     ctx.font = 'bold 9px Arial';
     const tw = ctx.measureText(label).width;
     const pad = 3;
     const lh = 11;
 
-    ctx.fillStyle = `${color}${(pulse * 0.85).toFixed(2)})`;
+    ctx.fillStyle = `${color}${isOnTop ? '0.85' : (pulse * 0.85).toFixed(2)})`;
     ctx.fillRect(sx1, sy1 - lh - pad, tw + pad * 2, lh + pad);
     ctx.fillStyle = 'white';
     ctx.fillText(label, sx1 + pad, sy1 - pad - 1);

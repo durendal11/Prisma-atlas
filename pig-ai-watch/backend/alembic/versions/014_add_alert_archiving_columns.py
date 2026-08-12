@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = '014_add_alert_archiving_columns'
-down_revision = '9999_add_language_to_users'
+down_revision = '9999'
 branch_labels = None
 depends_on = None
 

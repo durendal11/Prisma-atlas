@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useNavigate } from 'react-router-dom';
-import { AlertCard } from '@/components';
-import { useAlerts, useAlertStats, useUpdateAlert, useMarkAllAlertsRead, useArchiveAllAlerts } from '@/hooks';
+import { SwipeableAlertCard } from '@/components';
+import { useAlerts, useAlertStats, useUpdateAlert, useMarkAllAlertsRead, useArchiveAllAlerts, useArchiveAlert } from '@/hooks';
 import { PageSkeleton, useLoading } from '@/components/ui/Skeleton';
 import { PageInfoButton } from '@/components/ui/PageInfoModal';
 import { 
@@ -62,11 +62,19 @@ export default function AlertsPage() {
   const updateAlert = useUpdateAlert();
   const markAllRead = useMarkAllAlertsRead();
   const archiveAll = useArchiveAllAlerts();
+  const archiveSingle = useArchiveAlert();
 
   const handleArchiveAll = () => {
     archiveAll.mutate(undefined, {
       onSuccess: (res) => toast.success(res.message || 'All alerts archived'),
       onError: () => toast.error('Failed to archive alerts'),
+    });
+  };
+
+  const handleArchiveSingle = (alertId: number) => {
+    archiveSingle.mutate(alertId, {
+      onSuccess: () => toast.success('Alert archived'),
+      onError: () => toast.error('Failed to archive alert'),
     });
   };
 
@@ -278,6 +286,14 @@ export default function AlertsPage() {
 
       {/* Alerts list */}
       <div className="space-y-3">
+        {alerts && alerts.length > 0 && (
+          <div className="flex items-center justify-between px-1 text-[11px] text-gray-500 dark:text-slate-400">
+            <span className="flex items-center gap-1.5">
+              <Archive className="h-3.5 w-3.5 text-indigo-500" />
+              <span>Tip: Drag or swipe any alert card left to archive it</span>
+            </span>
+          </div>
+        )}
         {alerts?.length === 0 ? (
           <div className="bg-white dark:bg-slate-800/60 rounded-2xl border border-gray-200/60 dark:border-slate-700/50 p-12 text-center shadow-sm">
             <Bell className="h-12 w-12 mx-auto mb-3 text-gray-300 dark:text-slate-600" />
@@ -287,11 +303,12 @@ export default function AlertsPage() {
         ) : (
           alerts?.map((alert, index) => (
             <div key={alert.id} className="animate-fade-in-up" style={{ animationDelay: `${index * 50}ms` }}>
-              <AlertCard
+              <SwipeableAlertCard
                 alert={alert}
+                mode="active"
                 onClick={() => handleAlertClick(alert)}
                 onResolve={() => handleResolveAlert(alert.id)}
-                onMarkRead={() => handleMarkRead(alert.id)}
+                onArchive={() => handleArchiveSingle(alert.id)}
               />
             </div>
           ))

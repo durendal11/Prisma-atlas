@@ -217,8 +217,18 @@ export const alertsApi = {
     return response.data;
   },
   
-  update: async (id: number, data: { is_read?: boolean; is_resolved?: boolean }): Promise<Alert> => {
+  update: async (id: number, data: { is_read?: boolean; is_resolved?: boolean; is_archived?: boolean }): Promise<Alert> => {
     const response = await api.patch(`/api/alerts/${id}`, data);
+    return response.data;
+  },
+
+  archiveAlert: async (id: number): Promise<Alert> => {
+    const response = await api.post(`/api/alerts/${id}/archive`);
+    return response.data;
+  },
+
+  restoreAlert: async (id: number): Promise<Alert> => {
+    const response = await api.post(`/api/alerts/${id}/restore`);
     return response.data;
   },
   

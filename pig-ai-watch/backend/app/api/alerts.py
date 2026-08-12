@@ -283,7 +283,7 @@ async def update_alert(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Update alert status (mark as read/resolved)."""
+    """Update alert status (mark as read/resolved/archived)."""
     result = await db.execute(select(Alert).where(Alert.id == alert_id))
     alert = result.scalar_one_or_none()
     
@@ -298,6 +298,11 @@ async def update_alert(
     if update_data.get("is_resolved"):
         update_data["resolved_at"] = datetime.utcnow()
         update_data["resolved_by"] = current_user.id
+
+    if update_data.get("is_archived") is True:
+        update_data["archived_at"] = datetime.utcnow()
+    elif update_data.get("is_archived") is False:
+        update_data["archived_at"] = None
     
     for field, value in update_data.items():
         setattr(alert, field, value)
@@ -305,6 +310,52 @@ async def update_alert(
     await db.commit()
     await db.refresh(alert)
     
+    return alert
+
+
+@router.post("/{alert_id}/archive", response_model=AlertResponse)
+async def archive_single_alert(
+    alert_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Archive a specific alert."""
+    result = await db.execute(select(Alert).where(Alert.id == alert_id))
+    alert = result.scalar_one_or_none()
+    
+    if not alert:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Alert not found"
+        )
+    
+    alert.is_archived = True
+    alert.archived_at = datetime.utcnow()
+    await db.commit()
+    await db.refresh(alert)
+    return alert
+
+
+@router.post("/{alert_id}/restore", response_model=AlertResponse)
+async def restore_single_alert(
+    alert_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Restore an archived alert back to active status."""
+    result = await db.execute(select(Alert).where(Alert.id == alert_id))
+    alert = result.scalar_one_or_none()
+    
+    if not alert:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Alert not found"
+        )
+    
+    alert.is_archived = False
+    alert.archived_at = None
+    await db.commit()
+    await db.refresh(alert)
     return alert
 
 

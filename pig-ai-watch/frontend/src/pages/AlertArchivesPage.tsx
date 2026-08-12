@@ -1,16 +1,14 @@
-import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useArchivedAlerts, useDeleteArchivedReadAlerts, useDeleteAlert } from '@/hooks';
+import { useArchivedAlerts, useDeleteArchivedReadAlerts, useDeleteAlert, useRestoreAlert } from '@/hooks';
+import { SwipeableAlertCard } from '@/components';
 import { PageSkeleton, useLoading } from '@/components/ui/Skeleton';
 import { 
   Archive, 
   Trash2, 
   ArrowLeft, 
-  CheckCircle2, 
-  AlertTriangle, 
-  Clock, 
   RefreshCw,
-  BellOff
+  BellOff,
+  RotateCcw
 } from 'lucide-react';
 import clsx from 'clsx';
 import toast from 'react-hot-toast';
@@ -21,7 +19,7 @@ export default function AlertArchivesPage() {
   const { isLoading } = useLoading(loadingAlerts);
   const deleteArchivedRead = useDeleteArchivedReadAlerts();
   const deleteAlert = useDeleteAlert();
-  const [deletingId, setDeletingId] = useState<number | null>(null);
+  const restoreAlert = useRestoreAlert();
 
   const handleDeleteRead = () => {
     deleteArchivedRead.mutate(undefined, {
@@ -30,16 +28,20 @@ export default function AlertArchivesPage() {
     });
   };
 
+  const handleRestoreSingle = (id: number) => {
+    restoreAlert.mutate(id, {
+      onSuccess: () => toast.success('Notification restored to active alerts'),
+      onError: () => toast.error('Failed to restore notification'),
+    });
+  };
+
   const handleDeleteSingle = (id: number) => {
-    setDeletingId(id);
     deleteAlert.mutate(id, {
       onSuccess: () => {
         toast.success('Alert deleted');
-        setDeletingId(null);
       },
       onError: () => {
         toast.error('Failed to delete alert');
-        setDeletingId(null);
       },
     });
   };
@@ -100,6 +102,14 @@ export default function AlertArchivesPage() {
 
       {/* Archived Alerts List */}
       <div className="space-y-3">
+        {archivedAlerts && archivedAlerts.length > 0 && (
+          <div className="flex items-center justify-between px-1 text-[11px] text-gray-500 dark:text-slate-400">
+            <span className="flex items-center gap-1.5">
+              <RotateCcw className="h-3.5 w-3.5 text-emerald-500" />
+              <span>Tip: Drag or swipe right (or click Restore) to return notification to active alerts</span>
+            </span>
+          </div>
+        )}
         {!archivedAlerts || archivedAlerts.length === 0 ? (
           <div className="bg-white dark:bg-slate-800/60 rounded-2xl border border-gray-200/60 dark:border-slate-700/50 p-12 text-center shadow-sm">
             <BellOff className="h-12 w-12 text-gray-300 dark:text-slate-600 mx-auto mb-3" />
@@ -117,60 +127,13 @@ export default function AlertArchivesPage() {
           </div>
         ) : (
           archivedAlerts.map((alert) => (
-            <div
+            <SwipeableAlertCard
               key={alert.id}
-              className={clsx(
-                'bg-white dark:bg-slate-800/60 rounded-2xl border p-4 shadow-sm transition-all duration-200 flex flex-col sm:flex-row sm:items-center justify-between gap-4',
-                alert.is_read
-                  ? 'border-gray-200/60 dark:border-slate-700/50 opacity-85'
-                  : 'border-indigo-200 dark:border-indigo-800/50 ring-1 ring-indigo-500/20'
-              )}
-            >
-              <div className="space-y-1.5 flex-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span
-                    className={clsx(
-                      'px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider',
-                      alert.severity === 'critical' && 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300',
-                      alert.severity === 'high' && 'bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-300',
-                      alert.severity === 'medium' && 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-300',
-                      alert.severity === 'low' && 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300'
-                    )}
-                  >
-                    {alert.severity}
-                  </span>
-                  <h4 className="text-sm font-semibold text-gray-900 dark:text-white">{alert.title}</h4>
-                  {alert.is_read ? (
-                    <span className="inline-flex items-center gap-1 text-[10px] text-emerald-600 dark:text-emerald-400 font-medium">
-                      <CheckCircle2 className="h-3 w-3" /> Read
-                    </span>
-                  ) : (
-                    <span className="inline-flex items-center gap-1 text-[10px] text-amber-600 dark:text-amber-400 font-medium">
-                      <AlertTriangle className="h-3 w-3" /> Unread
-                    </span>
-                  )}
-                </div>
-                <p className="text-xs text-gray-600 dark:text-slate-300">{alert.message}</p>
-                <div className="flex items-center gap-4 text-[11px] text-gray-400 dark:text-slate-500">
-                  {alert.pen_id && <span>Pen {alert.pen_id}</span>}
-                  <span className="flex items-center gap-1">
-                    <Clock className="h-3 w-3" /> Created: {new Date(alert.created_at).toLocaleString()}
-                  </span>
-                  {alert.archived_at && (
-                    <span>Archived: {new Date(alert.archived_at).toLocaleString()}</span>
-                  )}
-                </div>
-              </div>
-              <button
-                onClick={() => handleDeleteSingle(alert.id)}
-                disabled={deletingId === alert.id}
-                className="p-2 rounded-xl text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors flex items-center gap-1 text-xs self-end sm:self-center"
-                title="Delete alert"
-              >
-                <Trash2 className="h-4 w-4" />
-                <span className="sm:hidden">Delete</span>
-              </button>
-            </div>
+              alert={alert}
+              mode="archived"
+              onRestore={() => handleRestoreSingle(alert.id)}
+              onDelete={() => handleDeleteSingle(alert.id)}
+            />
           ))
         )}
       </div>

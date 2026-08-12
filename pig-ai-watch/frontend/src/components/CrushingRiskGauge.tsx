@@ -36,10 +36,11 @@ export default function CrushingRiskGauge({
   const pigletRiskInfo = useMemo(() => {
     const total = totalPiglets ?? 0;
     if (total === 0) return null;
-    const criticalCount = proximityAlerts?.filter(a => a.riskContribution >= 0.3).length ?? 0;
-    const warningCount = proximityAlerts?.filter(a => a.riskContribution > 0 && a.riskContribution < 0.3).length ?? 0;
-    const safeCount = total - criticalCount - warningCount;
-    return { criticalCount, warningCount, safeCount, total };
+    const onTopCount = proximityAlerts?.filter(a => a.isOnTop).length ?? 0;
+    const criticalCount = proximityAlerts?.filter(a => !a.isOnTop && a.riskContribution >= 0.3).length ?? 0;
+    const warningCount = proximityAlerts?.filter(a => !a.isOnTop && a.riskContribution > 0 && a.riskContribution < 0.3).length ?? 0;
+    const safeCount = Math.max(0, total - criticalCount - warningCount - onTopCount);
+    return { onTopCount, criticalCount, warningCount, safeCount, total };
   }, [proximityAlerts, totalPiglets]);
 
   useEffect(() => {
@@ -149,6 +150,16 @@ export default function CrushingRiskGauge({
             )}>
               <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
               {pigletRiskInfo.warningCount} nearby
+            </span>
+          )}
+          {pigletRiskInfo.onTopCount > 0 && (
+            <span className={clsx(
+              'inline-flex items-center gap-1 px-2 py-0.5 rounded-full font-medium',
+              s.title,
+              'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300'
+            )}>
+              <span className="w-1.5 h-1.5 rounded-full bg-cyan-500" />
+              {pigletRiskInfo.onTopCount} on top
             </span>
           )}
           {pigletRiskInfo.safeCount > 0 && (

@@ -345,6 +345,12 @@ class YOLODetector:
         threshold = settings.PIGLET_PROXIMITY_THRESHOLD
         danger_zone_margin = 30  # pixels
         
+        resting_nursing_postures = {
+            "nursing", "lactating", "sleeping", "sleeping_lactating",
+            "lying_lateral", "lying_sternal"
+        }
+        is_resting_nursing = sow_posture in resting_nursing_postures
+        
         for piglet_box in piglet_boxes:
             piglet_center = np.array([
                 (piglet_box[0] + piglet_box[2]) / 2,
@@ -358,10 +364,32 @@ class YOLODetector:
             )
             
             if in_danger_zone:
+                # Compute piglet inclusion ratio inside sow box
+                p_w = max(0.0, float(piglet_box[2] - piglet_box[0]))
+                p_h = max(0.0, float(piglet_box[3] - piglet_box[1]))
+                p_area = p_w * p_h
+                
+                inter_x1 = max(float(sow_xyxy[0]), float(piglet_box[0]))
+                inter_y1 = max(float(sow_xyxy[1]), float(piglet_box[1]))
+                inter_x2 = min(float(sow_xyxy[2]), float(piglet_box[2]))
+                inter_y2 = min(float(sow_xyxy[3]), float(piglet_box[3]))
+                
+                inter_w = max(0.0, inter_x2 - inter_x1)
+                inter_h = max(0.0, inter_y2 - inter_y1)
+                inter_area = inter_w * inter_h
+                
+                inclusion_ratio = inter_area / p_area if p_area > 0 else 0.0
+                is_on_top = is_resting_nursing and inclusion_ratio >= 0.80
+                
                 distance = np.linalg.norm(sow_center - piglet_center)
-                # Closer = higher risk
-                proximity_factor = max(0, 1 - distance / 200)
-                risk = min(1.0, risk + proximity_factor * 0.3)
+                if is_on_top:
+                    # Piglet is resting/nursing on top of sow - minimal risk contribution
+                    proximity_factor = max(0, 1 - distance / 200)
+                    risk = min(1.0, risk + proximity_factor * 0.05)
+                else:
+                    # Piglet is along sow perimeter or sow is active - standard crushing risk
+                    proximity_factor = max(0, 1 - distance / 200)
+                    risk = min(1.0, risk + proximity_factor * 0.3)
         
         return round(risk, 2)
     

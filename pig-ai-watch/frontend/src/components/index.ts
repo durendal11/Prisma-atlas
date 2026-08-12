@@ -8,4 +8,5 @@ export { RTSPVideoFeed } from './RTSPVideoFeed';
 export { WebRTCVideoPlayer } from './WebRTCVideoPlayer';
 export type { CameraConnectionStatus } from './RTSPVideoFeed';
 export { default as AlertCard } from './AlertCard';
+export { default as SwipeableAlertCard } from './SwipeableAlertCard';
 export { default as EventListItem } from './EventListItem';

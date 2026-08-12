@@ -211,6 +211,32 @@ export function useArchivedAlerts() {
   });
 }
 
+export function useArchiveAlert() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (id: number) => alertsApi.archiveAlert(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['alerts'] });
+      queryClient.invalidateQueries({ queryKey: ['archivedAlerts'] });
+      queryClient.invalidateQueries({ queryKey: ['alertStats'] });
+    },
+  });
+}
+
+export function useRestoreAlert() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (id: number) => alertsApi.restoreAlert(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['alerts'] });
+      queryClient.invalidateQueries({ queryKey: ['archivedAlerts'] });
+      queryClient.invalidateQueries({ queryKey: ['alertStats'] });
+    },
+  });
+}
+
 export function useArchiveAllAlerts() {
   const queryClient = useQueryClient();
   
