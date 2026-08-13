@@ -17,19 +17,32 @@ router = APIRouter(prefix="/api/alerts", tags=["Alerts"])
 
 @router.post("/test", response_model=AlertResponse, status_code=status.HTTP_201_CREATED)
 async def create_test_alert(
-    pen_id: int = Query(..., description="Pen ID for the test alert"),
+    pen_id: Optional[int] = Query(None, description="Pen ID for the test alert"),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Create a test alert for testing the acknowledgment feature."""
+    """Create a test alert for testing notification delivery."""
+    target_pen_id = pen_id
+    if target_pen_id is not None:
+        p_res = await db.execute(select(Pen.id).where(Pen.id == target_pen_id))
+        if p_res.first() is None:
+            target_pen_id = None
+
+    if target_pen_id is None:
+        p_res = await db.execute(select(Pen.id).limit(1))
+        pen_row = p_res.first()
+        if pen_row:
+            target_pen_id = pen_row[0]
+
     test_alert = Alert(
         type="crushing_risk",
         severity="critical",
-        title=f"🧪 TEST ALERT - Pen {pen_id}",
-        message="This is a test alert. Click to acknowledge and verify the red dot disappears.",
-        pen_id=pen_id,
+        title=f"🧪 TEST ALERT - Pen {target_pen_id or 1}",
+        message="This is a test alert. Click to acknowledge and verify notification delivery.",
+        pen_id=target_pen_id,
         is_read=False,
         is_resolved=False,
+        owner_id=current_user.id
     )
     db.add(test_alert)
     await db.commit()
