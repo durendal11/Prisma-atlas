@@ -360,6 +360,15 @@ jobs:
                 image: ${BACKEND_IMAGE}:sha-${SHORT_SHA}
             OVERRIDE
 
+            # ── pre-pull disk space cleanup ───────────────────────
+            # Clean up old unused containers, dangling images, and system journal logs
+            # to prevent "no space left on device" during container layer extraction.
+            echo "🧹 Performing pre-pull disk space cleanup on server..."
+            docker system prune -af --volumes || true
+            sudo journalctl --vacuum-size=50M 2>/dev/null || journalctl --vacuum-size=50M 2>/dev/null || true
+            echo "Disk usage before image pull:"
+            df -h /
+
             # ── pull new images ───────────────────────────────────
             docker compose -f docker-compose.yml -f docker-compose.prod.yml \
               pull backend frontend
