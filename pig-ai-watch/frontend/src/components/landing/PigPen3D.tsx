@@ -367,7 +367,7 @@ function IndustrialFarrowingCrate({ aiBoxOpacity = 0 }: { aiBoxOpacity?: number 
   const fingerPositions = useMemo(() => {
     const list: { pos: [number, number, number]; rot: [number, number, number] }[] = [];
     const zOffsets = [-1.3, -0.8, -0.3, 0.2, 0.7, 1.2];
-    for (let z of zOffsets) {
+    for (const z of zOffsets) {
       list.push({ pos: [-0.75, 0.25, z], rot: [0, 0, -Math.PI / 4] });
       list.push({ pos: [0.75, 0.25, z], rot: [0, 0, Math.PI / 4] });
     }

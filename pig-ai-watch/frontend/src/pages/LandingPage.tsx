@@ -36,8 +36,8 @@ function CameraController({ scrollProgress }: { scrollProgress: number }) {
     const isMobile = size.width < 640;
     const radius = isMobile ? 7.8 : 5.6;
 
-    let targetPos = new THREE.Vector3(0, 4, 10);
-    let targetLook = new THREE.Vector3(0, 1.2, 0);
+    const targetPos = new THREE.Vector3(0, 4, 10);
+    const targetLook = new THREE.Vector3(0, 1.2, 0);
 
     if (scrollProgress < 0.15) {
       targetPos.set(0, 3.8, isMobile ? 11 : 8.5);
