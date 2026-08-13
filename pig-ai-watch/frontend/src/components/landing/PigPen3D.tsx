@@ -2,6 +2,7 @@
  * PRISMA ATLAS — 3D Spatial Pig Pen Visualizer Component
  * Crisp Light Mode styling with 3px micro AI Bounding Box detection tags,
  * bright studio daylighting, and full 360° scroll camera orbit.
+ * Includes instant procedural 3D fallbacks and high-detail GLTF streaming.
  */
 import { useRef, useMemo, useEffect, Suspense, Component, ReactNode } from 'react';
 import { useFrame } from '@react-three/fiber';
@@ -139,12 +140,95 @@ function AIBoundingBoxOverlay({
                 <span className="text-slate-700">{sublabel}</span>
               </>
             )}
-            <span className="text-emerald-700 font-bold" style={{ fontSize: '2.5px' }}>
-              {confidence}%
-            </span>
+            <span className="text-slate-400">•</span>
+            <span className="text-emerald-700 font-bold">{confidence.toFixed(1)}%</span>
           </div>
         </div>
       </Html>
+    </group>
+  );
+}
+
+/* ─── Procedural 3D Sow Mesh Fallback ─────────────────────────────────────── */
+function ProceduralSowModel({ aiBoxOpacity = 0 }: { aiBoxOpacity?: number }) {
+  return (
+    <group position={[0, 0, 0]}>
+      {/* Sow Body */}
+      <mesh position={[0, 0.55, 0]} castShadow receiveShadow>
+        <capsuleGeometry args={[0.42, 1.6, 16, 32]} />
+        <meshStandardMaterial color="#f1f5f9" roughness={0.5} metalness={0.1} />
+      </mesh>
+
+      {/* Sow Head */}
+      <mesh position={[0, 0.65, 1.1]} castShadow receiveShadow>
+        <sphereGeometry args={[0.35, 16, 16]} />
+        <meshStandardMaterial color="#e2e8f0" roughness={0.5} metalness={0.1} />
+      </mesh>
+
+      {/* Sow Snout */}
+      <mesh position={[0, 0.55, 1.4]} rotation={[Math.PI / 2, 0, 0]} castShadow>
+        <cylinderGeometry args={[0.16, 0.18, 0.2, 16]} />
+        <meshStandardMaterial color="#cbd5e1" roughness={0.6} />
+      </mesh>
+
+      {/* Sow Ears */}
+      <mesh position={[-0.28, 0.88, 1.1]} rotation={[0.3, -0.3, -0.4]} castShadow>
+        <boxGeometry args={[0.18, 0.28, 0.05]} />
+        <meshStandardMaterial color="#cbd5e1" />
+      </mesh>
+      <mesh position={[0.28, 0.88, 1.1]} rotation={[0.3, 0.3, 0.4]} castShadow>
+        <boxGeometry args={[0.18, 0.28, 0.05]} />
+        <meshStandardMaterial color="#cbd5e1" />
+      </mesh>
+
+      {/* Sow 3px Bounding Box Overlay */}
+      <AIBoundingBoxOverlay
+        position={[0, 0.75, 0]}
+        args={[0.95, 1.45, 2.8]}
+        label="SOW-01"
+        sublabel="STANDING / UPRIGHT"
+        confidence={99.2}
+        opacity={aiBoxOpacity}
+        color="#059669"
+        badgePosition={[0, 0.85, 0]}
+      />
+    </group>
+  );
+}
+
+/* ─── Procedural 3D Piglet Mesh Fallback ─────────────────────────────────── */
+function ProceduralPigletModel({ id, position, rotation = [0, 0, 0], conf = 98.0, aiBoxOpacity = 0 }: {
+  id: string;
+  position: [number, number, number];
+  rotation?: [number, number, number];
+  conf?: number;
+  aiBoxOpacity?: number;
+}) {
+  return (
+    <group position={position} rotation={rotation}>
+      {/* Piglet Body */}
+      <mesh position={[0, 0.12, 0]} castShadow receiveShadow>
+        <sphereGeometry args={[0.12, 12, 12]} />
+        <meshStandardMaterial color="#f8fafc" roughness={0.4} />
+      </mesh>
+
+      {/* Piglet Head */}
+      <mesh position={[0, 0.15, 0.14]} castShadow>
+        <sphereGeometry args={[0.08, 12, 12]} />
+        <meshStandardMaterial color="#f1f5f9" roughness={0.4} />
+      </mesh>
+
+      {/* Piglet 3px Bounding Box Overlay */}
+      <AIBoundingBoxOverlay
+        position={[0, 0.18, 0]}
+        args={[0.32, 0.32, 0.38]}
+        label={id}
+        sublabel="NURSING"
+        confidence={conf}
+        opacity={aiBoxOpacity}
+        color="#059669"
+        badgePosition={[0, 0.25, 0]}
+      />
     </group>
   );
 }
@@ -242,9 +326,9 @@ function ExternalPigletModel({ id, position, rotation = [0, 0, 0], scale = 1, de
     const rawBox = new THREE.Box3().setFromObject(scene);
     const rawSize = rawBox.getSize(new THREE.Vector3());
     const rawCenter = rawBox.getCenter(new THREE.Vector3());
-    const maxDim = Math.max(rawSize.x, rawSize.y, rawSize.z) || 0.56;
+    const maxDim = Math.max(rawSize.x, rawSize.y, rawSize.z) || 0.45;
 
-    const scaleFactor = (0.65 * scale) / maxDim;
+    const scaleFactor = (0.45 / maxDim) * scale;
 
     const cloned = SkeletonUtils.clone(scene) as THREE.Group;
     cloned.traverse((child) => {
@@ -264,7 +348,7 @@ function ExternalPigletModel({ id, position, rotation = [0, 0, 0], scale = 1, de
     cloned.scale.set(scaleFactor, scaleFactor, scaleFactor);
     cloned.position.set(
       -rawCenter.x * scaleFactor,
-      -rawBox.min.y * scaleFactor + 0.02,
+      -rawBox.min.y * scaleFactor,
       -rawCenter.z * scaleFactor
     );
 
@@ -279,85 +363,41 @@ function ExternalPigletModel({ id, position, rotation = [0, 0, 0], scale = 1, de
 
       {/* Piglet 3px Bounding Box Overlay */}
       <AIBoundingBoxOverlay
-        position={[0, 0.22, 0]}
-        args={[0.35, 0.42, 0.70]}
+        position={[0, 0.18, 0]}
+        args={[0.32, 0.32, 0.38]}
         label={id}
         sublabel="NURSING"
         confidence={conf}
         opacity={aiBoxOpacity}
         color="#059669"
-        badgePosition={[0, 0.30, 0]}
+        badgePosition={[0, 0.25, 0]}
       />
     </group>
   );
 }
 
-/* ─── AI CCTV Surveillance Camera Component ───────────────────────────────── */
-function OverheadAICCTVCamera({ aiBoxOpacity = 0 }: { aiBoxOpacity?: number }) {
-  const ledRef = useRef<THREE.PointLight>(null!);
+// Preload GLTF assets to trigger background prefetching
+useGLTF.preload('/models/sow.glb');
+useGLTF.preload('/models/piglet.glb');
 
-  useFrame(({ clock }) => {
-    if (ledRef.current) {
-      ledRef.current.intensity = 1.8 + Math.sin(clock.getElapsedTime() * 4) * 0.8;
+/* ─── Slatted Flooring Mesh Component ───────────────────────────────────── */
+function SlattedFloor() {
+  const slats = useMemo(() => {
+    const arr = [];
+    for (let z = -2.1; z <= 2.1; z += 0.14) {
+      arr.push(z);
     }
-  });
+    return arr;
+  }, []);
 
   return (
-    <group position={[1.7, 2.5, -0.5]}>
-      {/* Ceiling Mounting Rod */}
-      <mesh position={[0, 0.5, 0]}>
-        <cylinderGeometry args={[0.02, 0.02, 1.0, 12]} />
-        <meshStandardMaterial color="#64748b" metalness={0.8} roughness={0.2} />
-      </mesh>
-
-      {/* Swivel Base Mount */}
-      <mesh position={[0, 0.02, 0]}>
-        <cylinderGeometry args={[0.08, 0.1, 0.08, 16]} />
-        <meshStandardMaterial color="#334155" metalness={0.9} roughness={0.2} />
-      </mesh>
-
-      {/* Camera Body Chassis */}
-      <group position={[0, -0.12, 0.1]} rotation={[Math.PI / 5, -Math.PI / 6, 0]}>
-        <mesh rotation={[Math.PI / 2, 0, 0]}>
-          <cylinderGeometry args={[0.12, 0.14, 0.35, 24]} />
-          <meshStandardMaterial color="#ffffff" metalness={0.8} roughness={0.2} />
+    <group position={[0, 0, 0]}>
+      {slats.map((z, i) => (
+        <mesh key={i} position={[0, -0.05, z]} receiveShadow>
+          <boxGeometry args={[4.2, 0.08, 0.10]} />
+          <meshStandardMaterial color="#94a3b8" roughness={0.4} metalness={0.3} />
         </mesh>
-
-        <mesh position={[0, 0, 0.18]} rotation={[Math.PI / 2, 0, 0]}>
-          <cylinderGeometry args={[0.125, 0.125, 0.04, 24]} />
-          <meshStandardMaterial color="#0284c7" metalness={0.9} roughness={0.1} />
-        </mesh>
-
-        <mesh position={[0, 0, 0.19]} rotation={[Math.PI / 2, 0, 0]}>
-          <cylinderGeometry args={[0.09, 0.09, 0.02, 24]} />
-          <meshStandardMaterial color="#0369a1" metalness={0.95} roughness={0.05} />
-        </mesh>
-
-        <mesh position={[0.08, 0.08, 0.19]}>
-          <sphereGeometry args={[0.018, 12, 12]} />
-          <meshBasicMaterial color="#10b981" />
-        </mesh>
-
-        <pointLight
-          ref={ledRef}
-          position={[0, 0, 0.22]}
-          color="#10b981"
-          intensity={2.2}
-          distance={4}
-        />
-      </group>
-
-      {/* AI CCTV System Status Badge */}
-      {aiBoxOpacity > 0.01 && (
-        <Html center position={[0, -0.6, 0]} distanceFactor={45}>
-          <div
-            className="pointer-events-none select-none px-[3px] py-[1px] rounded bg-white/95 border border-emerald-600/60 font-mono font-bold text-emerald-700 whitespace-nowrap shadow-sm transition-opacity duration-500"
-            style={{ opacity: aiBoxOpacity, fontSize: '3px', lineHeight: '3px' }}
-          >
-            AI CAM #1 • 50ms
-          </div>
-        </Html>
-      )}
+      ))}
     </group>
   );
 }
@@ -390,14 +430,6 @@ function IndustrialFarrowingCrate({ aiBoxOpacity = 0 }: { aiBoxOpacity?: number 
           <cylinderGeometry args={[0.035, 0.035, 1.4, 16]} />
           <primitive object={GALVANIZED_MAT} attach="material" />
         </mesh>
-        <mesh position={[-0.65, 0.05, 0]}>
-          <boxGeometry args={[0.12, 0.1, 0.12]} />
-          <primitive object={MOUNTING_PLATE_MAT} attach="material" />
-        </mesh>
-        <mesh position={[0.65, 0.05, 0]}>
-          <boxGeometry args={[0.12, 0.1, 0.12]} />
-          <primitive object={MOUNTING_PLATE_MAT} attach="material" />
-        </mesh>
       </group>
 
       {/* Rear arch gate */}
@@ -414,83 +446,82 @@ function IndustrialFarrowingCrate({ aiBoxOpacity = 0 }: { aiBoxOpacity?: number 
           <cylinderGeometry args={[0.035, 0.035, 1.4, 16]} />
           <primitive object={GALVANIZED_MAT} attach="material" />
         </mesh>
-        <mesh position={[-0.65, 0.05, 0]}>
-          <boxGeometry args={[0.12, 0.1, 0.12]} />
-          <primitive object={MOUNTING_PLATE_MAT} attach="material" />
-        </mesh>
-        <mesh position={[0.65, 0.05, 0]}>
-          <boxGeometry args={[0.12, 0.1, 0.12]} />
-          <primitive object={MOUNTING_PLATE_MAT} attach="material" />
-        </mesh>
       </group>
 
-      {/* Top longitudinal bars */}
-      {[-0.4, 0, 0.4].map((x, i) => (
-        <mesh key={i} position={[x, 1.62, 0]} rotation={[Math.PI / 2, 0, 0]}>
-          <cylinderGeometry args={[0.025, 0.025, 3.4, 16]} />
-          <primitive object={GALVANIZED_MAT} attach="material" />
-        </mesh>
-      ))}
-
-      {/* Side crate rails */}
-      {[-0.65, 0.65].map((x, sideIdx) => (
-        <group key={sideIdx}>
-          {[0.4, 0.75, 1.1, 1.35].map((y, yIdx) => (
-            <mesh key={yIdx} position={[x, y, 0]} rotation={[Math.PI / 2, 0, 0]}>
-              <cylinderGeometry args={[0.028, 0.028, 3.4, 16]} />
-              <primitive object={GALVANIZED_MAT} attach="material" />
-            </mesh>
-          ))}
-        </group>
-      ))}
-
-      {/* Anti-crush finger bars */}
-      {fingerPositions.map((f, i) => (
-        <group key={i} position={f.pos} rotation={f.rot}>
-          <mesh position={[0, -0.15, 0]}>
-            <cylinderGeometry args={[0.02, 0.02, 0.35, 12]} />
+      {/* Main Longitudinal Side Rails */}
+      {[-0.65, 0.65].map((x, i) => (
+        <group key={i}>
+          <mesh position={[x, 0.45, 0]} rotation={[Math.PI / 2, 0, 0]}>
+            <cylinderGeometry args={[0.035, 0.035, 3.4, 16]} />
+            <primitive object={GALVANIZED_MAT} attach="material" />
+          </mesh>
+          <mesh position={[x, 0.95, 0]} rotation={[Math.PI / 2, 0, 0]}>
+            <cylinderGeometry args={[0.035, 0.035, 3.4, 16]} />
+            <primitive object={GALVANIZED_MAT} attach="material" />
+          </mesh>
+          <mesh position={[x, 1.4, 0]} rotation={[Math.PI / 2, 0, 0]}>
+            <cylinderGeometry args={[0.035, 0.035, 3.4, 16]} />
             <primitive object={GALVANIZED_MAT} attach="material" />
           </mesh>
         </group>
       ))}
 
-      {/* Infrared Heat Lamp */}
-      <group position={[-1.7, 2.5, -0.5]}>
-        <mesh position={[0, 0.5, 0]}>
-          <cylinderGeometry args={[0.015, 0.015, 1.0, 8]} />
-          <meshStandardMaterial color="#475569" metalness={0.9} />
-        </mesh>
-        <mesh rotation={[Math.PI, 0, 0]} castShadow>
-          <coneGeometry args={[0.45, 0.45, 24, 1, true]} />
-          <meshStandardMaterial color="#334155" metalness={0.8} roughness={0.3} side={THREE.DoubleSide} />
-        </mesh>
-        <pointLight position={[0, -0.3, 0]} intensity={4.8} distance={6} color="#f97316" castShadow />
-      </group>
-
-      {/* AI CCTV Surveillance Camera */}
-      <OverheadAICCTVCamera aiBoxOpacity={aiBoxOpacity} />
-    </group>
-  );
-}
-
-/* ─── Perforated Slatted Floor Grid ──────────────────────────────────────── */
-function SlattedFloor() {
-  const slats = useMemo(() => {
-    const arr = [];
-    for (let z = -2.4; z <= 2.4; z += 0.22) {
-      arr.push(z);
-    }
-    return arr;
-  }, []);
-
-  return (
-    <group position={[0, 0, 0]}>
-      {slats.map((z, i) => (
-        <mesh key={i} position={[0, -0.05, z]} receiveShadow>
-          <boxGeometry args={[4.2, 0.08, 0.10]} />
-          <meshStandardMaterial color="#94a3b8" roughness={0.4} metalness={0.3} />
+      {/* Anti-Crushing Finger Bars */}
+      {fingerPositions.map((item, idx) => (
+        <mesh key={idx} position={item.pos} rotation={item.rot}>
+          <cylinderGeometry args={[0.025, 0.025, 0.45, 16]} />
+          <primitive object={GALVANIZED_MAT} attach="material" />
         </mesh>
       ))}
+
+      {/* Overhead Infrared Heat Lamp */}
+      <group position={[1.4, 1.8, 0]}>
+        <mesh position={[0, 0.6, 0]}>
+          <cylinderGeometry args={[0.015, 0.015, 1.2, 16]} />
+          <primitive object={GALVANIZED_MAT} attach="material" />
+        </mesh>
+        <mesh position={[0, 0, 0]} rotation={[Math.PI, 0, 0]}>
+          <coneGeometry args={[0.35, 0.4, 24, 1, true]} />
+          <primitive object={GALVANIZED_MAT} attach="material" />
+        </mesh>
+        <mesh position={[0, -0.05, 0]}>
+          <sphereGeometry args={[0.12, 16, 16]} />
+          <meshStandardMaterial color="#f59e0b" emissive="#d97706" emissiveIntensity={3.5} />
+        </mesh>
+        <pointLight color="#fbbf24" intensity={4.5} distance={3.8} decay={1.5} />
+      </group>
+
+      {/* Overhead CCTV Camera Unit (Mounted Opposite Heat Lamp) */}
+      <group position={[-1.4, 1.9, 0]}>
+        <mesh position={[0, 0.5, 0]}>
+          <cylinderGeometry args={[0.015, 0.015, 1.0, 16]} />
+          <primitive object={GALVANIZED_MAT} attach="material" />
+        </mesh>
+        <mesh position={[0, 0, 0]}>
+          <boxGeometry args={[0.15, 0.15, 0.25]} />
+          <primitive object={MOUNTING_PLATE_MAT} attach="material" />
+        </mesh>
+        <mesh position={[0, 0, 0.13]} rotation={[Math.PI / 2, 0, 0]}>
+          <cylinderGeometry args={[0.05, 0.05, 0.02, 16]} />
+          <meshStandardMaterial color="#0f172a" roughness={0.1} />
+        </mesh>
+        <mesh position={[0.05, 0.05, 0.13]}>
+          <sphereGeometry args={[0.01, 8, 8]} />
+          <meshBasicMaterial color="#ef4444" />
+        </mesh>
+
+        {/* Floating CCTV Camera HUD Badge */}
+        {aiBoxOpacity > 0.01 && (
+          <Html center position={[0, -0.6, 0]} distanceFactor={45}>
+            <div
+              className="pointer-events-none select-none px-[3px] py-[1px] rounded bg-white/95 border border-emerald-600/60 font-mono font-bold text-emerald-700 whitespace-nowrap shadow-sm transition-opacity duration-500"
+              style={{ opacity: aiBoxOpacity, fontSize: '3px', lineHeight: '3px' }}
+            >
+              AI CAM #1 • 50ms
+            </div>
+          </Html>
+        )}
+      </group>
     </group>
   );
 }
@@ -523,17 +554,38 @@ export default function PigPen3D({
       <SlattedFloor />
       <IndustrialFarrowingCrate aiBoxOpacity={aiBoxOpacity} />
 
-      {/* 3D Model sow.glb (/models/sow.glb) */}
-      <GLTFErrorBoundary fallback={null}>
-        <Suspense fallback={null}>
+      {/* 3D Model sow.glb (/models/sow.glb) with Procedural Fallback */}
+      <GLTFErrorBoundary fallback={<ProceduralSowModel aiBoxOpacity={aiBoxOpacity} />}>
+        <Suspense fallback={<ProceduralSowModel aiBoxOpacity={aiBoxOpacity} />}>
           <ExternalSowModel aiBoxOpacity={aiBoxOpacity} />
         </Suspense>
       </GLTFErrorBoundary>
 
-      {/* 3D Model piglet.glb (/models/piglet.glb) duplicated 10 times */}
+      {/* 3D Model piglet.glb (/models/piglet.glb) duplicated 10 times with Procedural Fallback */}
       {PIGLET_POSITIONS.map((p, idx) => (
-        <GLTFErrorBoundary key={idx} fallback={null}>
-          <Suspense fallback={null}>
+        <GLTFErrorBoundary
+          key={idx}
+          fallback={
+            <ProceduralPigletModel
+              id={p.id}
+              position={p.pos}
+              rotation={p.rot}
+              conf={p.conf}
+              aiBoxOpacity={aiBoxOpacity}
+            />
+          }
+        >
+          <Suspense
+            fallback={
+              <ProceduralPigletModel
+                id={p.id}
+                position={p.pos}
+                rotation={p.rot}
+                conf={p.conf}
+                aiBoxOpacity={aiBoxOpacity}
+              />
+            }
+          >
             <ExternalPigletModel
               id={p.id}
               position={p.pos}
