@@ -40,11 +40,7 @@ const GALVANIZED_MAT = new THREE.MeshStandardMaterial({
   roughness: 0.2,
 });
 
-const MOUNTING_PLATE_MAT = new THREE.MeshStandardMaterial({
-  color: '#64748b',
-  metalness: 0.8,
-  roughness: 0.3,
-});
+
 
 /* ─── 3D Model Error Boundary Component ─────────────────────────────────── */
 class GLTFErrorBoundary extends Component<{ fallback: ReactNode; children: ReactNode }, { hasError: boolean }> {
@@ -491,37 +487,82 @@ function IndustrialFarrowingCrate({ aiBoxOpacity = 0 }: { aiBoxOpacity?: number 
         <pointLight color="#fbbf24" intensity={4.5} distance={3.8} decay={1.5} />
       </group>
 
-      {/* Overhead CCTV Camera Unit (Mounted Opposite Heat Lamp) */}
-      <group position={[-1.4, 1.9, 0]}>
-        <mesh position={[0, 0.5, 0]}>
-          <cylinderGeometry args={[0.015, 0.015, 1.0, 16]} />
-          <primitive object={GALVANIZED_MAT} attach="material" />
-        </mesh>
-        <mesh position={[0, 0, 0]}>
-          <boxGeometry args={[0.15, 0.15, 0.25]} />
-          <primitive object={MOUNTING_PLATE_MAT} attach="material" />
-        </mesh>
-        <mesh position={[0, 0, 0.13]} rotation={[Math.PI / 2, 0, 0]}>
-          <cylinderGeometry args={[0.05, 0.05, 0.02, 16]} />
-          <meshStandardMaterial color="#0f172a" roughness={0.1} />
-        </mesh>
-        <mesh position={[0.05, 0.05, 0.13]}>
-          <sphereGeometry args={[0.01, 8, 8]} />
-          <meshBasicMaterial color="#ef4444" />
+      {/* Overhead AI CCTV Surveillance Camera Unit */}
+      <OverheadAICCTVCamera aiBoxOpacity={aiBoxOpacity} />
+    </group>
+  );
+}
+
+/* ─── Overhead AI CCTV Surveillance Camera Component ───────────────────── */
+function OverheadAICCTVCamera({ aiBoxOpacity = 0 }: { aiBoxOpacity?: number }) {
+  const ledRef = useRef<THREE.PointLight>(null!);
+
+  useFrame(({ clock }) => {
+    if (ledRef.current) {
+      ledRef.current.intensity = 1.8 + Math.sin(clock.getElapsedTime() * 4) * 0.8;
+    }
+  });
+
+  return (
+    <group position={[-1.4, 2.3, 0]}>
+      {/* Ceiling Mounting Rod */}
+      <mesh position={[0, 0.5, 0]}>
+        <cylinderGeometry args={[0.02, 0.02, 1.0, 12]} />
+        <meshStandardMaterial color="#64748b" metalness={0.8} roughness={0.2} />
+      </mesh>
+
+      {/* Swivel Base Mount */}
+      <mesh position={[0, 0.02, 0]}>
+        <cylinderGeometry args={[0.08, 0.1, 0.08, 16]} />
+        <meshStandardMaterial color="#334155" metalness={0.9} roughness={0.2} />
+      </mesh>
+
+      {/* Camera Body Chassis */}
+      <group position={[0, -0.12, 0.1]} rotation={[Math.PI / 5, -Math.PI / 6, 0]}>
+        {/* Main Camera Cylinder Body */}
+        <mesh rotation={[Math.PI / 2, 0, 0]}>
+          <cylinderGeometry args={[0.12, 0.14, 0.35, 24]} />
+          <meshStandardMaterial color="#ffffff" metalness={0.8} roughness={0.2} />
         </mesh>
 
-        {/* Floating CCTV Camera HUD Badge */}
-        {aiBoxOpacity > 0.01 && (
-          <Html center position={[0, -0.6, 0]} distanceFactor={45}>
-            <div
-              className="pointer-events-none select-none px-[3px] py-[1px] rounded bg-white/95 border border-emerald-600/60 font-mono font-bold text-emerald-700 whitespace-nowrap shadow-sm transition-opacity duration-500"
-              style={{ opacity: aiBoxOpacity, fontSize: '3px', lineHeight: '3px' }}
-            >
-              AI CAM #1 • 50ms
-            </div>
-          </Html>
-        )}
+        {/* Outer Lens Housing Ring */}
+        <mesh position={[0, 0, 0.18]} rotation={[Math.PI / 2, 0, 0]}>
+          <cylinderGeometry args={[0.125, 0.125, 0.04, 24]} />
+          <meshStandardMaterial color="#0284c7" metalness={0.9} roughness={0.1} />
+        </mesh>
+
+        {/* Optical Glass Lens */}
+        <mesh position={[0, 0, 0.19]} rotation={[Math.PI / 2, 0, 0]}>
+          <cylinderGeometry args={[0.09, 0.09, 0.02, 24]} />
+          <meshStandardMaterial color="#0369a1" metalness={0.95} roughness={0.05} />
+        </mesh>
+
+        {/* Green AI Pulsing LED Indicator */}
+        <mesh position={[0.08, 0.08, 0.19]}>
+          <sphereGeometry args={[0.018, 12, 12]} />
+          <meshBasicMaterial color="#10b981" />
+        </mesh>
+
+        <pointLight
+          ref={ledRef}
+          position={[0, 0, 0.22]}
+          color="#10b981"
+          intensity={2.2}
+          distance={4}
+        />
       </group>
+
+      {/* AI CCTV System Status Badge */}
+      {aiBoxOpacity > 0.01 && (
+        <Html center position={[0, -0.6, 0]} distanceFactor={45}>
+          <div
+            className="pointer-events-none select-none px-[3px] py-[1px] rounded bg-white/95 border border-emerald-600/60 font-mono font-bold text-emerald-700 whitespace-nowrap shadow-sm transition-opacity duration-500"
+            style={{ opacity: aiBoxOpacity, fontSize: '3px', lineHeight: '3px' }}
+          >
+            AI CAM #1 • 50ms
+          </div>
+        </Html>
+      )}
     </group>
   );
 }
