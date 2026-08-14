@@ -1,8 +1,8 @@
 /**
  * PRISMA ATLAS — 3D Spatial Pig Pen Visualizer Component
  * Crisp Light Mode styling with 3px micro AI Bounding Box detection tags,
- * bright studio daylighting, full 360° scroll camera orbit, GLB support for CCTV,
- * and realistic security camera monitoring facing the sow with dedicated studio lighting.
+ * elegant compact Frosted Glass callout tags scaled proportionately to pen elements,
+ * bright studio daylighting, full 360° scroll camera orbit, and GLB support for CCTV.
  */
 import { useRef, useMemo, useEffect, Suspense, Component, ReactNode } from 'react';
 import { useFrame } from '@react-three/fiber';
@@ -74,6 +74,88 @@ function AIScanningBeam({ opacity }: { opacity: number }) {
       <boxGeometry args={[4.2, 0.015, 0.06]} />
       <meshBasicMaterial color="#059669" transparent opacity={opacity * 0.7} />
     </mesh>
+  );
+}
+
+/* ─── Elegant Frosted Glass 3D Callout Tag (Compact & Scaled to Pen Objects) ─ */
+function GlassCalloutTag({
+  position,
+  title,
+  subtitle,
+  align = 'right',
+  opacity = 0,
+}: {
+  position: [number, number, number];
+  title: string;
+  subtitle: string;
+  align?: 'right' | 'left';
+  opacity?: number;
+}) {
+  if (opacity <= 0.01) return null;
+
+  const isRight = align === 'right';
+
+  return (
+    <group position={position}>
+      {/* 3D Minimalist Anchor Ring */}
+      <mesh>
+        <sphereGeometry args={[0.025, 16, 16]} />
+        <meshBasicMaterial color="#059669" />
+      </mesh>
+      <mesh>
+        <ringGeometry args={[0.04, 0.06, 24]} />
+        <meshBasicMaterial color="#10b981" transparent opacity={opacity * 0.6} side={THREE.DoubleSide} />
+      </mesh>
+
+      <Html
+        center={false}
+        position={[0, 0, 0]}
+        distanceFactor={48}
+        zIndexRange={[100, 0]}
+      >
+        <div
+          className={`pointer-events-none select-none flex items-center transition-all duration-300 ease-out font-sans ${
+            isRight ? 'flex-row' : 'flex-row-reverse -translate-x-full'
+          }`}
+          style={{
+            opacity: opacity,
+            transform: `scale(${0.65 + opacity * 0.15})`,
+          }}
+        >
+          {/* Subtle Elbow Leader Line */}
+          <svg
+            className={`h-6 shrink-0 ${isRight ? '-scale-y-100' : '-scale-x-100 -scale-y-100'}`}
+            width="28"
+            height="22"
+            viewBox="0 0 28 22"
+            fill="none"
+          >
+            <path
+              d="M 2 11 L 11 2 L 28 2"
+              stroke="#059669"
+              strokeWidth="1.2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeOpacity="0.7"
+            />
+            <circle cx="2" cy="11" r="1.5" fill="#059669" />
+          </svg>
+
+          {/* Frosted Glass Pill Card */}
+          <div className="px-2.5 py-1 rounded-lg bg-white/90 border border-slate-200/90 shadow-md shadow-slate-300/40 backdrop-blur-xl flex flex-col justify-center whitespace-nowrap min-w-[95px]">
+            <div className="flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping shrink-0" />
+              <span className="text-[9.5px] font-extrabold text-slate-900 tracking-tight leading-tight">
+                {title}
+              </span>
+            </div>
+            <div className="text-[8px] font-mono text-slate-500 font-medium leading-tight mt-0.5 pl-2.5">
+              {subtitle}
+            </div>
+          </div>
+        </div>
+      </Html>
+    </group>
   );
 }
 
@@ -487,13 +569,9 @@ function OverheadAICCTVCamera({ aiBoxOpacity = 0 }: { aiBoxOpacity?: number }) {
     // Positioned BEHIND the sow at Z = -2.15, elevated at Y = 2.30m
     <group position={[0, 2.30, -2.15]}>
       {/* ── DEDICATED STUDIO SPOT & FILL LIGHTING FOR CRISP CCTV ILLUMINATION ── */}
-      {/* Front Daylight Key Light illuminating the face, lens, and housing */}
       <pointLight position={[0, 0.6, 1.2]} intensity={5.0} color="#ffffff" distance={4.5} decay={1.2} />
-      {/* Front-Right Ambient Fill */}
       <pointLight position={[0.8, 0.3, 0.8]} intensity={3.5} color="#f8fafc" distance={3.5} decay={1.2} />
-      {/* Top Specular Highlight */}
       <directionalLight position={[0, 4, 1]} intensity={2.2} color="#ffffff" />
-      {/* Blue Rim Accent Light */}
       <pointLight position={[-0.7, 0.5, -0.6]} intensity={2.8} color="#38bdf8" distance={3.0} decay={1.2} />
 
       {/* Ceiling Mounting Rod */}
@@ -664,7 +742,16 @@ export default function PigPen3D({
   scrollProgress,
   showBoundingBoxes = true
 }: PigPen3DProps) {
-  const penProgress = Math.min(1, Math.max(0, (scrollProgress - 0.15) / 0.40));
+  // Frosted Glass Callout Tags active during initial entrance & first half of orbit (0.10 to 0.35)
+  const guideOpacity = useMemo(() => {
+    if (scrollProgress < 0.10) return 0;
+    if (scrollProgress < 0.16) return (scrollProgress - 0.10) / 0.06; // Smooth entrance
+    if (scrollProgress <= 0.28) return 1.0; // Steady readability
+    if (scrollProgress <= 0.35) return Math.max(0, 1 - (scrollProgress - 0.28) / 0.07); // Fade out
+    return 0;
+  }, [scrollProgress]);
+
+  const penProgress = Math.min(1, Math.max(0, (scrollProgress - 0.12) / 0.36));
   const halfwayAlpha = Math.min(1, Math.max(0, (penProgress - 0.35) / 0.12));
   const aiBoxOpacity = showBoundingBoxes ? halfwayAlpha : 0;
 
@@ -688,6 +775,25 @@ export default function PigPen3D({
 
       {/* AI Laser Scanning Beam Grid */}
       <AIScanningBeam opacity={aiBoxOpacity} />
+
+      {/* ── ELEGANT FROSTED GLASS CALLOUT TAGS (CAMERA & CRATE ONLY) ── */}
+      {/* 1. CCTV Surveillance Camera Tag */}
+      <GlassCalloutTag
+        position={[0, 2.30, -2.15]}
+        title="AI CCTV Camera"
+        subtitle="1080p • 50ms Stream"
+        align="right"
+        opacity={guideOpacity}
+      />
+
+      {/* 2. Galvanized Pen Crate Setup Tag */}
+      <GlassCalloutTag
+        position={[-0.75, 0.95, 0.2]}
+        title="Farrowing Crate"
+        subtitle="Anti-Crush Rails"
+        align="left"
+        opacity={guideOpacity}
+      />
 
       <SlattedFloor />
       <IndustrialFarrowingCrate aiBoxOpacity={aiBoxOpacity} />

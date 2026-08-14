@@ -17,7 +17,6 @@ import {
   Eye,
   Activity,
   AlertTriangle,
-  Bell,
   CheckCircle2,
   Radio,
 } from 'lucide-react';
