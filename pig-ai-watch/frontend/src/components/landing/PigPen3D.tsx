@@ -517,8 +517,8 @@ function OverheadAICCTVCamera({ aiBoxOpacity = 0 }: { aiBoxOpacity?: number }) {
         <meshStandardMaterial color="#334155" metalness={0.9} roughness={0.2} />
       </mesh>
 
-      {/* Camera Body Chassis */}
-      <group position={[0, -0.12, 0.1]} rotation={[Math.PI / 5, -Math.PI / 6, 0]}>
+      {/* Camera Body Chassis - Angled directly inward and downward toward pen center */}
+      <group position={[0, -0.12, 0]} rotation={[0, Math.PI / 2, -0.75]}>
         {/* Main Camera Cylinder Body */}
         <mesh rotation={[Math.PI / 2, 0, 0]}>
           <cylinderGeometry args={[0.12, 0.14, 0.35, 24]} />
