@@ -20,6 +20,8 @@ import {
 import { format, formatDistanceToNow, subDays, isAfter } from 'date-fns';
 import clsx from 'clsx';
 import type { FarrowingRecord, Event as SowEvent, Alert } from '@/types';
+import { ExportPdfButton } from '@/components/ui/ExportPdfButton';
+import { generateSowPassportPDF } from '@/utils/pdfExporter';
 
 /* ─── Status config ──────────────────────────────────────────────── */
 
@@ -126,15 +128,38 @@ export default function SowDetailPage() {
         </div>
 
         <div className="relative px-8 pt-6 pb-8">
-          {/* Back button */}
-          <button
-            onClick={() => navigate('/sows')}
-            className="inline-flex items-center gap-1.5 text-white/80 hover:text-white text-sm mb-4 transition-colors"
-            title="Back to Sow Profiles"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            Sow Profiles
-          </button>
+          {/* Top action row */}
+          <div className="flex items-center justify-between mb-4">
+            <button
+              onClick={() => navigate('/sows')}
+              className="inline-flex items-center gap-1.5 text-white/80 hover:text-white text-sm transition-colors"
+              title="Back to Sow Profiles"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              Sow Profiles
+            </button>
+            <ExportPdfButton
+              label="Export Sow Passport PDF"
+              variant="secondary"
+              className="bg-white/20 hover:bg-white/30 text-white border-0 backdrop-blur-sm"
+              onExport={() => {
+                generateSowPassportPDF({
+                  sow: {
+                    id: sow.id,
+                    tag_id: sow.tag_id,
+                    name: sow.name,
+                    breed: sow.breed,
+                    parity: sow.parity,
+                    status: sow.status,
+                    pen_id: sow.pen_id,
+                    birth_date: sow.birth_date,
+                  },
+                  farrowingHistory: records,
+                  alertsHistory: recentAlerts,
+                });
+              }}
+            />
+          </div>
 
           <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
             <div>

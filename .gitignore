@@ -15,6 +15,10 @@ frontend-dist/
 node_modules/
 .DS_Store
 
+# Archives and PDFs
+*.zip
+*.pdf
+
 # Edge runtime offline buffer (SQLite)
 pig-ai-watch/edge/buffer.db
 pig-ai-watch/edge/buffer.db-shm

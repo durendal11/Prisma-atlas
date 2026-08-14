@@ -23,6 +23,8 @@ import {
 import { OverdueBanner } from '@/components/OverdueBanner';
 import { PageInfoButton } from '@/components/ui/PageInfoModal';
 import { Share2, Activity, PlaySquare, FileText, ChevronRight, X, ChevronDown } from 'lucide-react';
+import { ExportPdfButton } from '@/components/ui/ExportPdfButton';
+import { generateFarrowingReportPDF } from '@/utils/pdfExporter';
 
 interface DueSow {
   id: number;
@@ -185,7 +187,7 @@ export default function FarrowingPage() {
     <div className="p-6 max-w-7xl mx-auto animate-fade-in">
       <OverdueBanner />
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
         <div className="flex items-center gap-3">
           <div className="p-2 bg-pink-100 dark:bg-pink-900/50 rounded-xl">
             <HeartIcon className="w-8 h-8 text-pink-600 dark:text-pink-400" />
@@ -198,6 +200,20 @@ export default function FarrowingPage() {
             <p className="text-gray-500 dark:text-slate-400">Track sow farrowing and piglet records</p>
           </div>
         </div>
+        <ExportPdfButton
+          label="Export Farrowing Report"
+          onExport={() => {
+            generateFarrowingReportPDF({
+              records: recentRecords,
+              dueSows: dueSows.sows,
+              stats: {
+                total_farrowed: stats?.total_farrowings,
+                total_born_alive: stats?.total_piglets_born,
+                avg_litter_size: stats?.avg_born_alive,
+              },
+            });
+          }}
+        />
       </div>
 
       {/* Statistics Cards */}

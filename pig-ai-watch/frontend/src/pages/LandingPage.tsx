@@ -1,9 +1,10 @@
 /**
  * PRISMA ATLAS — Landing Page Component
- * Crisp Light Mode Theme with extended 350vh 3D scroll track, 100% complete 360° camera orbit,
- * hold buffer, and non-overlapping Hero Video Showcase Section.
+ * Crisp Light Mode Theme with cinematic 360° 3D pen camera orbit,
+ * live AI simulated alert pop-ups during mid-orbit, and a movie-style lens zoom-in transition
+ * that completes fully before seamlessly entering the Demo Video Section.
  */
-import { useState, useEffect, useRef, Suspense } from 'react';
+import { useState, useEffect, useRef, useMemo, Suspense } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Canvas, useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
@@ -15,6 +16,10 @@ import {
   X,
   Eye,
   Activity,
+  AlertTriangle,
+  Bell,
+  CheckCircle2,
+  Radio,
 } from 'lucide-react';
 
 import PigPen3D from '../components/landing/PigPen3D';
@@ -27,7 +32,7 @@ interface InstallPromptEvent extends Event {
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
 }
 
-/* ─── Aspect-Aware 360° Camera Orbit Controller ──────────────────────────── */
+/* ─── Aspect-Aware 360° Orbit & Cinematic CCTV Lens Zoom-In Camera ───────── */
 function CameraController({ scrollProgress }: { scrollProgress: number }) {
   const cameraTarget = useRef(new THREE.Vector3(0, 1.2, 0));
   const currentPos = useRef(new THREE.Vector3(0, 4, 10));
@@ -39,27 +44,58 @@ function CameraController({ scrollProgress }: { scrollProgress: number }) {
     const targetPos = new THREE.Vector3(0, 4, 10);
     const targetLook = new THREE.Vector3(0, 1.2, 0);
 
-    if (scrollProgress < 0.15) {
+    const orbitEndPos = new THREE.Vector3(0, 3.2, radius);
+    // CCTV Camera position is BEHIND the sow at [0, 2.30, -2.15]
+    const cctvOpticalCenter = new THREE.Vector3(0, 2.18, -2.15);
+    // Close-up cinematic approach right in front of the optical lens glass
+    const cctvLensCloseUp = new THREE.Vector3(0, 2.14, -1.90);
+
+    if (scrollProgress < 0.12) {
+      // Stage 1: Hero view
       targetPos.set(0, 3.8, isMobile ? 11 : 8.5);
       targetLook.set(0, 1.0, 0);
-    } else if (scrollProgress <= 0.65) {
-      // 360° Full Camera Orbit from scrollProgress 0.15 to 0.65 (100% Complete)
-      const penProgress = (scrollProgress - 0.15) / 0.50; // 0.0 to 1.0
+      if ('fov' in camera) {
+        (camera as THREE.PerspectiveCamera).fov = 45;
+        (camera as THREE.PerspectiveCamera).updateProjectionMatrix();
+      }
+    } else if (scrollProgress <= 0.48) {
+      // Stage 2A: Full 360° Camera Orbit around the farrowing pen (0.12 to 0.48)
+      const penProgress = (scrollProgress - 0.12) / 0.36; // 0.0 to 1.0
       const angle = penProgress * Math.PI * 2.0; // 0 to 360 degrees
       const height = 3.2 + Math.sin(penProgress * Math.PI) * 0.5;
       targetPos.set(Math.sin(angle) * radius, height, Math.cos(angle) * radius);
       targetLook.set(0, 0.9, 0);
-    } else if (scrollProgress <= 0.72) {
-      // Hold Buffer: 360° rotation complete, hold steady view before next section enters
-      targetPos.set(0, 3.2, radius);
-      targetLook.set(0, 0.9, 0);
+      if ('fov' in camera) {
+        (camera as THREE.PerspectiveCamera).fov = 45;
+        (camera as THREE.PerspectiveCamera).updateProjectionMatrix();
+      }
+    } else if (scrollProgress <= 0.68) {
+      // Stage 2B: High-Production Movie Zoom-In Directly into the CCTV Lens (0.48 to 0.68)
+      const zoomProgress = (scrollProgress - 0.48) / 0.20; // 0.0 to 1.0
+      // Smooth exponential acceleration curve into the lens aperture
+      const smoothZoom = Math.pow(zoomProgress, 2.4);
+
+      // Arc waypoint so camera glides gracefully over the crate into optical alignment
+      const arcMidpoint = new THREE.Vector3(0, 2.8, -0.2);
+      const tempP1 = new THREE.Vector3().lerpVectors(orbitEndPos, arcMidpoint, zoomProgress);
+      const tempP2 = new THREE.Vector3().lerpVectors(arcMidpoint, cctvLensCloseUp, smoothZoom);
+
+      targetPos.lerpVectors(tempP1, tempP2, zoomProgress);
+      targetLook.lerpVectors(new THREE.Vector3(0, 0.9, 0), cctvOpticalCenter, Math.min(1, zoomProgress * 1.4));
+
+      if ('fov' in camera) {
+        // High-end cinematic telephoto compression
+        (camera as THREE.PerspectiveCamera).fov = 45 - smoothZoom * 28; // 45° down to 17° FOV
+        (camera as THREE.PerspectiveCamera).updateProjectionMatrix();
+      }
     } else {
-      targetPos.set(0, 5.5, 9.5);
-      targetLook.set(0, 1.0, 0);
+      // Stage 2C: Full completion hold inside lens before page transition
+      targetPos.copy(cctvLensCloseUp);
+      targetLook.copy(cctvOpticalCenter);
     }
 
-    currentPos.current.lerp(targetPos, 0.08);
-    cameraTarget.current.lerp(targetLook, 0.08);
+    currentPos.current.lerp(targetPos, 0.11);
+    cameraTarget.current.lerp(targetLook, 0.11);
 
     camera.position.copy(currentPos.current);
     camera.lookAt(cameraTarget.current);
@@ -154,24 +190,47 @@ export default function LandingPage() {
     }
   };
 
-  const isIn3DSection = scrollProgress >= 0.15 && scrollProgress <= 0.72;
+  // Smooth continuous transition alphas
+  const canvasAlpha = useMemo(() => {
+    if (scrollProgress < 0.08) return 0;
+    if (scrollProgress < 0.16) return (scrollProgress - 0.08) / 0.08; // Smooth fade in
+    if (scrollProgress <= 0.64) return 1.0; // Steady full opacity during 360° orbit & initial fly-in
+    if (scrollProgress <= 0.76) return Math.max(0, 1 - (scrollProgress - 0.64) / 0.12); // Complete fade out
+    return 0;
+  }, [scrollProgress]);
+
+  const backdropAlpha = canvasAlpha * 0.85;
+  const isHudVisible = canvasAlpha > 0.35 && scrollProgress <= 0.50;
+
+  // Movie-style fade out to black as camera enters the CCTV optical glass
+  const movieFadeAlpha = useMemo(() => {
+    if (scrollProgress < 0.58) return 0;
+    if (scrollProgress < 0.68) return (scrollProgress - 0.58) / 0.10; // Fade into black lens interior
+    if (scrollProgress <= 0.78) return Math.max(0, 1 - (scrollProgress - 0.68) / 0.10); // Dissolve into live video player
+    return 0;
+  }, [scrollProgress]);
+
+  // AI Live Simulated Alert Popups during mid-orbit (0.22 to 0.48)
+  const isAlert1Visible = scrollProgress >= 0.22 && scrollProgress <= 0.48;
+  const isAlert2Visible = scrollProgress >= 0.28 && scrollProgress <= 0.48;
+  const isAlert3Visible = scrollProgress >= 0.34 && scrollProgress <= 0.48;
 
   return (
-    <div ref={mainContainerRef} className="relative min-h-[600vh] bg-slate-50 text-slate-900 overflow-x-hidden selection:bg-emerald-500 selection:text-white">
+    <div ref={mainContainerRef} className="relative min-h-[650vh] bg-slate-50 text-slate-900 overflow-x-hidden selection:bg-emerald-500 selection:text-white">
       {/* ── Bright Philippine Swine Farm Backdrop Image ──────────────────── */}
       <div
-        className="fixed inset-0 z-0 pointer-events-none transition-opacity duration-700 bg-cover bg-center"
+        className="fixed inset-0 z-0 pointer-events-none transition-opacity duration-500 bg-cover bg-center"
         style={{
           backgroundImage: `url('/assets/philippine_pig_farm.png')`,
-          opacity: isIn3DSection ? 0.85 : 0,
+          opacity: backdropAlpha,
         }}
       />
 
-      {/* ── Fixed 3D R3F Canvas Container ─────────────────────────────────── */}
+      {/* ── Fixed 3D R3F Canvas Container with Smooth Scroll Fade ─────────── */}
       <div
-        className="fixed inset-0 z-0 pointer-events-none transition-opacity duration-700"
+        className="fixed inset-0 z-0 pointer-events-none transition-opacity duration-500"
         style={{
-          opacity: isIn3DSection ? 1 : 0,
+          opacity: canvasAlpha,
         }}
       >
         <Canvas
@@ -186,10 +245,18 @@ export default function LandingPage() {
         </Canvas>
       </div>
 
+      {/* ── Cinematic Movie Fade-Out to Black Overlay (Lens Entrance) ─────── */}
+      <div
+        className="fixed inset-0 z-20 pointer-events-none transition-opacity duration-200 bg-black"
+        style={{
+          opacity: movieFadeAlpha,
+        }}
+      />
+
       {/* ── LIGHT MODE TOP FLOATING HUD BAR ──────────────────────────────── */}
       <div
         className={`fixed top-20 sm:top-24 inset-x-0 z-40 pointer-events-none transition-all duration-500 flex justify-center px-3 sm:px-4 ${
-          isIn3DSection ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-4 pointer-events-none'
+          isHudVisible ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-4 pointer-events-none'
         }`}
       >
         <div className="pointer-events-auto max-w-4xl w-full rounded-2xl bg-white/90 border border-slate-200/80 p-2.5 sm:p-3 shadow-xl shadow-slate-200/60 backdrop-blur-2xl flex flex-wrap items-center justify-between gap-2 text-[10px] sm:text-xs font-mono">
@@ -225,6 +292,91 @@ export default function LandingPage() {
             <span className={`w-1.5 h-1.5 rounded-full ${showBoundingBoxes ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`} />
             AI Boxes: {showBoundingBoxes ? 'ON' : 'OFF'}
           </button>
+        </div>
+      </div>
+
+      {/* ── SIMULATED LIVE AI ALERT POP-UPS (TRIGGERED HALFWAY THROUGH ORBIT) ── */}
+      <div className="fixed bottom-8 sm:bottom-12 right-4 sm:right-8 z-40 pointer-events-none flex flex-col gap-2.5 sm:gap-3 max-w-sm w-full">
+        {/* Alert 1: Critical Crushing Risk Alert */}
+        <div
+          className={`pointer-events-auto transform transition-all duration-500 ease-out rounded-2xl p-3.5 bg-white/95 border border-rose-200 shadow-xl shadow-rose-500/10 backdrop-blur-2xl ${
+            isAlert1Visible
+              ? 'opacity-100 translate-x-0 scale-100'
+              : 'opacity-0 translate-x-12 scale-95 pointer-events-none'
+          }`}
+        >
+          <div className="flex items-start gap-3">
+            <div className="p-2 rounded-xl bg-rose-50 border border-rose-200 text-rose-600 shrink-0 animate-bounce">
+              <AlertTriangle size={18} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center justify-between gap-1">
+                <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-rose-600 flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-ping" />
+                  CRITICAL CRUSHING RISK
+                </span>
+                <span className="text-[9px] font-mono text-slate-400">~48ms</span>
+              </div>
+              <p className="text-xs font-bold text-slate-900 mt-0.5 leading-snug">
+                Sow Posture Shift: Rolling Left
+              </p>
+              <p className="text-[11px] text-slate-600 mt-0.5 leading-normal">
+                Piglet <strong className="text-rose-600">PGL-03</strong> detected in danger corridor. Ultrasonic buzzer pulse deployed.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Alert 2: Posture Telemetry Update */}
+        <div
+          className={`pointer-events-auto transform transition-all duration-500 delay-100 ease-out rounded-2xl p-3.5 bg-white/95 border border-amber-200 shadow-xl shadow-amber-500/10 backdrop-blur-2xl ${
+            isAlert2Visible
+              ? 'opacity-100 translate-x-0 scale-100'
+              : 'opacity-0 translate-x-12 scale-95 pointer-events-none'
+          }`}
+        >
+          <div className="flex items-start gap-3">
+            <div className="p-2 rounded-xl bg-amber-50 border border-amber-200 text-amber-600 shrink-0">
+              <Radio size={18} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center justify-between gap-1">
+                <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-amber-700">
+                  YOLOv11 POSTURE TELEMETRY
+                </span>
+                <span className="text-[9px] font-mono text-emerald-600 font-bold">99.2% Conf</span>
+              </div>
+              <p className="text-xs font-bold text-slate-900 mt-0.5 leading-snug">
+                SOW-01: Lateral Recumbency
+              </p>
+              <p className="text-[11px] text-slate-600 mt-0.5 leading-normal">
+                Safe nursing posture active • 10/10 Piglets positioned at teat zones.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Alert 3: Edge Notification Dispatched */}
+        <div
+          className={`pointer-events-auto transform transition-all duration-500 delay-200 ease-out rounded-2xl p-3 bg-white/95 border border-emerald-200 shadow-xl shadow-emerald-500/10 backdrop-blur-2xl ${
+            isAlert3Visible
+              ? 'opacity-100 translate-x-0 scale-100'
+              : 'opacity-0 translate-x-12 scale-95 pointer-events-none'
+          }`}
+        >
+          <div className="flex items-center gap-2.5">
+            <div className="p-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-600 shrink-0">
+              <CheckCircle2 size={16} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-[10px] font-mono font-bold text-emerald-700">
+                EDGE DISPATCH CONFIRMED
+              </div>
+              <p className="text-[11px] text-slate-700 font-medium">
+                Telegram & Web Push Alert delivered to Barn Manager
+              </p>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -377,15 +529,15 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ── STAGE 2: EXTENDED 3D SPATIAL PEN SECTION (350vh Track for 100% Orbit) ── */}
-      <section id="3d-pen" className="relative z-10 min-h-[350vh] flex flex-col items-center justify-end px-4 sm:px-6 pb-24 sm:pb-32 text-center pointer-events-none">
+      {/* ── STAGE 2: EXTENDED 3D SPATIAL PEN SECTION (450vh Track for 100% Orbit & CCTV Zoom) ── */}
+      <section id="3d-pen" className="relative z-10 min-h-[450vh] flex flex-col items-center justify-end px-4 sm:px-6 pb-24 sm:pb-32 text-center pointer-events-none">
         <div className="pointer-events-auto px-3.5 sm:px-4 py-2 rounded-full bg-white/90 border border-slate-200 text-slate-700 text-[11px] sm:text-xs font-mono backdrop-blur-xl shadow-lg flex items-center gap-2 mb-8">
           <span className="w-2 h-2 rounded-full bg-emerald-600 animate-ping" />
-          <span>360° SPATIAL ORBIT • SCROLL TO ROTATE</span>
+          <span>360° SPATIAL ORBIT • ZOOM INTO AI CCTV LENS</span>
         </div>
       </section>
 
-      {/* ── STAGE 2.5: HERO VIDEO SHOWCASE SECTION (Pushed Below 3D Orbit) ── */}
+      {/* ── STAGE 2.5: HERO VIDEO SHOWCASE SECTION (Entered from CCTV Lens) ── */}
       <section id="demo-video" className="relative z-20 py-20 sm:py-28 bg-white border-t border-b border-slate-200">
         <div className="max-w-6xl mx-auto px-4 sm:px-6">
           <div className="text-center max-w-3xl mx-auto mb-10 sm:mb-14">

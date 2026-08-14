@@ -12,6 +12,8 @@ import {
 } from 'lucide-react';
 import clsx from 'clsx';
 import toast from 'react-hot-toast';
+import { ExportPdfButton } from '@/components/ui/ExportPdfButton';
+import { generateAlertIncidentPDF } from '@/utils/pdfExporter';
 
 export default function AlertArchivesPage() {
   const navigate = useNavigate();
@@ -79,6 +81,17 @@ export default function AlertArchivesPage() {
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
+              <ExportPdfButton
+                label="Export Audit PDF"
+                variant="secondary"
+                className="bg-white/15 hover:bg-white/25 text-white border-0 backdrop-blur-sm"
+                onExport={() => {
+                  generateAlertIncidentPDF({
+                    alerts: archivedAlerts || [],
+                    filterLabel: 'Archived Incidents & Alerts',
+                  });
+                }}
+              />
               <button
                 onClick={() => refetch()}
                 disabled={isRefetching}

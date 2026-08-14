@@ -1,8 +1,8 @@
 /**
  * PRISMA ATLAS — 3D Spatial Pig Pen Visualizer Component
  * Crisp Light Mode styling with 3px micro AI Bounding Box detection tags,
- * bright studio daylighting, and full 360° scroll camera orbit.
- * Includes instant procedural 3D fallbacks and high-detail GLTF streaming.
+ * bright studio daylighting, full 360° scroll camera orbit, GLB support for CCTV,
+ * and realistic security camera monitoring facing the sow with dedicated studio lighting.
  */
 import { useRef, useMemo, useEffect, Suspense, Component, ReactNode } from 'react';
 import { useFrame } from '@react-three/fiber';
@@ -39,8 +39,6 @@ const GALVANIZED_MAT = new THREE.MeshStandardMaterial({
   metalness: 0.85,
   roughness: 0.2,
 });
-
-
 
 /* ─── 3D Model Error Boundary Component ─────────────────────────────────── */
 class GLTFErrorBoundary extends Component<{ fallback: ReactNode; children: ReactNode }, { hasError: boolean }> {
@@ -372,9 +370,177 @@ function ExternalPigletModel({ id, position, rotation = [0, 0, 0], scale = 1, de
   );
 }
 
+/* ─── GLTF CCTV Loader Component (`/models/cctv.glb`) ─────────────────────── */
+function ExternalCCTVModel() {
+  const { scene } = useGLTF('/models/cctv.glb');
+  const groupRef = useRef<THREE.Group>(null!);
+
+  const clonedScene = useMemo(() => {
+    if (!scene) return null;
+
+    const rawBox = new THREE.Box3().setFromObject(scene);
+    const rawSize = rawBox.getSize(new THREE.Vector3());
+    const rawCenter = rawBox.getCenter(new THREE.Vector3());
+    const maxDim = Math.max(rawSize.x, rawSize.y, rawSize.z) || 0.6;
+
+    // Scale to standard security camera dimensions (~0.45m)
+    const scaleFactor = 0.45 / maxDim;
+
+    const cloned = SkeletonUtils.clone(scene) as THREE.Group;
+    cloned.traverse((child) => {
+      if ((child as THREE.Mesh).isMesh) {
+        const mesh = child as THREE.Mesh;
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+        if (mesh.material) {
+          const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+          mats.forEach((m) => {
+            m.side = THREE.DoubleSide;
+            // Enhance surface reflections and eliminate dull muddy shadows
+            if ('roughness' in m) {
+              (m as THREE.MeshStandardMaterial).roughness = Math.min((m as THREE.MeshStandardMaterial).roughness, 0.3);
+            }
+            if ('metalness' in m) {
+              (m as THREE.MeshStandardMaterial).metalness = Math.max((m as THREE.MeshStandardMaterial).metalness, 0.35);
+            }
+          });
+        }
+      }
+    });
+
+    cloned.scale.set(scaleFactor, scaleFactor, scaleFactor);
+    // Center bounding box
+    cloned.position.set(
+      -rawCenter.x * scaleFactor,
+      -rawCenter.y * scaleFactor,
+      -rawCenter.z * scaleFactor
+    );
+
+    return cloned;
+  }, [scene]);
+
+  if (!clonedScene) return null;
+
+  return (
+    // Clean level alignment (Roll = 0)
+    <group ref={groupRef} rotation={[0, 0, 0]}>
+      <primitive object={clonedScene} />
+    </group>
+  );
+}
+
 // Preload GLTF assets to trigger background prefetching
 useGLTF.preload('/models/sow.glb');
 useGLTF.preload('/models/piglet.glb');
+useGLTF.preload('/models/cctv.glb');
+
+/* ─── Procedural CCTV Body Fallback ──────────────────────────────────────── */
+function ProceduralCCTVBody({ ledRef }: { ledRef: React.RefObject<THREE.PointLight> }) {
+  return (
+    <group rotation={[0.62, 0, 0]}>
+      {/* Main Camera Cylinder Body */}
+      <mesh rotation={[Math.PI / 2, 0, 0]}>
+        <cylinderGeometry args={[0.12, 0.14, 0.35, 24]} />
+        <meshStandardMaterial color="#ffffff" metalness={0.8} roughness={0.2} />
+      </mesh>
+
+      {/* Outer Lens Housing Ring */}
+      <mesh position={[0, 0, 0.18]} rotation={[Math.PI / 2, 0, 0]}>
+        <cylinderGeometry args={[0.125, 0.125, 0.04, 24]} />
+        <meshStandardMaterial color="#0284c7" metalness={0.9} roughness={0.1} />
+      </mesh>
+
+      {/* Optical Glass Lens */}
+      <mesh position={[0, 0, 0.19]} rotation={[Math.PI / 2, 0, 0]}>
+        <cylinderGeometry args={[0.09, 0.09, 0.02, 24]} />
+        <meshStandardMaterial color="#0369a1" metalness={0.95} roughness={0.05} />
+      </mesh>
+
+      {/* Green AI Pulsing LED Indicator */}
+      <mesh position={[0.08, 0.08, 0.19]}>
+        <sphereGeometry args={[0.018, 12, 12]} />
+        <meshBasicMaterial color="#10b981" />
+      </mesh>
+
+      <pointLight
+        ref={ledRef}
+        position={[0, 0, 0.22]}
+        color="#10b981"
+        intensity={2.2}
+        distance={4}
+      />
+    </group>
+  );
+}
+
+/* ─── Overhead AI CCTV Surveillance Camera Component ───────────────────── */
+function OverheadAICCTVCamera({ aiBoxOpacity = 0 }: { aiBoxOpacity?: number }) {
+  const ledRef = useRef<THREE.PointLight>(null!);
+
+  useFrame(({ clock }) => {
+    if (ledRef.current) {
+      ledRef.current.intensity = 1.8 + Math.sin(clock.getElapsedTime() * 4) * 0.8;
+    }
+  });
+
+  return (
+    // Positioned BEHIND the sow at Z = -2.15, elevated at Y = 2.30m
+    <group position={[0, 2.30, -2.15]}>
+      {/* ── DEDICATED STUDIO SPOT & FILL LIGHTING FOR CRISP CCTV ILLUMINATION ── */}
+      {/* Front Daylight Key Light illuminating the face, lens, and housing */}
+      <pointLight position={[0, 0.6, 1.2]} intensity={5.0} color="#ffffff" distance={4.5} decay={1.2} />
+      {/* Front-Right Ambient Fill */}
+      <pointLight position={[0.8, 0.3, 0.8]} intensity={3.5} color="#f8fafc" distance={3.5} decay={1.2} />
+      {/* Top Specular Highlight */}
+      <directionalLight position={[0, 4, 1]} intensity={2.2} color="#ffffff" />
+      {/* Blue Rim Accent Light */}
+      <pointLight position={[-0.7, 0.5, -0.6]} intensity={2.8} color="#38bdf8" distance={3.0} decay={1.2} />
+
+      {/* Ceiling Mounting Rod */}
+      <mesh position={[0, 0.45, 0]}>
+        <cylinderGeometry args={[0.02, 0.02, 0.9, 12]} />
+        <meshStandardMaterial color="#94a3b8" metalness={0.85} roughness={0.15} />
+      </mesh>
+
+      {/* Swivel Base Mount */}
+      <mesh position={[0, 0.02, 0]}>
+        <cylinderGeometry args={[0.08, 0.1, 0.08, 16]} />
+        <meshStandardMaterial color="#334155" metalness={0.9} roughness={0.2} />
+      </mesh>
+
+      {/* Camera Body Chassis - Pitched down by +0.62 rad (~36°) facing forward along +Z straight over the sow */}
+      <group position={[0, -0.08, 0]} rotation={[0.62, 0, 0]}>
+        <GLTFErrorBoundary fallback={<ProceduralCCTVBody ledRef={ledRef} />}>
+          <Suspense fallback={<ProceduralCCTVBody ledRef={ledRef} />}>
+            <ExternalCCTVModel />
+          </Suspense>
+        </GLTFErrorBoundary>
+      </group>
+
+      {/* AI Active Monitoring Detection Frustum Cone Beam facing forward and down over the sow */}
+      {aiBoxOpacity > 0.01 && (
+        <group position={[0, -0.2, 0.2]} rotation={[0.62, 0, 0]}>
+          <mesh position={[0, 0, 1.0]} rotation={[Math.PI / 2, 0, 0]}>
+            <coneGeometry args={[0.8, 2.0, 16, 1, true]} />
+            <meshBasicMaterial color="#10b981" transparent opacity={0.06 * aiBoxOpacity} wireframe />
+          </mesh>
+        </group>
+      )}
+
+      {/* AI CCTV System Status Badge */}
+      {aiBoxOpacity > 0.01 && (
+        <Html center position={[0, -0.5, 0]} distanceFactor={45}>
+          <div
+            className="pointer-events-none select-none px-[3px] py-[1px] rounded bg-white/95 border border-emerald-600/60 font-mono font-bold text-emerald-700 whitespace-nowrap shadow-sm transition-opacity duration-500"
+            style={{ opacity: aiBoxOpacity, fontSize: '3px', lineHeight: '3px' }}
+          >
+            AI CAM #1 • 50ms
+          </div>
+        </Html>
+      )}
+    </group>
+  );
+}
 
 /* ─── Slatted Flooring Mesh Component ───────────────────────────────────── */
 function SlattedFloor() {
@@ -493,101 +659,32 @@ function IndustrialFarrowingCrate({ aiBoxOpacity = 0 }: { aiBoxOpacity?: number 
   );
 }
 
-/* ─── Overhead AI CCTV Surveillance Camera Component ───────────────────── */
-function OverheadAICCTVCamera({ aiBoxOpacity = 0 }: { aiBoxOpacity?: number }) {
-  const ledRef = useRef<THREE.PointLight>(null!);
-
-  useFrame(({ clock }) => {
-    if (ledRef.current) {
-      ledRef.current.intensity = 1.8 + Math.sin(clock.getElapsedTime() * 4) * 0.8;
-    }
-  });
-
-  return (
-    <group position={[-1.4, 2.3, 0]}>
-      {/* Ceiling Mounting Rod */}
-      <mesh position={[0, 0.5, 0]}>
-        <cylinderGeometry args={[0.02, 0.02, 1.0, 12]} />
-        <meshStandardMaterial color="#64748b" metalness={0.8} roughness={0.2} />
-      </mesh>
-
-      {/* Swivel Base Mount */}
-      <mesh position={[0, 0.02, 0]}>
-        <cylinderGeometry args={[0.08, 0.1, 0.08, 16]} />
-        <meshStandardMaterial color="#334155" metalness={0.9} roughness={0.2} />
-      </mesh>
-
-      {/* Camera Body Chassis - Angled directly inward and downward toward pen center */}
-      <group position={[0, -0.12, 0]} rotation={[0, Math.PI / 2, -0.75]}>
-        {/* Main Camera Cylinder Body */}
-        <mesh rotation={[Math.PI / 2, 0, 0]}>
-          <cylinderGeometry args={[0.12, 0.14, 0.35, 24]} />
-          <meshStandardMaterial color="#ffffff" metalness={0.8} roughness={0.2} />
-        </mesh>
-
-        {/* Outer Lens Housing Ring */}
-        <mesh position={[0, 0, 0.18]} rotation={[Math.PI / 2, 0, 0]}>
-          <cylinderGeometry args={[0.125, 0.125, 0.04, 24]} />
-          <meshStandardMaterial color="#0284c7" metalness={0.9} roughness={0.1} />
-        </mesh>
-
-        {/* Optical Glass Lens */}
-        <mesh position={[0, 0, 0.19]} rotation={[Math.PI / 2, 0, 0]}>
-          <cylinderGeometry args={[0.09, 0.09, 0.02, 24]} />
-          <meshStandardMaterial color="#0369a1" metalness={0.95} roughness={0.05} />
-        </mesh>
-
-        {/* Green AI Pulsing LED Indicator */}
-        <mesh position={[0.08, 0.08, 0.19]}>
-          <sphereGeometry args={[0.018, 12, 12]} />
-          <meshBasicMaterial color="#10b981" />
-        </mesh>
-
-        <pointLight
-          ref={ledRef}
-          position={[0, 0, 0.22]}
-          color="#10b981"
-          intensity={2.2}
-          distance={4}
-        />
-      </group>
-
-      {/* AI CCTV System Status Badge */}
-      {aiBoxOpacity > 0.01 && (
-        <Html center position={[0, -0.6, 0]} distanceFactor={45}>
-          <div
-            className="pointer-events-none select-none px-[3px] py-[1px] rounded bg-white/95 border border-emerald-600/60 font-mono font-bold text-emerald-700 whitespace-nowrap shadow-sm transition-opacity duration-500"
-            style={{ opacity: aiBoxOpacity, fontSize: '3px', lineHeight: '3px' }}
-          >
-            AI CAM #1 • 50ms
-          </div>
-        </Html>
-      )}
-    </group>
-  );
-}
-
 /* ─── Main PigPen3D Scene Component ─────────────────────────────────────── */
 export default function PigPen3D({
   scrollProgress,
   showBoundingBoxes = true
 }: PigPen3DProps) {
-  const penProgress = Math.min(1, Math.max(0, (scrollProgress - 0.15) / 0.50));
-  const halfwayAlpha = Math.min(1, Math.max(0, (penProgress - 0.40) / 0.12));
+  const penProgress = Math.min(1, Math.max(0, (scrollProgress - 0.15) / 0.40));
+  const halfwayAlpha = Math.min(1, Math.max(0, (penProgress - 0.35) / 0.12));
   const aiBoxOpacity = showBoundingBoxes ? halfwayAlpha : 0;
 
   return (
     <group position={[0, 0, 0]}>
       {/* Bright Light Mode Studio Lighting */}
-      <ambientLight intensity={1.8} color="#ffffff" />
+      <ambientLight intensity={1.9} color="#ffffff" />
       <directionalLight
         position={[8, 14, 6]}
         intensity={2.6}
         color="#ffffff"
         castShadow
       />
-      <pointLight position={[-6, 8, -4]} intensity={1.4} color="#e2e8f0" />
-      <pointLight position={[6, 4, 8]} intensity={1.4} color="#ffffff" />
+      <directionalLight
+        position={[-6, 10, -8]}
+        intensity={1.8}
+        color="#f1f5f9"
+      />
+      <pointLight position={[-6, 8, -4]} intensity={1.5} color="#e2e8f0" />
+      <pointLight position={[6, 4, 8]} intensity={1.5} color="#ffffff" />
 
       {/* AI Laser Scanning Beam Grid */}
       <AIScanningBeam opacity={aiBoxOpacity} />

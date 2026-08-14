@@ -16,6 +16,8 @@ import { useDashboardStats, usePenStatus } from '@/hooks';
 import { behaviorLogger, HealthSummary, FarrowingLikelihood, FarrowingLikelihoodTrend } from '@/services/behaviorLogger';
 import { useApi } from '@/hooks/useApi';
 import { subscribePollingTask } from '@/utils/pollingScheduler';
+import { ExportPdfButton } from '@/components/ui/ExportPdfButton';
+import { generateStatsReportPDF } from '@/utils/pdfExporter';
 import clsx from 'clsx';
 
 interface CleaningScheduleItem {
@@ -125,15 +127,35 @@ export default function StatsPage() {
             <ArrowLeft className="h-4 w-4" />
             Dashboard
           </Link>
-          <div className="flex items-center gap-3">
-            <BarChart3 className="h-8 w-8 text-white/80" />
-            <div>
-              <div className="flex items-center gap-3">
-                <h1 className="text-3xl font-bold text-white tracking-tight">Farm Statistics</h1>
-                <PageInfoButton onClick={() => setIsInfoOpen(true)} className="text-white hover:bg-white/20" />
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <BarChart3 className="h-8 w-8 text-white/80 shrink-0" />
+              <div>
+                <div className="flex items-center gap-3">
+                  <h1 className="text-3xl font-bold text-white tracking-tight">Farm Statistics</h1>
+                  <PageInfoButton onClick={() => setIsInfoOpen(true)} className="text-white hover:bg-white/20" />
+                </div>
+                <p className="text-white/70 text-sm">Detailed overview of your farrowing monitoring system</p>
               </div>
-              <p className="text-white/70 text-sm">Detailed overview of your farrowing monitoring system</p>
             </div>
+            <ExportPdfButton
+              label="Export Executive Report"
+              variant="secondary"
+              className="bg-white/20 hover:bg-white/30 text-white border-0 backdrop-blur-sm self-start sm:self-auto"
+              onExport={async () => {
+                await generateStatsReportPDF({
+                  stats: {
+                    active_sows: stats?.total_sows || 0,
+                    active_piglets: stats?.total_piglets || 0,
+                    active_alerts: stats?.active_alerts || 0,
+                    pens_monitored: stats?.pens_monitored || 0,
+                  },
+                  healthSummary,
+                  cleaningSchedule,
+                  farrowingLikelihood: farrowing,
+                });
+              }}
+            />
           </div>
         </div>
       </div>
