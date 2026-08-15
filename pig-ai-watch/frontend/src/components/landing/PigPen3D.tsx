@@ -1,7 +1,7 @@
 /**
  * PRISMA ATLAS — 3D Spatial Pig Pen Visualizer Component
  * Crisp Light Mode styling with 3px micro AI Bounding Box detection tags,
- * elegant compact Frosted Glass callout tags scaled proportionately to pen elements,
+ * micro Frosted Glass callout tags scaled and aligned identically to bounding box tags,
  * bright studio daylighting, full 360° scroll camera orbit, and GLB support for CCTV.
  */
 import { useRef, useMemo, useEffect, Suspense, Component, ReactNode } from 'react';
@@ -77,81 +77,61 @@ function AIScanningBeam({ opacity }: { opacity: number }) {
   );
 }
 
-/* ─── Elegant Frosted Glass 3D Callout Tag (Compact & Scaled to Pen Objects) ─ */
+/* ─── Elegant Frosted Glass 3D Micro Callout Tag (Exact Bounding Box Scale) ── */
 function GlassCalloutTag({
   position,
-  title,
-  subtitle,
-  align = 'right',
+  label,
+  sublabel,
+  spec,
   opacity = 0,
 }: {
   position: [number, number, number];
-  title: string;
-  subtitle: string;
-  align?: 'right' | 'left';
+  label: string;
+  sublabel?: string;
+  spec?: string;
   opacity?: number;
 }) {
   if (opacity <= 0.01) return null;
 
-  const isRight = align === 'right';
-
   return (
     <group position={position}>
-      {/* 3D Minimalist Anchor Ring */}
+      {/* Minimalist 3D Micro Anchor Radar Pulse */}
       <mesh>
-        <sphereGeometry args={[0.025, 16, 16]} />
+        <sphereGeometry args={[0.018, 12, 12]} />
         <meshBasicMaterial color="#059669" />
       </mesh>
-      <mesh>
-        <ringGeometry args={[0.04, 0.06, 24]} />
-        <meshBasicMaterial color="#10b981" transparent opacity={opacity * 0.6} side={THREE.DoubleSide} />
+      <mesh rotation={[-Math.PI / 2, 0, 0]}>
+        <ringGeometry args={[0.025, 0.038, 16]} />
+        <meshBasicMaterial color="#10b981" transparent opacity={opacity * 0.7} side={THREE.DoubleSide} />
       </mesh>
 
-      <Html
-        center={false}
-        position={[0, 0, 0]}
-        distanceFactor={48}
-        zIndexRange={[100, 0]}
-      >
+      {/* Floating Frosted Glass Micro Tag matching Bounding Box Dimensions */}
+      <Html center position={[0, 0.12, 0]} distanceFactor={45} zIndexRange={[100, 0]}>
         <div
-          className={`pointer-events-none select-none flex items-center transition-all duration-300 ease-out font-sans ${
-            isRight ? 'flex-row' : 'flex-row-reverse -translate-x-full'
-          }`}
+          className="pointer-events-none select-none flex flex-col items-center origin-center transition-all duration-300 ease-out"
           style={{
             opacity: opacity,
-            transform: `scale(${0.65 + opacity * 0.15})`,
+            transform: `scale(${0.35 + opacity * 0.1})`,
           }}
         >
-          {/* Subtle Elbow Leader Line */}
-          <svg
-            className={`h-6 shrink-0 ${isRight ? '-scale-y-100' : '-scale-x-100 -scale-y-100'}`}
-            width="28"
-            height="22"
-            viewBox="0 0 28 22"
-            fill="none"
+          <div
+            className="flex items-center gap-[1.5px] px-[3px] py-[1px] rounded-[3px] bg-white/95 border border-emerald-600/70 shadow-sm text-slate-900 font-mono font-bold leading-none whitespace-nowrap backdrop-blur-md"
+            style={{ fontSize: '3.2px', lineHeight: '3.2px' }}
           >
-            <path
-              d="M 2 11 L 11 2 L 28 2"
-              stroke="#059669"
-              strokeWidth="1.2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeOpacity="0.7"
-            />
-            <circle cx="2" cy="11" r="1.5" fill="#059669" />
-          </svg>
-
-          {/* Frosted Glass Pill Card */}
-          <div className="px-2.5 py-1 rounded-lg bg-white/90 border border-slate-200/90 shadow-md shadow-slate-300/40 backdrop-blur-xl flex flex-col justify-center whitespace-nowrap min-w-[95px]">
-            <div className="flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping shrink-0" />
-              <span className="text-[9.5px] font-extrabold text-slate-900 tracking-tight leading-tight">
-                {title}
-              </span>
-            </div>
-            <div className="text-[8px] font-mono text-slate-500 font-medium leading-tight mt-0.5 pl-2.5">
-              {subtitle}
-            </div>
+            <span className="w-[1.8px] h-[1.8px] rounded-full bg-emerald-600 inline-block animate-pulse shrink-0" />
+            <span className="text-emerald-800 font-black">{label}</span>
+            {sublabel && (
+              <>
+                <span className="text-slate-400">•</span>
+                <span className="text-slate-700 font-semibold">{sublabel}</span>
+              </>
+            )}
+            {spec && (
+              <>
+                <span className="text-slate-400">•</span>
+                <span className="text-emerald-700 font-bold">{spec}</span>
+              </>
+            )}
           </div>
         </div>
       </Html>
@@ -742,7 +722,7 @@ export default function PigPen3D({
   scrollProgress,
   showBoundingBoxes = true
 }: PigPen3DProps) {
-  // Frosted Glass Callout Tags active during initial entrance & first half of orbit (0.10 to 0.35)
+  // Frosted Glass Micro Callout Tags active during initial entrance & first half of orbit (0.10 to 0.35)
   const guideOpacity = useMemo(() => {
     if (scrollProgress < 0.10) return 0;
     if (scrollProgress < 0.16) return (scrollProgress - 0.10) / 0.06; // Smooth entrance
@@ -776,22 +756,22 @@ export default function PigPen3D({
       {/* AI Laser Scanning Beam Grid */}
       <AIScanningBeam opacity={aiBoxOpacity} />
 
-      {/* ── ELEGANT FROSTED GLASS CALLOUT TAGS (CAMERA & CRATE ONLY) ── */}
-      {/* 1. CCTV Surveillance Camera Tag */}
+      {/* ── MICRO FROSTED GLASS CALLOUT TAGS (ALIGNED DIRECTLY TO 3D PEN OBJECTS) ── */}
+      {/* 1. CCTV Surveillance Camera Tag directly aligned to CCTV mounting base */}
       <GlassCalloutTag
-        position={[0, 2.30, -2.15]}
-        title="AI CCTV Camera"
-        subtitle="1080p • 50ms Stream"
-        align="right"
+        position={[0, 2.38, -2.15]}
+        label="AI CCTV CAMERA"
+        sublabel="OVERHEAD 1080P"
+        spec="50ms STREAM"
         opacity={guideOpacity}
       />
 
-      {/* 2. Galvanized Pen Crate Setup Tag */}
+      {/* 2. Galvanized Pen Crate Tag directly aligned to top safety rail */}
       <GlassCalloutTag
-        position={[-0.75, 0.95, 0.2]}
-        title="Farrowing Crate"
-        subtitle="Anti-Crush Rails"
-        align="left"
+        position={[-0.65, 1.45, 0]}
+        label="FARROWING CRATE"
+        sublabel="ANTI-CRUSH RAILS"
+        spec="GALVANIZED"
         opacity={guideOpacity}
       />
 
