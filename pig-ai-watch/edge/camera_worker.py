@@ -266,6 +266,20 @@ class CameraWorker(threading.Thread):
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             }
 
+            # Enrich with clump analysis metadata (if available from detector)
+            clump = getattr(result, "clump_analysis", None)
+            if clump is not None:
+                payload["clump_metadata"] = {
+                    "likely_actual_count": clump.likely_actual_count,
+                    "merged_box_extras": clump.merged_box_extras,
+                    "overlap_pair_count": clump.overlap_pair_count,
+                    "cluster_near_sow": clump.cluster_near_sow,
+                    "sow_cluster_size": clump.sow_cluster_size,
+                    "count_variance": round(clump.count_variance, 3),
+                    "clumping_likely": clump.clumping_likely,
+                    "piglet_density_ratio": round(clump.piglet_density_ratio, 3),
+                }
+
             # push to cloud (or buffer)
             self._push(payload)
             

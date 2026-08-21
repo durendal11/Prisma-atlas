@@ -2,11 +2,12 @@ import cv2
 import numpy as np
 from ultralytics import YOLO
 from typing import List, Dict, Any, Optional, Tuple
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 import json
 import asyncio
 from app.core.config import settings
+from app.services.piglet_clump_detector import PigletClumpDetector, ClumpAnalysis
 import logging
 
 logger = logging.getLogger(__name__)
@@ -21,6 +22,11 @@ class DetectionResult:
     confidence_scores: List[float]
     processing_time_ms: float
     timestamp: datetime
+    # Clump analysis metadata (for smart crushing detection)
+    clump_analysis: Optional[ClumpAnalysis] = None
+    likely_actual_piglet_count: int = 0
+    piglet_overlap_pairs: int = 0
+    clump_near_sow: bool = False
 
 
 class YOLODetector:
@@ -56,6 +62,7 @@ class YOLODetector:
         self._loaded = False
         self._last_masks = []  # Store masks from last detection for drawing
         self._is_segmentation = False  # Track if model is segmentation type
+        self._clump_detector = PigletClumpDetector()
         
     def load_model(self) -> bool:
         """Load the YOLO model weights."""
@@ -286,9 +293,34 @@ class YOLODetector:
                 class_counts[raw] = class_counts.get(raw, 0) + 1
             logger.info(f"  By class (post-ROI): {class_counts}")
         
-        # Calculate crushing risk
+        # ── Clump analysis ─────────────────────────────────────────────
+        # Build piglet/sow box dicts for the clump detector
+        piglet_box_dicts = [
+            {"x": float(b["x"]), "y": float(b["y"]),
+             "width": float(b["width"]), "height": float(b["height"]),
+             "confidence": float(b["confidence"])}
+            for b in bounding_boxes
+            if "piglet" in b["label"].lower() or "pig" in b["label"].lower()
+        ]
+        sow_box_dict = None
+        if sow_box is not None:
+            sow_xyxy = sow_box[0]
+            sow_box_dict = {
+                "x": float(sow_xyxy[0]), "y": float(sow_xyxy[1]),
+                "width": float(sow_xyxy[2] - sow_xyxy[0]),
+                "height": float(sow_xyxy[3] - sow_xyxy[1]),
+                "confidence": float(sow_box[1]),
+            }
+
+        clump = self._clump_detector.analyze(
+            piglet_box_dicts,
+            sow_box=sow_box_dict,
+            sow_posture=sow_posture,
+        )
+
+        # Calculate crushing risk (now clump-aware)
         crushing_risk = self._calculate_crushing_risk(
-            sow_posture, sow_box, piglet_boxes, frame.shape
+            sow_posture, sow_box, piglet_boxes, frame.shape, clump
         )
         
         # Calculate processing time
@@ -302,7 +334,11 @@ class YOLODetector:
             bounding_boxes=bounding_boxes,
             confidence_scores=confidence_scores,
             processing_time_ms=processing_time_ms,
-            timestamp=datetime.utcnow()
+            timestamp=datetime.utcnow(),
+            clump_analysis=clump,
+            likely_actual_piglet_count=clump.likely_actual_count,
+            piglet_overlap_pairs=clump.overlap_pair_count,
+            clump_near_sow=clump.cluster_near_sow,
         )
     
     def _calculate_crushing_risk(
@@ -310,9 +346,17 @@ class YOLODetector:
         sow_posture: str, 
         sow_box: Optional[Tuple], 
         piglet_boxes: List[np.ndarray],
-        frame_shape: Tuple[int, int, int]
+        frame_shape: Tuple[int, int, int],
+        clump: Optional[ClumpAnalysis] = None,
     ) -> float:
-        """Calculate the risk of piglet crushing based on positions and postures."""
+        """Calculate the risk of piglet crushing based on positions, postures, and clump analysis.
+        
+        Enhanced with clump awareness:
+        - Merged/oversized piglet boxes contribute higher risk (hidden piglets)
+        - Dense clusters near sow add a clumping risk modifier
+        - Piglet-piglet overlap signals reduce the per-box proximity penalty
+          (since overlapping boxes are likely double-counting the same piglet)
+        """
         
         if not piglet_boxes or sow_box is None:
             return 0.0
@@ -350,8 +394,43 @@ class YOLODetector:
             "lying_lateral", "lying_sternal"
         }
         is_resting_nursing = sow_posture in resting_nursing_postures
+
+        # ── Detect oversized (merged) piglet boxes via area analysis ──
+        piglet_areas = []
+        for pb in piglet_boxes:
+            w = max(0.0, float(pb[2] - pb[0]))
+            h = max(0.0, float(pb[3] - pb[1]))
+            piglet_areas.append(w * h)
+
+        median_piglet_area = 0.0
+        if len(piglet_areas) >= 2:
+            sorted_areas = sorted(piglet_areas)
+            mid = len(sorted_areas) // 2
+            median_piglet_area = (
+                sorted_areas[mid] if len(sorted_areas) % 2 == 1
+                else (sorted_areas[mid - 1] + sorted_areas[mid]) / 2
+            )
+
+        # ── Compute piglet-piglet IoU to detect overlapping detections ─
+        overlap_indices = set()  # indices of piglets involved in overlaps
+        for i in range(len(piglet_boxes)):
+            for j in range(i + 1, len(piglet_boxes)):
+                # Quick IoU check between piglet boxes
+                pi, pj = piglet_boxes[i], piglet_boxes[j]
+                ix1 = max(float(pi[0]), float(pj[0]))
+                iy1 = max(float(pi[1]), float(pj[1]))
+                ix2 = min(float(pi[2]), float(pj[2]))
+                iy2 = min(float(pi[3]), float(pj[3]))
+                iw = max(0.0, ix2 - ix1)
+                ih = max(0.0, iy2 - iy1)
+                inter = iw * ih
+                union = piglet_areas[i] + piglet_areas[j] - inter
+                iou = inter / union if union > 0 else 0.0
+                if iou >= 0.25:
+                    overlap_indices.add(i)
+                    overlap_indices.add(j)
         
-        for piglet_box in piglet_boxes:
+        for idx, piglet_box in enumerate(piglet_boxes):
             piglet_center = np.array([
                 (piglet_box[0] + piglet_box[2]) / 2,
                 (piglet_box[1] + piglet_box[3]) / 2
@@ -381,16 +460,47 @@ class YOLODetector:
                 inclusion_ratio = inter_area / p_area if p_area > 0 else 0.0
                 is_on_top = is_resting_nursing and inclusion_ratio >= 0.80
                 
+                # Check if this is a merged/oversized box
+                is_merged = (
+                    median_piglet_area > 0 and
+                    p_area >= median_piglet_area * 1.8
+                )
+
+                # Reduce risk contribution if this box overlaps with another
+                # piglet (likely double-counting the same piglet body)
+                is_overlapping = idx in overlap_indices
+
                 distance = np.linalg.norm(sow_center - piglet_center)
                 if is_on_top:
                     # Piglet is resting/nursing on top of sow - minimal risk contribution
                     proximity_factor = max(0, 1 - distance / 200)
                     risk = min(1.0, risk + proximity_factor * 0.05)
+                elif is_overlapping:
+                    # Overlapping detection — reduced contribution to avoid
+                    # inflating risk from fragmented/duplicate detections
+                    proximity_factor = max(0, 1 - distance / 200)
+                    risk = min(1.0, risk + proximity_factor * 0.10)
+                elif is_merged:
+                    # Merged box: likely contains multiple piglets under/near sow
+                    # Higher risk because hidden piglets may be crushed
+                    proximity_factor = max(0, 1 - distance / 200)
+                    risk = min(1.0, risk + proximity_factor * 0.35)
                 else:
-                    # Piglet is along sow perimeter or sow is active - standard crushing risk
+                    # Standard individual piglet near sow perimeter
                     proximity_factor = max(0, 1 - distance / 200)
                     risk = min(1.0, risk + proximity_factor * 0.3)
-        
+
+        # ── Clump-near-sow risk modifier ──────────────────────────────
+        if clump and clump.cluster_near_sow and is_resting_nursing:
+            # Dense cluster near a resting/nursing sow adds baseline risk
+            # because hidden piglets in the pile may be in danger
+            clump_modifier = min(0.15, clump.sow_cluster_size * 0.03)
+            risk = min(1.0, risk + clump_modifier)
+            logger.debug(
+                "Clump-near-sow modifier: +%.2f (cluster_size=%d)",
+                clump_modifier, clump.sow_cluster_size,
+            )
+
         return round(risk, 2)
     
     def draw_detections(self, frame: np.ndarray, result: DetectionResult) -> np.ndarray:

@@ -59,6 +59,7 @@ class DetectionPush(BaseModel):
     processing_time_ms: float = 0.0
     bounding_boxes: List[BBox] = []
     timestamp: str  # ISO-8601
+    clump_metadata: Optional[dict] = None
 
 
 class DetectionBatch(BaseModel):
@@ -347,65 +348,81 @@ def _build_detection_payload(det: DetectionPush, has_sow: bool = True) -> Tuple[
         frame_timestamp=ts,
     )
 
+    event_meta = {
+        "piglet_count": det.piglet_count,
+        "sow_posture": det.sow_posture,
+        "crushing_risk": det.crushing_risk,
+        "source": "edge_device",
+    }
+    if det.clump_metadata:
+        event_meta["clump_metadata"] = det.clump_metadata
+
     event = Event(
         type="detection",
         category="ai_detection",
         description=f"Edge detection: {det.piglet_count} piglet(s), posture={det.sow_posture}, risk={det.crushing_risk:.2f}",
         pen_id=pen_id_int,
-        event_metadata=json.dumps({
-            "piglet_count": det.piglet_count,
-            "sow_posture": det.sow_posture,
-            "crushing_risk": det.crushing_risk,
-            "source": "edge_device",
-        }),
+        event_metadata=json.dumps(event_meta),
     )
 
     alert: Optional[Alert] = None
     if has_sow and det.crushing_risk >= settings.CRUSHING_RISK_THRESHOLD:
         severity = "critical" if det.crushing_risk >= 0.8 else "high"
+        alert_data = {
+            "piglet_count": det.piglet_count,
+            "sow_posture": det.sow_posture,
+            "crushing_risk": det.crushing_risk,
+        }
+        if det.clump_metadata:
+            alert_data["clump_metadata"] = det.clump_metadata
+
         alert = Alert(
             type="crushing_risk",
             severity=severity,
             title=f"Crushing Risk Detected - {det.pen_id}",
             message=f"Crushing risk {det.crushing_risk:.0%} in pen {det.pen_id} (posture: {det.sow_posture})",
             pen_id=pen_id_int,
-            detection_data=json.dumps({
-                "piglet_count": det.piglet_count,
-                "sow_posture": det.sow_posture,
-                "crushing_risk": det.crushing_risk,
-            }),
+            detection_data=json.dumps(alert_data),
         )
+
+    ws_data = {
+        "piglet_count": det.piglet_count,
+        "posture": det.sow_posture,
+        "risk_level": det.crushing_risk,
+        "bboxes": [b.model_dump() for b in det.bounding_boxes],
+        "timestamp": det.timestamp,
+        "processing_time_ms": det.processing_time_ms,
+        "source": "edge_device",
+    }
+    if det.clump_metadata:
+        ws_data["clump_metadata"] = det.clump_metadata
 
     ws_message = {
         "type": "detection",
         "pen_id": det.pen_id,
-        "data": {
-            "piglet_count": det.piglet_count,
-            "posture": det.sow_posture,
-            "risk_level": det.crushing_risk,
-            "bboxes": [b.model_dump() for b in det.bounding_boxes],
-            "timestamp": det.timestamp,
-            "processing_time_ms": det.processing_time_ms,
-            "source": "edge_device",
-        },
+        "data": ws_data,
     }
 
     return detection, event, alert, ws_message, det.pen_id
 
 
 def _build_ws_message(det: DetectionPush) -> Tuple[dict, str]:
+    ws_data = {
+        "piglet_count": det.piglet_count,
+        "posture": det.sow_posture,
+        "risk_level": det.crushing_risk,
+        "bboxes": [b.model_dump() for b in det.bounding_boxes],
+        "timestamp": det.timestamp,
+        "processing_time_ms": det.processing_time_ms,
+        "source": "edge_device",
+    }
+    if det.clump_metadata:
+        ws_data["clump_metadata"] = det.clump_metadata
+
     ws_message = {
         "type": "detection",
         "pen_id": det.pen_id,
-        "data": {
-            "piglet_count": det.piglet_count,
-            "posture": det.sow_posture,
-            "risk_level": det.crushing_risk,
-            "bboxes": [b.model_dump() for b in det.bounding_boxes],
-            "timestamp": det.timestamp,
-            "processing_time_ms": det.processing_time_ms,
-            "source": "edge_device",
-        },
+        "data": ws_data,
     }
     return ws_message, det.pen_id
 

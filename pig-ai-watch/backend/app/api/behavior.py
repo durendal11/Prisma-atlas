@@ -51,6 +51,8 @@ AI_TRIGGER_TYPES = {
     "nesting_onset",
     "active_nesting",
     "crushing_risk",
+    "crushing_advisory",
+    "detection_anomaly",
 }
 
 
