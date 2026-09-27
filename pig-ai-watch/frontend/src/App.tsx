@@ -25,6 +25,7 @@ const PenMonitorPage = lazy(() => import('@/pages/PenMonitorPage'));
 const ReplayPage = lazy(() => import('@/pages/ReplayPage'));
 const StatsPage = lazy(() => import('@/pages/StatsPage'));
 const RecordingSchedulePage = lazy(() => import('@/pages/RecordingSchedulePage'));
+const SetupGuidePage = lazy(() => import('@/pages/SetupGuidePage'));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -104,6 +105,7 @@ export default function App() {
         <Routes>
           <Route path="/welcome" element={<LandingPage />} />
           <Route path="/login" element={<LoginPage />} />
+          <Route path="/setup-guide" element={<SetupGuidePage />} />
           <Route
             path="/"
             element={

@@ -1,12 +1,25 @@
 /**
- * PRISMA ATLAS — Login Modal (Landing Page)
- * Animated slide-in modal with rate limiting
+ * PRISMA ATLAS — Login Sidebar Drawer (Landing Page)
+ * Sleek right-sliding frosted glass drawer matching the landing page theme.
  */
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { X, User, Lock, Loader2 } from 'lucide-react';
+import {
+  X,
+  User,
+  Lock,
+  Loader2,
+  Eye,
+  EyeOff,
+  ArrowRight,
+  ShieldCheck,
+  Sparkles,
+  AlertCircle,
+  KeyRound,
+} from 'lucide-react';
 import { GoogleLogin } from '@react-oauth/google';
+import toast from 'react-hot-toast';
 import { authApi } from '@/api';
 import { useAuthStore } from '@/store';
 
@@ -23,13 +36,35 @@ export default function LoginModal({ open, onClose }: Props) {
   const setAuth = useAuthStore((s) => s.setAuth);
   const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined;
   const googleEnabled = !!googleClientId;
+
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [attempts, setAttempts] = useState<number[]>([]);
   const [lockedUntil, setLockedUntil] = useState<number | null>(null);
   const [countdown, setCountdown] = useState(0);
+
+  // Lock body scroll and listen for Escape key when drawer is open
+  useEffect(() => {
+    if (!open) return;
+
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.body.style.overflow = originalOverflow;
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [open, onClose]);
 
   // Lockout countdown
   useEffect(() => {
@@ -53,7 +88,7 @@ export default function LoginModal({ open, onClose }: Props) {
     e.preventDefault();
     if (lockedUntil) return;
     if (!username.trim() || !password.trim()) {
-      setError('Please enter username and password');
+      setError('Please enter your username and password');
       return;
     }
 
@@ -64,10 +99,11 @@ export default function LoginModal({ open, onClose }: Props) {
       localStorage.setItem('access_token', tokenData.access_token);
       const user = await authApi.getCurrentUser();
       setAuth(user, tokenData.access_token);
+      toast.success('Welcome back to PRISMA ATLAS!');
       onClose();
       navigate('/', { replace: true });
     } catch (err: any) {
-      const msg = err.response?.data?.detail || 'Login failed';
+      const msg = err.response?.data?.detail || 'Invalid username or password';
       setError(msg);
       const now = Date.now();
       const newAttempts = [...attempts.filter(t => now - t < 15 * 60 * 1000), now];
@@ -89,6 +125,7 @@ export default function LoginModal({ open, onClose }: Props) {
       localStorage.setItem('access_token', tokenData.access_token);
       const user = await authApi.getCurrentUser();
       setAuth(user, tokenData.access_token);
+      toast.success('Google sign-in successful!');
       onClose();
       navigate('/', { replace: true });
     } catch (err: any) {
@@ -98,131 +135,239 @@ export default function LoginModal({ open, onClose }: Props) {
     }
   }, [setAuth, navigate, onClose]);
 
+  const fillDemo = () => {
+    setUsername('admin');
+    setPassword('admin123');
+    setError('');
+  };
+
   return (
     <AnimatePresence>
       {open && (
-        <motion.div
-          className="fixed inset-0 z-[100] flex items-center justify-center p-4"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-        >
-          {/* Backdrop */}
+        <div className="fixed inset-0 z-[100] flex justify-end overflow-hidden">
+          {/* Backdrop Overlay */}
           <motion.div
-            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            key="login-backdrop"
+            className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm transition-opacity"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
+            transition={{ duration: 0.28, ease: 'easeOut' }}
             onClick={onClose}
           />
 
-          {/* Modal */}
-          <motion.div
-            className="relative w-full max-w-md bg-slate-900/95 border border-white/10 rounded-2xl shadow-2xl backdrop-blur-xl overflow-hidden"
-            initial={{ scale: 0.9, y: 40, opacity: 0 }}
-            animate={{ scale: 1, y: 0, opacity: 1 }}
-            exit={{ scale: 0.9, y: 40, opacity: 0 }}
-            transition={{ type: 'spring', damping: 25, stiffness: 300 }}
+          {/* Slide-over Right Sidebar Panel */}
+          <motion.aside
+            key="login-sidebar"
+            aria-label="Login Sidebar"
+            className="relative w-full max-w-md sm:max-w-[460px] h-full bg-white/95 backdrop-blur-2xl border-l border-slate-200/90 shadow-[-16px_0_48px_rgba(15,23,42,0.12)] z-10 flex flex-col justify-between overflow-y-auto"
+            initial={{ x: '100%' }}
+            animate={{ x: 0 }}
+            exit={{ x: '100%' }}
+            transition={{ type: 'spring', damping: 32, stiffness: 320, mass: 0.82 }}
           >
-            {/* Close */}
-            <button onClick={onClose} className="absolute top-4 right-4 text-white/40 hover:text-white transition" title="Close">
-              <X size={20} />
-            </button>
-
-            {/* Header */}
-            <div className="text-center pt-8 pb-4 px-8">
-              <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-br from-indigo-500 to-pink-500 text-white text-2xl font-bold mb-4">
-                ◈
+            {/* Top Bar */}
+            <div className="sticky top-0 z-20 flex items-center justify-between px-6 py-4 bg-white/80 backdrop-blur-md border-b border-slate-100">
+              <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-50 border border-emerald-200/80 text-[11px] font-mono font-medium text-emerald-700">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                <span>EDGE VISION SECURE</span>
               </div>
-              <h2 className="text-xl font-bold text-white">Welcome Back</h2>
-              <p className="text-sm text-white/50 mt-1">Sign in to access your dashboard</p>
-            </div>
-
-            {/* Form */}
-            <form onSubmit={handleSubmit} className="px-8 pb-8 space-y-4">
-              <div>
-                <label className="text-xs font-medium text-white/60 mb-1.5 block">Username</label>
-                <div className="relative">
-                  <User size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30" />
-                  <input
-                    type="text"
-                    value={username}
-                    onChange={(e) => setUsername(e.target.value)}
-                    placeholder="Enter your username"
-                    className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-white/25 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500/50 transition"
-                    autoFocus
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="text-xs font-medium text-white/60 mb-1.5 block">Password</label>
-                <div className="relative">
-                  <Lock size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30" />
-                  <input
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="Enter your password"
-                    className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-white/5 border border-white/10 text-white placeholder:text-white/25 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500/50 transition"
-                  />
-                </div>
-              </div>
-
-              {error && (
-                <motion.div
-                  initial={{ opacity: 0, y: -8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2"
-                >
-                  {error}
-                </motion.div>
-              )}
-
-              {lockedUntil && (
-                <div className="text-sm text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
-                  Too many attempts. Try again in {Math.floor(countdown / 60)}:{String(countdown % 60).padStart(2, '0')}
-                </div>
-              )}
 
               <button
-                type="submit"
-                disabled={loading || !!lockedUntil}
-                className="w-full py-2.5 rounded-xl bg-gradient-to-r from-indigo-500 to-purple-600 text-white font-semibold text-sm hover:from-indigo-400 hover:to-purple-500 disabled:opacity-50 disabled:cursor-not-allowed transition flex items-center justify-center gap-2"
+                onClick={onClose}
+                className="group flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-slate-400 hover:text-slate-800 hover:bg-slate-100 transition-colors"
+                title="Close (Esc)"
               >
-                {loading ? <Loader2 size={16} className="animate-spin" /> : null}
-                {loading ? 'Signing in…' : 'Sign In'}
+                <span className="text-[10px] font-mono text-slate-400 group-hover:text-slate-600 border border-slate-200 rounded px-1.5 py-0.5">
+                  ESC
+                </span>
+                <X size={18} />
               </button>
+            </div>
 
-              <div className="flex items-center justify-center my-4">
-                <div className="border-t border-white/20 flex-grow"></div>
-                <span className="text-xs text-white/50 px-2">OR</span>
-                <div className="border-t border-white/20 flex-grow"></div>
+            {/* Main Content Area */}
+            <div className="flex-1 px-6 sm:px-8 py-6 space-y-6">
+              {/* Brand Header */}
+              <div className="space-y-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-emerald-600 to-teal-500 flex items-center justify-center text-white shadow-lg shadow-emerald-600/25">
+                    <Sparkles size={24} className="stroke-[2.2]" />
+                  </div>
+                  <div>
+                    <h2 className="text-xl font-bold tracking-tight text-slate-900 leading-tight">
+                      Sign In to <span className="text-emerald-600">PRISMA</span> ATLAS
+                    </h2>
+                    <p className="text-xs text-slate-500 font-mono mt-0.5">
+                      FARROWING TELEMETRY & VISION CORE
+                    </p>
+                  </div>
+                </div>
+                <p className="text-sm text-slate-600 leading-relaxed">
+                  Enter your credentials to monitor real-time farrowing crates, posture anomalies, and automated crushing alerts.
+                </p>
               </div>
 
-              <div className="flex justify-center flex-col items-center">
-                {googleEnabled ? (
-                  <GoogleLogin
-                    onSuccess={handleGoogleSuccess}
-                    onError={() => {
-                      setError('Google sign-in failed');
-                    }}
-                    theme="filled_black"
-                    shape="rectangular"
-                    text="signin_with"
-                  />
-                ) : (
-                  <div className="text-xs text-amber-300 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2 text-center">
-                    Google sign-in is not configured for this deployment.
+              {/* Login Form */}
+              <form onSubmit={handleSubmit} className="space-y-4">
+                {/* Username Input */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-slate-700 uppercase tracking-wider font-mono flex items-center justify-between">
+                    <span>Username</span>
+                  </label>
+                  <div className="relative">
+                    <User size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                      type="text"
+                      value={username}
+                      onChange={(e) => setUsername(e.target.value)}
+                      placeholder="e.g. admin"
+                      autoComplete="username"
+                      autoFocus
+                      className="w-full pl-10 pr-4 py-3 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 placeholder:text-slate-400 text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
+                    />
                   </div>
+                </div>
+
+                {/* Password Input */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-semibold text-slate-700 uppercase tracking-wider font-mono flex items-center justify-between">
+                    <span>Password</span>
+                  </label>
+                  <div className="relative">
+                    <Lock size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="Enter your password"
+                      autoComplete="current-password"
+                      className="w-full pl-10 pr-11 py-3 rounded-xl bg-slate-50 border border-slate-200 text-slate-900 placeholder:text-slate-400 text-sm focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      tabIndex={-1}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-200/60 transition"
+                      title={showPassword ? 'Hide password' : 'Show password'}
+                    >
+                      {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Error Banner */}
+                {error && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="flex items-start gap-2.5 text-xs text-rose-700 bg-rose-50 border border-rose-200/80 rounded-xl p-3"
+                  >
+                    <AlertCircle size={16} className="shrink-0 mt-0.5 text-rose-600" />
+                    <span className="leading-snug">{error}</span>
+                  </motion.div>
+                )}
+
+                {/* Rate-limit lockout notification */}
+                {lockedUntil && (
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    className="flex items-start gap-2.5 text-xs text-amber-800 bg-amber-50 border border-amber-200/80 rounded-xl p-3"
+                  >
+                    <KeyRound size={16} className="shrink-0 mt-0.5 text-amber-600" />
+                    <div>
+                      <div className="font-semibold">Too many failed attempts</div>
+                      <div className="text-amber-700 mt-0.5">
+                        Security lock in effect. Try again in {Math.floor(countdown / 60)}:
+                        {String(countdown % 60).padStart(2, '0')}
+                      </div>
+                    </div>
+                  </motion.div>
+                )}
+
+                {/* Submit Button */}
+                <button
+                  type="submit"
+                  disabled={loading || !!lockedUntil}
+                  className="w-full py-3.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-semibold text-sm shadow-lg shadow-emerald-600/25 hover:shadow-emerald-600/35 disabled:opacity-50 disabled:cursor-not-allowed transition-all flex items-center justify-center gap-2 group mt-2"
+                >
+                  {loading ? (
+                    <>
+                      <Loader2 size={16} className="animate-spin" />
+                      <span>Authenticating…</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>Sign In to Dashboard</span>
+                      <ArrowRight size={16} className="group-hover:translate-x-0.5 transition-transform" />
+                    </>
+                  )}
+                </button>
+              </form>
+
+              {/* Demo Credentials Box */}
+              <div className="rounded-xl bg-slate-50 border border-slate-200/80 p-3.5">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400 font-semibold">
+                    Demo Credentials
+                  </span>
+                  <button
+                    type="button"
+                    onClick={fillDemo}
+                    className="text-[11px] text-emerald-600 hover:text-emerald-700 font-semibold underline underline-offset-2 transition"
+                  >
+                    Auto-fill Demo
+                  </button>
+                </div>
+                <div className="flex items-center justify-between font-mono text-slate-700 text-xs bg-white px-3 py-2 rounded-lg border border-slate-200/60">
+                  <span>
+                    <span className="text-slate-400">user:</span> admin
+                  </span>
+                  <span className="text-slate-300">|</span>
+                  <span>
+                    <span className="text-slate-400">pass:</span> admin123
+                  </span>
+                </div>
+              </div>
+
+              {/* Divider */}
+              <div className="relative flex items-center justify-center">
+                <div className="border-t border-slate-200 w-full" />
+                <span className="bg-white px-3 text-[11px] font-mono text-slate-400 uppercase tracking-wider absolute">
+                  or
+                </span>
+              </div>
+
+              {/* Google Sign-in */}
+              <div className="flex flex-col items-center justify-center pt-1">
+                {googleEnabled ? (
+                  <div className="w-full flex justify-center">
+                    <GoogleLogin
+                      onSuccess={handleGoogleSuccess}
+                      onError={() => setError('Google sign-in failed')}
+                      theme="outline"
+                      shape="rectangular"
+                      text="signin_with"
+                    />
+                  </div>
+                ) : (
+                  <p className="text-center text-xs text-slate-400">
+                    Need an account? <span className="text-emerald-600 font-medium">Contact Farm Administrator</span>
+                  </p>
                 )}
               </div>
+            </div>
 
-              <p className="text-center text-xs text-white/30 pt-2">
-                Don't have an account? <span className="text-indigo-400">Contact Admin</span>
-              </p>
-            </form>
-          </motion.div>
-        </motion.div>
+            {/* Bottom Footer Info */}
+            <div className="p-6 bg-slate-50/80 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500 font-mono">
+              <span className="flex items-center gap-1.5 text-slate-600">
+                <ShieldCheck size={14} className="text-emerald-600" />
+                256-bit TLS Encrypted
+              </span>
+              <span className="text-slate-400">PRISMA ATLAS · Edge v2.4</span>
+            </div>
+          </motion.aside>
+        </div>
       )}
     </AnimatePresence>
   );

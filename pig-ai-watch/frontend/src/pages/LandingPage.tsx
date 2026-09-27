@@ -1,8 +1,8 @@
 /**
  * PRISMA ATLAS — Landing Page Component
  * Crisp Light Mode Theme with cinematic 360° 3D pen camera orbit,
- * live AI simulated alert pop-ups during mid-orbit, and a movie-style lens zoom-in transition
- * that completes fully before seamlessly entering the Demo Video Section.
+ * live AI simulated alert pop-ups during mid-orbit, a movie-style lens zoom-in transition,
+ * and a scroll-driven fullscreen YouTube demo showcase.
  */
 import { useState, useEffect, useRef, useMemo, Suspense } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -19,16 +19,41 @@ import {
   AlertTriangle,
   CheckCircle2,
   Radio,
+  Maximize2,
+  Minimize2,
 } from 'lucide-react';
 
 import PigPen3D from '../components/landing/PigPen3D';
 import BentoGrid from '../components/landing/BentoGrid';
 import LoginModal from '../components/landing/LoginModal';
+import MobileDevice3D from '../components/landing/MobileDevice3D';
 import { useAuthStore } from '../store';
 
 interface InstallPromptEvent extends Event {
   prompt: () => Promise<void>;
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
+}
+
+const TYPED_HEADER_WORDS = [
+  'In Real Time.',
+  'Zero Crushing.',
+  'Instant Alerts.',
+  'Posture Tracking.',
+  '24/7 Watch.',
+];
+
+// ── LIVE SYSTEM DEMO VIDEO URL ──────────────────────────────────────────────
+// Paste ANY YouTube link here (e.g. 'https://youtu.be/VR2NbQUNJMU' or
+// 'https://www.youtube.com/watch?v=...') or a direct MP4 URL!
+export const DEMO_VIDEO_URL = 'https://youtu.be/VR2NbQUNJMU';
+
+function parseDemoVideo(url: string) {
+  const isDirectVideo = /\.(mp4|webm|ogg)(\?.*)?$/i.test(url);
+  const ytMatch = url.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([\w-]{11})/);
+  const embedUrl = ytMatch && ytMatch[1]
+    ? `https://www.youtube-nocookie.com/embed/${ytMatch[1]}?autoplay=1&mute=1&loop=1&playlist=${ytMatch[1]}&controls=1&modestbranding=1&rel=0&playsinline=1`
+    : url;
+  return { isDirectVideo, embedUrl };
 }
 
 /* ─── Aspect-Aware 360° Orbit & Cinematic CCTV Lens Zoom-In Camera ───────── */
@@ -109,6 +134,7 @@ export default function LandingPage() {
   const [loginOpen, setLoginOpen] = useState(false);
   const [mobileMenu, setMobileMenu] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  const [isNavHovered, setIsNavHovered] = useState(false);
   const [scrollProgress, setScrollProgress] = useState(0);
   const [showBoundingBoxes, setShowBoundingBoxes] = useState(true);
 
@@ -116,7 +142,45 @@ export default function LandingPage() {
   const [installMessage, setInstallMessage] = useState('');
   const [appInstalled, setAppInstalled] = useState(false);
 
+  const [videoScrollProgress, setVideoScrollProgress] = useState(0);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
   const mainContainerRef = useRef<HTMLDivElement>(null!);
+  const videoWrapperRef = useRef<HTMLDivElement>(null!);
+  const demoSectionRef = useRef<HTMLDivElement>(null!);
+
+  // Fast typewriter animation for 3rd header text
+  const [typedWordIndex, setTypedWordIndex] = useState(0);
+  const [typedText, setTypedText] = useState('');
+  const [isDeletingWord, setIsDeletingWord] = useState(false);
+
+  useEffect(() => {
+    const currentTargetWord = TYPED_HEADER_WORDS[typedWordIndex % TYPED_HEADER_WORDS.length];
+    let timer: NodeJS.Timeout;
+
+    if (!isDeletingWord) {
+      if (typedText.length < currentTargetWord.length) {
+        timer = setTimeout(() => {
+          setTypedText(currentTargetWord.slice(0, typedText.length + 1));
+        }, 45); // fast typing speed
+      } else {
+        timer = setTimeout(() => {
+          setIsDeletingWord(true);
+        }, 1200); // pause duration on complete word
+      }
+    } else {
+      if (typedText.length > 0) {
+        timer = setTimeout(() => {
+          setTypedText(currentTargetWord.slice(0, typedText.length - 1));
+        }, 22); // fast backspace / delete speed
+      } else {
+        setIsDeletingWord(false);
+        setTypedWordIndex((prev) => (prev + 1) % TYPED_HEADER_WORDS.length);
+      }
+    }
+
+    return () => clearTimeout(timer);
+  }, [typedText, isDeletingWord, typedWordIndex]);
 
   useEffect(() => {
     const lenis = new Lenis({
@@ -132,6 +196,15 @@ export default function LandingPage() {
       const maxScroll = document.documentElement.scrollHeight - window.innerHeight;
       if (maxScroll > 0) {
         setScrollProgress(Math.min(1, Math.max(0, scrollY / maxScroll)));
+      }
+
+      // Track scroll progress within the demo video section for fullscreen scaling
+      if (demoSectionRef.current) {
+        const rect = demoSectionRef.current.getBoundingClientRect();
+        const windowHeight = window.innerHeight;
+        // Progress 0 when section enters bottom, 1 when section occupies center/top
+        const progress = Math.min(1, Math.max(0, (windowHeight - rect.top) / (windowHeight + rect.height * 0.4)));
+        setVideoScrollProgress(progress);
       }
     };
 
@@ -164,14 +237,20 @@ export default function LandingPage() {
     window.addEventListener('beforeinstallprompt', beforeInstallHandler);
     window.addEventListener('appinstalled', appInstalledHandler);
 
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+
     return () => {
       window.removeEventListener('beforeinstallprompt', beforeInstallHandler);
       window.removeEventListener('appinstalled', appInstalledHandler);
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
     };
   }, []);
 
   const goToDashboard = () => {
-    navigate('/app');
+    navigate('/');
   };
 
   const handleInstallApp = async () => {
@@ -186,6 +265,19 @@ export default function LandingPage() {
       setDeferredInstallPrompt(null);
     } else {
       setInstallMessage('PWA can be installed via your browser address bar menu ("Install Application").');
+    }
+  };
+
+  const toggleFullscreen = async () => {
+    if (!videoWrapperRef.current) return;
+    if (!document.fullscreenElement) {
+      try {
+        await videoWrapperRef.current.requestFullscreen();
+      } catch (err) {
+        console.warn('Fullscreen request failed:', err);
+      }
+    } else {
+      await document.exitFullscreen();
     }
   };
 
@@ -213,6 +305,17 @@ export default function LandingPage() {
   const isAlert1Visible = scrollProgress >= 0.22 && scrollProgress <= 0.48;
   const isAlert2Visible = scrollProgress >= 0.28 && scrollProgress <= 0.48;
   const isAlert3Visible = scrollProgress >= 0.34 && scrollProgress <= 0.48;
+
+  // Calculate dynamic on-scroll video expansion metrics
+  const smoothScaleProgress = useMemo(() => {
+    // Normalizes between progress 0.35 and 0.85
+    return Math.min(1, Math.max(0, (videoScrollProgress - 0.35) / 0.50));
+  }, [videoScrollProgress]);
+
+  const videoScale = 0.90 + smoothScaleProgress * 0.10; // 0.90 to 1.00
+  const videoBorderRadius = Math.max(0, (1 - smoothScaleProgress) * 28); // 28px down to 0px for full screen bleed
+  const videoPadding = Math.max(0, (1 - smoothScaleProgress) * 16); // Padding shrinks to allow full bleed
+  const demoVideoConfig = useMemo(() => parseDemoVideo(DEMO_VIDEO_URL), []);
 
   return (
     <div ref={mainContainerRef} className="relative min-h-[650vh] bg-slate-50 text-slate-900 overflow-x-hidden selection:bg-emerald-500 selection:text-white">
@@ -380,7 +483,25 @@ export default function LandingPage() {
       </div>
 
       {/* ── Fixed Light Mode Header with Mobile Navigation Drawer ──────────── */}
-      <header className={`fixed top-0 inset-x-0 z-50 transition-all duration-500 ${scrolled ? 'bg-white/90 backdrop-blur-2xl border-b border-slate-200 shadow-md py-3' : 'py-4 sm:py-6'}`}>
+      {/* Invisible Hover Sensor Zone at the top edge when scrolled to trigger navbar reveal */}
+      {scrolled && !isNavHovered && (
+        <div
+          className="fixed top-0 inset-x-0 h-6 z-50 pointer-events-auto"
+          onMouseEnter={() => setIsNavHovered(true)}
+        />
+      )}
+
+      <header
+        onMouseEnter={() => setIsNavHovered(true)}
+        onMouseLeave={() => setIsNavHovered(false)}
+        className={`fixed top-0 inset-x-0 z-50 transition-all duration-300 ease-out ${
+          !scrolled || isNavHovered || mobileMenu
+            ? scrolled
+              ? 'translate-y-0 opacity-100 bg-white/95 backdrop-blur-2xl border-b border-slate-200/90 shadow-md py-3'
+              : 'translate-y-0 opacity-100 py-4 sm:py-6'
+            : '-translate-y-full opacity-0 pointer-events-none py-3'
+        }`}
+      >
         <div className="max-w-7xl mx-auto flex items-center justify-between px-4 sm:px-6">
           <a href="#" className="flex items-center gap-2 text-base sm:text-lg font-bold tracking-wider group">
             <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-emerald-600 flex items-center justify-center text-white font-black shadow-md shadow-emerald-600/20 group-hover:scale-105 transition-transform">
@@ -392,8 +513,8 @@ export default function LandingPage() {
           </a>
 
           {/* Desktop Nav Links */}
-          <nav className="hidden md:flex items-center gap-8 text-xs font-mono text-slate-600">
-            {['3D Pen', 'Demo Video', 'System Matrix', 'Install App'].map((item) => (
+          <nav className="hidden md:flex items-center gap-7 text-xs font-mono text-slate-600">
+            {['3D Pen', 'Demo Video', 'Features', 'Install App'].map((item) => (
               <a
                 key={item}
                 href={`#${item.toLowerCase().replace(/ /g, '-')}`}
@@ -402,6 +523,12 @@ export default function LandingPage() {
                 {item}
               </a>
             ))}
+            <a
+              href="/setup-guide"
+              className="text-emerald-700 hover:text-emerald-800 bg-emerald-50 hover:bg-emerald-100/80 px-3 py-1.5 rounded-full border border-emerald-200/80 transition-colors duration-200 tracking-wide uppercase font-semibold flex items-center gap-1.5 shadow-sm"
+            >
+              <span>Setup Guide</span>
+            </a>
           </nav>
 
           {/* Desktop Actions */}
@@ -432,7 +559,7 @@ export default function LandingPage() {
         {mobileMenu && (
           <div className="md:hidden border-b border-slate-200 bg-white/95 backdrop-blur-2xl px-6 py-6 space-y-4 font-mono text-xs shadow-xl animate-in slide-in-from-top-2">
             <div className="flex flex-col space-y-3">
-              {['3D Pen', 'Demo Video', 'System Matrix', 'Install App'].map((item) => (
+              {['3D Pen', 'Demo Video', 'Features', 'Install App'].map((item) => (
                 <a
                   key={item}
                   href={`#${item.toLowerCase().replace(/ /g, '-')}`}
@@ -442,6 +569,14 @@ export default function LandingPage() {
                   {item}
                 </a>
               ))}
+              <a
+                href="/setup-guide"
+                onClick={() => setMobileMenu(false)}
+                className="text-emerald-700 hover:text-emerald-800 font-semibold py-1 uppercase tracking-wider flex items-center justify-between bg-emerald-50/80 px-3 py-2 rounded-lg border border-emerald-200/60"
+              >
+                <span>Setup Guide</span>
+                <span className="text-[10px] bg-emerald-600 text-white px-1.5 py-0.5 rounded font-mono font-bold">DOCS</span>
+              </a>
             </div>
             <div className="pt-3 border-t border-slate-200 flex flex-col gap-2.5">
               {token ? (
@@ -463,65 +598,84 @@ export default function LandingPage() {
         )}
       </header>
 
-      {/* ── STAGE 1: LIGHT MODE HERO SECTION ─────────────────────────────── */}
-      <section className="relative z-10 min-h-screen flex flex-col items-center justify-center px-4 sm:px-6 pt-28 sm:pt-32 pb-16 sm:pb-20 text-center">
-        <div className="inline-flex items-center gap-2 text-[11px] sm:text-xs font-mono text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-full px-3.5 sm:px-4 py-1.5 mb-6 sm:mb-8 shadow-sm">
-          <span className="relative flex h-2 w-2">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
-            <span className="inline-flex rounded-full h-2 w-2 bg-emerald-600" />
-          </span>
-          AI-POWERED LIVESTOCK MONITORING
+      {/* ── STAGE 1: LIGHT MODE HERO SECTION WITH 3D MOBILE MODEL ON THE SIDE ── */}
+      <section className="relative z-10 min-h-screen flex flex-col justify-center px-4 sm:px-6 lg:px-8 pt-28 sm:pt-32 pb-16 sm:pb-20">
+        <div className="max-w-7xl mx-auto w-full grid lg:grid-cols-12 gap-8 lg:gap-10 items-center">
+          
+          {/* Left Column: Hero Headline, Copy, Action Buttons & Realtime Metrics */}
+          <div className="lg:col-span-7 flex flex-col items-center lg:items-start text-center lg:text-left">
+            <div className="inline-flex items-center gap-2 text-[11px] sm:text-xs font-mono text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-full px-3.5 sm:px-4 py-1.5 mb-5 sm:mb-6 shadow-sm">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                <span className="inline-flex rounded-full h-2 w-2 bg-emerald-600" />
+              </span>
+              PIGLET CRUSHING PREVENTION & MONITORING
+            </div>
+
+            <h1 className="text-4xl sm:text-6xl md:text-7xl font-black tracking-tight leading-[1.02] mb-4 sm:mb-5 text-slate-900 break-words">
+              Protect Piglets.{' '}
+              <span className="bg-gradient-to-r from-slate-900 via-slate-800 to-emerald-600 bg-clip-text text-transparent block sm:inline mt-1 sm:mt-0">
+                {typedText || ' '}
+                <span className="inline-block w-[3px] h-[0.82em] bg-emerald-600 ml-1.5 translate-y-[2px] animate-pulse" />
+              </span>
+            </h1>
+
+            <p className="text-sm sm:text-lg text-slate-600 max-w-xl leading-relaxed mb-6 sm:mb-8 font-normal">
+              <strong>P</strong>iglet <strong>R</strong>ealtime <strong>I</strong>dentification and <strong>S</strong>ow <strong>M</strong>onitoring <strong>A</strong>ssistant. Continuously tracks sow posture in farrowing crates and alerts caretakers before piglets get crushed.
+            </p>
+
+            <div className="flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-3 sm:gap-4 w-full sm:w-auto max-w-sm sm:max-w-none mb-8 sm:mb-10">
+              <button
+                onClick={handleInstallApp}
+                className="w-full sm:w-auto flex items-center justify-center gap-2.5 px-6 sm:px-8 py-3.5 sm:py-4 rounded-full bg-emerald-600 hover:bg-emerald-500 text-xs sm:text-sm font-bold text-white shadow-xl shadow-emerald-600/25 transition hover:scale-105"
+              >
+                <Download size={18} /> {appInstalled ? 'App Installed' : 'Install Prisma App'}
+              </button>
+
+              <button
+                onClick={() => token ? goToDashboard() : setLoginOpen(true)}
+                className="w-full sm:w-auto flex items-center justify-center gap-2.5 px-6 sm:px-8 py-3.5 sm:py-4 rounded-full border border-slate-300 hover:bg-slate-100 text-xs sm:text-sm font-semibold text-slate-800 backdrop-blur-md transition hover:scale-105"
+              >
+                <Globe size={18} /> Launch Web Dashboard
+              </button>
+            </div>
+
+            {/* Hero Specs Bar */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4 p-4 sm:p-5 rounded-2xl bg-white/90 border border-slate-200/80 backdrop-blur-2xl w-full text-center shadow-lg shadow-slate-200/40">
+              <div>
+                <div className="text-xl sm:text-2xl font-black text-emerald-600 font-mono">~50ms</div>
+                <div className="text-[10px] font-mono text-slate-500 uppercase mt-0.5 font-medium">Alert Response</div>
+              </div>
+              <div>
+                <div className="text-xl sm:text-2xl font-black text-emerald-600 font-mono">99.2%</div>
+                <div className="text-[10px] font-mono text-slate-500 uppercase mt-0.5 font-bold">Detection Accuracy</div>
+              </div>
+              <div>
+                <div className="text-xl sm:text-2xl font-black text-slate-900 font-mono">6 Postures</div>
+                <div className="text-[10px] font-mono text-slate-500 uppercase mt-0.5 font-medium">Sow Posture Classes</div>
+              </div>
+              <div>
+                <div className="text-xl sm:text-2xl font-black text-slate-900 font-mono">24/7</div>
+                <div className="text-[10px] font-mono text-slate-500 uppercase mt-0.5 font-medium">Live Camera Feeds</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Right Column: 3D Perspective Mobile Model with Image Placeholder */}
+          <div className="lg:col-span-5 flex flex-col items-center justify-center mt-6 lg:mt-0">
+            {/* Replace imageSrc with your custom screenshot URL (e.g. '/assets/your_mobile_screenshot.png') */}
+            <MobileDevice3D
+              imageSrc="/assets/philippine_pig_farm.png"
+            />
+            <span className="text-[10px] font-mono text-slate-400 mt-4 tracking-wider uppercase">
+              Mobile Web App & Instant Push Alerts
+            </span>
+          </div>
         </div>
 
-        <h1 className="text-4xl sm:text-7xl md:text-8xl lg:text-9xl font-black tracking-tight leading-[1.0] sm:leading-[0.95] max-w-6xl mb-4 sm:mb-6 text-slate-900 break-words">
-          Precision Intelligence.{' '}
-          <span className="bg-gradient-to-r from-slate-900 via-slate-800 to-emerald-600 bg-clip-text text-transparent block sm:inline mt-1 sm:mt-0">
-            Redefined.
-          </span>
-        </h1>
-
-        <p className="text-sm sm:text-xl text-slate-600 max-w-2xl leading-relaxed mb-8 sm:mb-10 font-normal px-2">
-          <strong>P</strong>iglet <strong>R</strong>ealtime <strong>I</strong>dentification and <strong>S</strong>ow <strong>M</strong>onitoring <strong>A</strong>ssistant. Real-time crushing risk assessment, sow posture classification, and multi-camera stream monitoring.
-        </p>
-
-        <div className="flex flex-col sm:flex-row items-center justify-center gap-3 sm:gap-4 w-full sm:w-auto max-w-sm sm:max-w-none mb-12 sm:mb-16 px-4 sm:px-0">
-          <button
-            onClick={handleInstallApp}
-            className="w-full sm:w-auto flex items-center justify-center gap-2.5 px-6 sm:px-8 py-3.5 sm:py-4 rounded-full bg-emerald-600 hover:bg-emerald-500 text-xs sm:text-sm font-bold text-white shadow-xl shadow-emerald-600/25 transition hover:scale-105"
-          >
-            <Download size={18} /> {appInstalled ? 'App Installed' : 'Install Prisma App'}
-          </button>
-
-          <button
-            onClick={() => token ? goToDashboard() : setLoginOpen(true)}
-            className="w-full sm:w-auto flex items-center justify-center gap-2.5 px-6 sm:px-8 py-3.5 sm:py-4 rounded-full border border-slate-300 hover:bg-slate-100 text-xs sm:text-sm font-semibold text-slate-800 backdrop-blur-md transition hover:scale-105"
-          >
-            <Globe size={18} /> Launch Web Dashboard
-          </button>
-        </div>
-
-        {/* Hero Specs Bar */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-6 p-4 sm:p-6 rounded-3xl bg-white/90 border border-slate-200/80 backdrop-blur-2xl max-w-4xl w-full text-center shadow-xl shadow-slate-200/50">
-          <div>
-            <div className="text-xl sm:text-3xl font-black text-emerald-600 font-mono">~50ms</div>
-            <div className="text-[10px] sm:text-[11px] font-mono text-slate-500 uppercase mt-0.5 font-medium">Inference Speed</div>
-          </div>
-          <div>
-            <div className="text-xl sm:text-3xl font-black text-emerald-600 font-mono">99.2%</div>
-            <div className="text-[10px] sm:text-[11px] font-mono text-slate-500 uppercase mt-0.5 font-bold">Detection Precision</div>
-          </div>
-          <div>
-            <div className="text-xl sm:text-3xl font-black text-slate-900 font-mono">6 Class</div>
-            <div className="text-[10px] sm:text-[11px] font-mono text-slate-500 uppercase mt-0.5 font-medium">YOLOv11 Postures</div>
-          </div>
-          <div>
-            <div className="text-xl sm:text-3xl font-black text-slate-900 font-mono">24/7</div>
-            <div className="text-[10px] sm:text-[11px] font-mono text-slate-500 uppercase mt-0.5 font-medium">Multi-Feed Sync</div>
-          </div>
-        </div>
-
-        <div className="mt-12 sm:mt-16 flex flex-col items-center gap-2 text-slate-400 text-[11px] sm:text-xs font-mono">
-          <span>SCROLL TO UNVEIL 3D PEN</span>
+        {/* Scroll Indicator */}
+        <div className="mt-10 sm:mt-14 flex flex-col items-center gap-2 text-slate-400 text-[11px] sm:text-xs font-mono">
+          <span>SCROLL TO EXPLORE PEN</span>
           <div className="w-4 h-7 sm:w-5 sm:h-8 rounded-full border-2 border-slate-300 flex items-start justify-center p-1">
             <div className="w-1 h-2 rounded-full bg-emerald-600 animate-bounce" />
           </div>
@@ -536,9 +690,20 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ── STAGE 2.5: HERO VIDEO SHOWCASE SECTION (Entered from CCTV Lens) ── */}
-      <section id="demo-video" className="relative z-20 py-20 sm:py-28 bg-white border-t border-b border-slate-200">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6">
+      {/* ── STAGE 2.5: HERO VIDEO SHOWCASE SECTION (Entered from CCTV Lens with Scroll Fullscreen Animation) ── */}
+      <section
+        id="demo-video"
+        ref={demoSectionRef}
+        className="relative z-20 py-20 sm:py-28 bg-white border-t border-b border-slate-200 transition-all duration-300"
+      >
+        <div
+          className="mx-auto transition-all duration-500 ease-out"
+          style={{
+            maxWidth: smoothScaleProgress > 0.6 ? '100%' : '72rem',
+            paddingLeft: `${videoPadding}px`,
+            paddingRight: `${videoPadding}px`,
+          }}
+        >
           <div className="text-center max-w-3xl mx-auto mb-10 sm:mb-14">
             <span className="inline-block text-xs font-mono font-semibold tracking-widest uppercase text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-full px-4 py-1.5 mb-3 sm:mb-4 shadow-sm">
               LIVE SYSTEM DEMO
@@ -551,35 +716,61 @@ export default function LandingPage() {
             </p>
           </div>
 
-          {/* High-Definition Hero Video Player Container */}
-          <div className="relative rounded-2xl sm:rounded-3xl overflow-hidden bg-slate-950 border border-slate-200 shadow-2xl shadow-slate-300/60 group">
+          {/* High-Definition Hero Video Player Container with On-Scroll Fullscreen Animation */}
+          <div
+            ref={videoWrapperRef}
+            className="relative overflow-hidden bg-slate-950 border border-slate-200 shadow-2xl shadow-slate-300/60 transition-all duration-300 ease-out mx-auto group"
+            style={{
+              transform: `scale(${videoScale})`,
+              borderRadius: `${videoBorderRadius}px`,
+              transformOrigin: 'center center',
+            }}
+          >
             {/* Live Telemetry Overlay Header */}
-            <div className="absolute top-0 inset-x-0 z-20 p-3 sm:p-6 flex items-center justify-between bg-gradient-to-b from-slate-950/80 via-slate-950/40 to-transparent pointer-events-none text-[10px] sm:text-xs font-mono text-white">
+            <div className="absolute top-0 inset-x-0 z-20 p-3 sm:p-6 flex items-center justify-between bg-gradient-to-b from-slate-950/85 via-slate-950/40 to-transparent pointer-events-none text-[10px] sm:text-xs font-mono text-white">
               <div className="flex items-center gap-2 sm:gap-3">
                 <span className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 font-bold">
                   <span className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-emerald-400 animate-ping" />
                   LIVE DEMO STREAM
                 </span>
-                <span className="hidden sm:inline text-white/70">RTSP Feed #01 • 1080p 60fps</span>
+                <span className="hidden sm:inline text-white/70">YOLOv11 Inference • 1080p 60fps</span>
               </div>
-              <div className="px-2.5 sm:px-3 py-1 rounded-full bg-black/60 border border-white/10 text-white/80">
-                Inference: ~48ms
+              <div className="flex items-center gap-2 pointer-events-auto">
+                <div className="px-2.5 sm:px-3 py-1 rounded-full bg-black/60 border border-white/10 text-white/80">
+                  Inference: ~48ms
+                </div>
+                <button
+                  onClick={toggleFullscreen}
+                  className="p-1.5 rounded-full bg-black/60 border border-white/10 hover:bg-emerald-600 text-white transition flex items-center justify-center"
+                  title="Toggle Fullscreen"
+                >
+                  {isFullscreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
+                </button>
               </div>
             </div>
 
-            {/* Video Element */}
-            <video
-              className="w-full aspect-video object-cover"
-              controls
-              autoPlay
-              muted
-              loop
-              playsInline
-              poster="/assets/philippine_pig_farm.png"
-            >
-              <source src="https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4" type="video/mp4" />
-              Your browser does not support the video tag.
-            </video>
+            {/* Embedded YouTube / MP4 Video with Autoplay and Fullscreen Support */}
+            <div className="w-full aspect-video bg-black flex items-center justify-center">
+              {demoVideoConfig.isDirectVideo ? (
+                <video
+                  src={DEMO_VIDEO_URL}
+                  autoPlay
+                  loop
+                  muted
+                  playsInline
+                  controls
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <iframe
+                  src={demoVideoConfig.embedUrl}
+                  title="PRISMA ATLAS Live System Demo"
+                  className="w-full h-full border-0"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                  allowFullScreen
+                />
+              )}
+            </div>
           </div>
         </div>
       </section>

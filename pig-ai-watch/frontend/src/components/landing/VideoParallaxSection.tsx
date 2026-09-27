@@ -36,7 +36,7 @@ export default function VideoParallaxSection({ scrollProgress }: VideoParallaxSe
     <section id="demo-video" ref={containerRef} className="relative z-20 min-h-[220vh] bg-slate-100">
       {/* Sticky Fullscreen Viewport Wrapper */}
       <div className="sticky top-0 h-screen w-full overflow-hidden flex flex-col justify-between">
-        
+
         {/* Fullscreen Masked Video Container */}
         <div
           className="absolute inset-0 transition-all duration-300 ease-out overflow-hidden bg-slate-950 shadow-2xl"
@@ -50,7 +50,7 @@ export default function VideoParallaxSection({ scrollProgress }: VideoParallaxSe
             style={{
               transform: `scale(${videoScale}) translateY(${videoTranslateY}px)`,
             }}
-            src="https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4"
+            src="https://youtu.be/VR2NbQUNJMU"
             autoPlay
             loop
             muted

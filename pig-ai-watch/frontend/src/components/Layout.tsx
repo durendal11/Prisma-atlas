@@ -15,7 +15,8 @@ import {
   Camera,
   Eye,
   BarChart3,
-  CalendarDays
+  CalendarDays,
+  BookOpen
 } from 'lucide-react';
 import { useState } from 'react';
 import { useAuthStore, useAlertStore } from '@/store';
@@ -37,6 +38,7 @@ const navigation = [
   { name: 'Statistics', href: '/stats', icon: BarChart3 },
   { name: 'Recording Schedule', href: '/recording-schedule', icon: CalendarDays },
   { name: 'Camera Setup', href: '/camera-setup', icon: Camera },
+  { name: 'Setup Guide', href: '/setup-guide', icon: BookOpen },
   { name: 'Settings', href: '/settings', icon: Settings },
 ];
 

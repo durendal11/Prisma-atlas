@@ -143,13 +143,13 @@ export default function BentoGrid({ scrollProgress = 0 }: BentoGridProps) {
         }}
       >
         <span className="inline-block text-[10px] sm:text-xs font-mono font-semibold tracking-widest uppercase text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-full px-4 py-1.5 mb-3 sm:mb-4">
-          SYSTEM MATRIX
+          FEATURES
         </span>
         <h2 className="text-3xl md:text-6xl font-extrabold tracking-tight text-slate-900 mb-3 sm:mb-4">
-          Real-Time <span className="bg-gradient-to-r from-slate-900 via-slate-800 to-emerald-600 bg-clip-text text-transparent">AI Swine Telemetry</span>
+          Smart Farrowing <span className="bg-gradient-to-r from-slate-900 via-slate-800 to-emerald-600 bg-clip-text text-transparent">Pen Monitoring</span>
         </h2>
         <p className="text-xs sm:text-base text-slate-600 max-w-2xl mx-auto leading-relaxed">
-          Powered by browser-side ONNX Runtime Web inference, YOLOv11 object detection, and edge camera stream synchronization.
+          Detect sow posture changes, spot piglets in danger zones, and alert caretakers the second movement is detected.
         </p>
       </div>
 
