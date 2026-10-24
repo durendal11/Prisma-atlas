@@ -23,3 +23,12 @@ node_modules/
 pig-ai-watch/edge/buffer.db
 pig-ai-watch/edge/buffer.db-shm
 pig-ai-watch/edge/buffer.db-wal
+
+# Local database & temp files
+/pig_ai_watch.db
+*.key
+*.crt
+*.timestamp-*.mjs
+*.exe
+
+

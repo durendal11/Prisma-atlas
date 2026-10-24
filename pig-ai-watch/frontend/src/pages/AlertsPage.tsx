@@ -8,6 +8,7 @@ import { PageInfoButton } from '@/components/ui/PageInfoModal';
 import { 
   Filter, 
   CheckCircle, 
+  CheckCircle2,
   Bell, 
   AlertTriangle,
   RefreshCw,
@@ -26,7 +27,16 @@ import toast from 'react-hot-toast';
 import { alertsApi } from '@/api';
 
 const severityOptions = ['all', 'critical', 'high', 'medium', 'low'];
-const typeOptions = ['all', 'crushing_risk', 'posture_change', 'piglet_count_change', 'system'];
+const typeOptions = [
+  'all',
+  'crushing_risk',
+  'crushing_watch',
+  'crushing_all_clear',
+  'crushing_escalated',
+  'posture_change',
+  'piglet_count_change',
+  'system',
+];
 
 export default function AlertsPage() {
   const { t } = useTranslation();
@@ -114,6 +124,31 @@ export default function AlertsPage() {
     // Farrowing related navigation fallback
     if (alertType.includes('farrowing') || alertType.includes('gestation') || alertTitle.includes('farrowing')) {
       navigate('/farrowing');
+    }
+  };
+
+  // "Pen is Fine" dismiss handler
+  const [dismissingIds, setDismissingIds] = useState<Set<number>>(new Set());
+  const handleDismissPenFine = async (alertId: number) => {
+    setDismissingIds((prev) => new Set(prev).add(alertId));
+    try {
+      const token = localStorage.getItem('access_token');
+      const res = await fetch(`/api/alerts/${alertId}/dismiss-pen-fine`, {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) throw new Error('failed');
+      const data = await res.json();
+      toast.success(
+        data.outcome === 'prevented'
+          ? '✅ Marked as prevented — great job!'
+          : '✅ Pen checked — marked as unresolved'
+      );
+      refetch();
+    } catch {
+      toast.error('Failed to dismiss alert');
+    } finally {
+      setDismissingIds((prev) => { const s = new Set(prev); s.delete(alertId); return s; });
     }
   };
 
@@ -301,17 +336,54 @@ export default function AlertsPage() {
             <p className="text-sm text-gray-400 dark:text-slate-500 mt-1">Try adjusting your filters</p>
           </div>
         ) : (
-          alerts?.map((alert, index) => (
-            <div key={alert.id} className="animate-fade-in-up" style={{ animationDelay: `${index * 50}ms` }}>
-              <SwipeableAlertCard
-                alert={alert}
-                mode="active"
-                onClick={() => handleAlertClick(alert)}
-                onResolve={() => handleResolveAlert(alert.id)}
-                onArchive={() => handleArchiveSingle(alert.id)}
-              />
-            </div>
-          ))
+          alerts?.map((alert, index) => {
+            const isCrushingRisk = alert.type === 'crushing_risk';
+            const isWatch = alert.type === 'crushing_watch';
+            const isAllClear = alert.type === 'crushing_all_clear' || alert.event_state === 'all_clear';
+            const canDismiss = isCrushingRisk && alert.crushing_event_id && !alert.is_resolved;
+            const isDismissing = dismissingIds.has(alert.id);
+
+            return (
+              <div key={alert.id} className="animate-fade-in-up" style={{ animationDelay: `${index * 50}ms` }}>
+                {/* State badge for crushing alerts */}
+                {(isWatch || isAllClear) && (
+                  <div className={clsx(
+                    'flex items-center gap-1.5 px-3 py-1 mb-1 text-[11px] font-semibold rounded-t-xl w-fit',
+                    isWatch && 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300',
+                    isAllClear && 'bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-300',
+                  )}>
+                    {isWatch && <span className="inline-block w-2 h-2 rounded-full bg-amber-400 animate-pulse" />}
+                    {isAllClear && <CheckCircle2 className="h-3 w-3" />}
+                    {isWatch ? 'Watching…' : 'All Clear'}
+                  </div>
+                )}
+                <SwipeableAlertCard
+                  alert={alert}
+                  mode="active"
+                  onClick={() => handleAlertClick(alert)}
+                  onResolve={() => handleResolveAlert(alert.id)}
+                  onArchive={() => handleArchiveSingle(alert.id)}
+                />
+                {/* "Pen is Fine" dismiss button — only for active crushing_risk alerts */}
+                {canDismiss && (
+                  <button
+                    id={`dismiss-pen-fine-${alert.id}`}
+                    onClick={() => handleDismissPenFine(alert.id)}
+                    disabled={isDismissing}
+                    className={clsx(
+                      'w-full flex items-center justify-center gap-2 px-4 py-2.5',
+                      'rounded-b-2xl -mt-1 text-sm font-semibold transition-all duration-200',
+                      'bg-green-500 hover:bg-green-600 active:bg-green-700 text-white shadow-md',
+                      'disabled:opacity-60 disabled:cursor-wait',
+                    )}
+                  >
+                    <CheckCircle2 className={clsx('h-4 w-4', isDismissing && 'animate-spin')} />
+                    {isDismissing ? 'Saving…' : '✓ Pen is Fine — I Checked'}
+                  </button>
+                )}
+              </div>
+            );
+          })
         )}
       </div>
 

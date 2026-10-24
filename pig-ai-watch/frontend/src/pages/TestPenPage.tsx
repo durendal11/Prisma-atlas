@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, useMemo } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import { PageInfoButton, PageInfoModal } from '@/components/ui/PageInfoModal';
 import { useQuery } from '@tanstack/react-query';
 import { onnxDetector, Detection, DetectionResult, drawRiskHighlights } from '@/utils/onnxDetector';
@@ -8,6 +8,7 @@ import {
   computeRestlessnessScore,
   computeFarrowingLikelihood,
   computeStagnationLevel,
+  computeAgeAdjustedCrushingRisk,
 } from '@/utils/farrowingMetrics';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip,
@@ -18,10 +19,11 @@ import { simulationEngine } from '@/services/simulationEngine';
 import { useQueryClient } from "@tanstack/react-query";
 import { useTranslation } from '@/hooks/useTranslation';
 import { useApi } from '@/hooks/useApi';
+import { useDeviceMode } from '@/hooks/useDeviceMode';
 import { useTestPenStore, type SowBehaviorProfile } from '@/store';
 import { useSimulationStore, type SimulationEvent } from '@/store/simulationStore';
 import { useFarrowingStore, type FarrowingSystemState } from '@/store/farrowingStore';
-import { CrushingRiskGauge } from '@/components';
+import { CrushingRiskGauge, SystemTour, TourButton, type TourStep } from '@/components';
 import { AIPenAdvisoryCard } from '@/components/AIPenAdvisoryCard';
 import type { Sow, FarrowingRecord, FarrowingStats, SowUpdate, Alert, Pen } from '@/types';
 import {
@@ -63,6 +65,16 @@ import {
   Play,
   Pause,
   Info,
+  Smartphone,
+  Monitor,
+  VideoOff,
+  GraduationCap,
+  CheckCircle2,
+  PlayCircle,
+  RotateCcw,
+  Camera,
+  LayoutDashboard,
+  ChevronRight,
 } from 'lucide-react';
 import clsx from 'clsx';
 import toast from 'react-hot-toast';
@@ -78,7 +90,120 @@ const POSTURE_COLORS: Record<string, string> = {
 };
 
 // ── Tab type ────────────────────────────────────────────────────────────────
-type Tab = 'overview' | 'detections' | 'behavior' | 'farrowing' | 'live-monitor';
+type Tab = 'overview' | 'live-monitor' | 'farrowing' | 'health';
+
+// ── Welfare Insights ────────────────────────────────────────────────────────
+interface WelfareInsight {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  status: 'good' | 'warning' | 'critical';
+  detail: string;
+}
+
+function computeWelfareInsights(
+  sow: Sow | null,
+  farrowingRecords: FarrowingRecord[],
+  _alerts: Alert[],
+  penStatus: { crushing_risk: number; piglet_count: number; sow_posture: string } | null
+): WelfareInsight[] {
+  const insights: WelfareInsight[] = [];
+  const activeRecord = farrowingRecords.find((r) => !r.farrowing_completed);
+  const risk = penStatus?.crushing_risk ?? 0;
+  const pigletCount = penStatus?.piglet_count ?? 0;
+  const posture = penStatus?.sow_posture ?? 'unknown';
+
+  const daysSince = activeRecord?.farrowing_started
+    ? Math.floor((Date.now() - new Date(activeRecord.farrowing_started).getTime()) / 86400000)
+    : null;
+  const crushResult = computeAgeAdjustedCrushingRisk({ rawRisk: risk, daysSinceFarrowing: daysSince });
+  insights.push({
+    icon: <Shield className="h-5 w-5" />,
+    label: 'Crushing Risk',
+    value: `${Math.round(crushResult.adjustedRisk * 100)}%`,
+    status: crushResult.level === 'high' ? 'critical' : crushResult.level === 'elevated' ? 'warning' : 'good',
+    detail: crushResult.message,
+  });
+
+  const postureNorm = posture.replace(/_/g, ' ').replace(/-/g, ' ');
+  const isSleeping = /sleep|lying|lateral/i.test(posture);
+  const isFeeding = /feed|stand/i.test(posture);
+  insights.push({
+    icon: <Activity className="h-5 w-5" />,
+    label: 'Sow Posture',
+    value: postureNorm || 'Unknown',
+    status: isSleeping && risk >= 0.5 ? 'warning' : 'good',
+    detail: isSleeping
+      ? 'Sow is lying down. Ensure piglets have safe retreat area to avoid overlay.'
+      : isFeeding
+      ? 'Sow is active/feeding. Good sign of appetite and mobility.'
+      : 'Unable to determine posture — verify camera angle.',
+  });
+
+  const expectedPiglets = activeRecord?.born_alive ?? sow?.current_litter_size ?? 0;
+  if (expectedPiglets > 0) {
+    const missing = expectedPiglets - pigletCount;
+    insights.push({
+      icon: <Baby className="h-5 w-5" />,
+      label: 'Piglet Visibility',
+      value: `${pigletCount} / ${expectedPiglets}`,
+      status: missing >= 3 ? 'critical' : missing >= 1 ? 'warning' : 'good',
+      detail:
+        missing >= 3
+          ? `${missing} piglets not visible. Check for hiding, crushing, or camera blind spots.`
+          : missing >= 1
+          ? `${missing} piglet(s) may be out of camera view. Verify physically if needed.`
+          : 'All expected piglets are visible.',
+    });
+  }
+
+  if (sow?.status === 'lactating' || activeRecord) {
+    const daysSinceFarrowing = activeRecord?.farrowing_started
+      ? Math.floor((Date.now() - new Date(activeRecord.farrowing_started).getTime()) / 86400000)
+      : null;
+    insights.push({
+      icon: <Heart className="h-5 w-5" />,
+      label: 'Lactation Status',
+      value: daysSinceFarrowing !== null ? `Day ${daysSinceFarrowing}` : 'Active',
+      status: daysSinceFarrowing !== null && daysSinceFarrowing > 21 ? 'warning' : 'good',
+      detail:
+        daysSinceFarrowing !== null
+          ? daysSinceFarrowing <= 3
+            ? 'Critical neonatal period — ensure colostrum intake and warmth for piglets.'
+            : daysSinceFarrowing <= 7
+            ? 'Early lactation. Monitor piglet weight gain and sow feed intake.'
+            : daysSinceFarrowing <= 21
+            ? 'Mid-lactation. Sow should be eating well. Check piglets for uniformity.'
+            : 'Late lactation — consider weaning plan.'
+          : 'Monitor sow lactation behavior and piglet suckling patterns.',
+    });
+  }
+
+  return insights;
+}
+
+const TUTORIAL_STORAGE_KEY = 'prisma_atlas_onboarding_training';
+
+interface TrainingProgress {
+  upload_video: boolean;
+  observe_detections: boolean;
+  respond_alert: boolean;
+  complete_training: boolean;
+  completedAt?: string;
+}
+
+const getInitialProgress = (): TrainingProgress => {
+  try {
+    const raw = localStorage.getItem(TUTORIAL_STORAGE_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch {}
+  return {
+    upload_video: false,
+    observe_detections: false,
+    respond_alert: false,
+    complete_training: false,
+  };
+};
 
 const TARGET_FPS = 10;
 const FRAME_INTERVAL = 1000 / TARGET_FPS;
@@ -121,6 +246,42 @@ export default function TestPenPage() {
   const [videoCurrentTime, setVideoCurrentTime] = useState(0);
   const [videoDuration, setVideoDuration] = useState(0);
   const [isInfoOpen, setIsInfoOpen] = useState(false);
+
+  const location = useLocation();
+  const { isDesktop, isMobile, preference, setSimulatedMode } = useDeviceMode();
+  const lastReactUpdateRef = useRef(0);
+  const lastFpsUpdateRef = useRef(0);
+
+  // Pause video and cancel detection loop when on another page, in mobile mode, or tab hidden
+  useEffect(() => {
+    if (location.pathname !== '/test-pen' || isMobile) {
+      if (videoPlaying) {
+        videoRef.current?.pause();
+        setVideoPlaying(false);
+      }
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current);
+        animationRef.current = null;
+      }
+    }
+  }, [location.pathname, isMobile, videoPlaying]);
+
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (document.hidden) {
+        if (videoRef.current && !videoRef.current.paused) {
+          videoRef.current.pause();
+          setVideoPlaying(false);
+        }
+        if (animationRef.current) {
+          cancelAnimationFrame(animationRef.current);
+          animationRef.current = null;
+        }
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => document.removeEventListener('visibilitychange', handleVisibility);
+  }, []);
 
   // Farrowing state
   const [sow, setSow] = useState<Sow | null>(null);
@@ -184,7 +345,42 @@ export default function TestPenPage() {
   const simPigletDropAlert = useSimulationStore((s) => s.pigletDropAlert);
   const simSustainedHighRisk = useSimulationStore((s) => s.sustainedHighRisk);
   const simExpectedPiglets = useSimulationStore((s) => s.expectedPigletCount);
+  const activeClarification = useSimulationStore((s) => s.activeClarification);
+  const clarificationHistory = useSimulationStore((s) => s.clarificationHistory);
   const simStats = useMemo(() => simStore.getStats(), [simStore, simEvents.length, simStore.framesProcessed]);
+
+  // Tutorial checklist state
+  const [tutorialProgress, setTutorialProgress] = useState<TrainingProgress>(getInitialProgress);
+  const [showTutorialPanel, setShowTutorialPanel] = useState(true);
+
+  const markTutorialStep = useCallback((step: keyof TrainingProgress) => {
+    setTutorialProgress((prev) => {
+      if (prev[step]) return prev;
+      const next = { ...prev, [step]: true };
+      if (next.upload_video && next.observe_detections && next.respond_alert) {
+        next.complete_training = true;
+        if (!next.completedAt) next.completedAt = new Date().toISOString();
+      }
+      try {
+        localStorage.setItem(TUTORIAL_STORAGE_KEY, JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  }, []);
+
+  const resetTutorial = useCallback(() => {
+    const initial = {
+      upload_video: false,
+      observe_detections: false,
+      respond_alert: false,
+      complete_training: false,
+    };
+    setTutorialProgress(initial);
+    try {
+      localStorage.setItem(TUTORIAL_STORAGE_KEY, JSON.stringify(initial));
+    } catch {}
+    toast.success('Onboarding tutorial reset');
+  }, []);
 
   // Farrowing engine store
   const farrowingState = useFarrowingStore((s) => s.systemState);
@@ -262,8 +458,8 @@ export default function TestPenPage() {
     }
   }, [modelLoaded, t]);
 
-  // ── Draw detections ───────────────────────────────────────────────────────
-  const drawDetections = useCallback((detections: Detection[], inferenceTime: number, proximityAlerts?: ProximityAlert[]) => {
+  // ── Draw detections (Direct canvas rendering, 0 React re-renders) ──────────
+  const drawDetections = useCallback((detections: Detection[], inferenceTime: number, proximityAlerts?: ProximityAlert[], fpsValue: number = 0) => {
     const overlay = overlayRef.current;
     const dc = displayCanvasRef.current;
     // displayCanvas is sized to the container; overlay must match it exactly for bbox alignment
@@ -271,9 +467,12 @@ export default function TestPenPage() {
     const ctx = overlay.getContext('2d');
     if (!ctx) return;
 
-    overlay.width = dc.width;
-    overlay.height = dc.height;
-    ctx.clearRect(0, 0, overlay.width, overlay.height);
+    if (overlay.width !== dc.width || overlay.height !== dc.height) {
+      overlay.width = dc.width;
+      overlay.height = dc.height;
+    } else {
+      ctx.clearRect(0, 0, overlay.width, overlay.height);
+    }
 
     const { width: inputW, height: inputH } = onnxDetector.getInputSize();
     const scaleX = overlay.width / inputW;
@@ -286,25 +485,25 @@ export default function TestPenPage() {
       const color = CATEGORY_COLORS[det.category] || CLASS_COLORS[det.className] || CLASS_COLORS.default;
 
       ctx.strokeStyle = color;
-      ctx.lineWidth = 0.6;
+      ctx.lineWidth = 1;
       ctx.strokeRect(sx1, sy1, w, h);
 
       const cs = 8;
       ctx.fillStyle = color;
-      ctx.fillRect(sx1, sy1, cs, 1); ctx.fillRect(sx1, sy1, 1, cs);
-      ctx.fillRect(sx2 - cs, sy1, cs, 1); ctx.fillRect(sx2 - 1, sy1, 1, cs);
-      ctx.fillRect(sx1, sy2 - 1, cs, 1); ctx.fillRect(sx1, sy2 - cs, 1, cs);
-      ctx.fillRect(sx2 - cs, sy2 - 1, cs, 1); ctx.fillRect(sx2 - 1, sy2 - cs, 1, cs);
+      ctx.fillRect(sx1, sy1, cs, 2); ctx.fillRect(sx1, sy1, 2, cs);
+      ctx.fillRect(sx2 - cs, sy1, cs, 2); ctx.fillRect(sx2 - 2, sy1, 2, cs);
+      ctx.fillRect(sx1, sy2 - 2, cs, 2); ctx.fillRect(sx1, sy2 - cs, 2, cs);
+      ctx.fillRect(sx2 - cs, sy2 - 2, cs, 2); ctx.fillRect(sx2 - 2, sy2 - cs, 2, cs);
 
       const categoryLabel = det.category !== 'unknown' ? det.category.charAt(0).toUpperCase() + det.category.slice(1) : '';
       const label = `${categoryLabel ? categoryLabel + ' • ' : ''}${det.displayName} ${(det.confidence * 100).toFixed(0)}%`;
-      ctx.font = '8px Arial';
+      ctx.font = '11px sans-serif';
       const tw = ctx.measureText(label).width;
-      const pad = 3, textH = 10;
+      const pad = 4, textH = 12;
       ctx.fillStyle = color;
-      ctx.fillRect(sx1, sy1 - textH - pad, tw + pad * 2, textH + pad);
+      ctx.fillRect(sx1, Math.max(0, sy1 - textH - pad), tw + pad * 2, textH + pad);
       ctx.fillStyle = 'white';
-      ctx.fillText(label, sx1 + pad, sy1 - pad);
+      ctx.fillText(label, sx1 + pad, Math.max(textH, sy1 - pad));
     });
 
     // Highlight at-risk piglets
@@ -312,20 +511,20 @@ export default function TestPenPage() {
       drawRiskHighlights(ctx, detections, proximityAlerts, scaleX, scaleY);
     }
 
-    ctx.font = 'bold 14px monospace';
-    ctx.fillStyle = 'rgba(0,0,0,0.7)';
+    ctx.font = 'bold 13px monospace';
+    ctx.fillStyle = 'rgba(0,0,0,0.75)';
     ctx.fillRect(overlay.width - 160, overlay.height - 55, 150, 48);
     ctx.fillStyle = '#00ff00';
-    ctx.fillText(`FPS: ${fps}`, overlay.width - 150, overlay.height - 33);
+    ctx.fillText(`FPS: ${fpsValue}`, overlay.width - 150, overlay.height - 33);
     ctx.fillStyle = '#00ffff';
     ctx.fillText(`Inf: ${inferenceTime.toFixed(0)}ms`, overlay.width - 150, overlay.height - 13);
-  }, [fps]);
+  }, []);
 
   // ── Detection loops ───────────────────────────────────────────────────────
   const runDetection = useCallback(async (timestamp: number) => {
     const video = videoRef.current;
-    if (!video || video.readyState < 2 || !onnxDetector.isReady()) {
-      animationRef.current = requestAnimationFrame(runDetection);
+    if (!video || video.readyState < 2 || !onnxDetector.isReady() || isMobile) {
+      if (!isMobile) animationRef.current = requestAnimationFrame(runDetection);
       return;
     }
 
@@ -344,40 +543,63 @@ export default function TestPenPage() {
       cc.height = vh;
       const ccCtx = cc.getContext('2d');
       if (ccCtx) ccCtx.drawImage(video, Math.round((vw - cc.width) / 2), 0, cc.width, vh, 0, 0, cc.width, vh);
-      // Mirror the cropped frame to displayCanvas so the overlay canvas aligns perfectly
+
+      // Mirror the cropped frame to displayCanvas (using client dimensions to prevent DOM layout thrashing)
       const dc = displayCanvasRef.current;
       if (dc && ccCtx) {
-        const dcRect = dc.getBoundingClientRect();
-        const dcW = Math.round(dcRect.width), dcH = Math.round(dcRect.height);
-        if (dc.width !== dcW || dc.height !== dcH) { dc.width = dcW; dc.height = dcH; }
+        const dcW = dc.clientWidth || 640;
+        const dcH = dc.clientHeight || 360;
+        if (dc.width !== dcW || dc.height !== dcH) {
+          dc.width = dcW;
+          dc.height = dcH;
+        }
         const dcCtx = dc.getContext('2d');
         if (dcCtx) dcCtx.drawImage(cc, 0, 0, dc.width, dc.height);
       }
+
       const result = await onnxDetector.detect(ccCtx ? cc : video);
-      setDetection(result);
-      updateResult(result);
+
       const now = performance.now();
       fpsHistoryRef.current.push(now);
       fpsHistoryRef.current = fpsHistoryRef.current.filter((t) => now - t < 1000);
-      setFps(fpsHistoryRef.current.length);
-      if (result.behaviorSummary) {
-        behaviorLogger.updateBehavior(
-          result.behaviorSummary,
-          result.totalPigCount,
-          result.analytics.avgConfidence,
-          result.analytics.detectionDensity,
-          result.analytics.movementEstimate,
-          result.detections,
-        );
+      const currentFps = fpsHistoryRef.current.length;
+
+      // Throttle React FPS state update to once every second
+      if (now - lastFpsUpdateRef.current >= 1000) {
+        lastFpsUpdateRef.current = now;
+        setFps(currentFps);
       }
-      // Feed simulation engine
-      simulationEngine.processFrame(result, video.currentTime);
-      drawDetections(result.detections, result.inferenceTimeMs, result.proximityAlerts);
+
+      // Draw detections onto canvas overlay at full speed (zero React reconciliation overhead)
+      drawDetections(result.detections, result.inferenceTimeMs, result.proximityAlerts, currentFps);
+
+      // Throttle heavy React state updates to 3Hz (or immediate if critical risk threshold reached)
+      const isCriticalRisk = result.crushingRisk >= 0.65;
+      if (now - lastReactUpdateRef.current >= 330 || isCriticalRisk) {
+        lastReactUpdateRef.current = now;
+        setDetection(result);
+        updateResult(result);
+        if (result.detections.length > 0) {
+          markTutorialStep('observe_detections');
+        }
+        if (result.behaviorSummary) {
+          behaviorLogger.updateBehavior(
+            result.behaviorSummary,
+            result.totalPigCount,
+            result.analytics.avgConfidence,
+            result.analytics.detectionDensity,
+            result.analytics.movementEstimate,
+            result.detections,
+          );
+        }
+        // Feed simulation engine
+        simulationEngine.processFrame(result, video.currentTime);
+      }
     } catch (err) {
       console.error('Detection error:', err);
     }
     animationRef.current = requestAnimationFrame(runDetection);
-  }, [drawDetections, updateResult]);
+  }, [drawDetections, updateResult, isMobile, markTutorialStep]);
 
   const stopDetection = useCallback(() => {
     if (animationRef.current) { cancelAnimationFrame(animationRef.current); animationRef.current = null; }
@@ -465,16 +687,20 @@ export default function TestPenPage() {
       setFileType('image');
       setStatus('ready');
       setRunning(true);
+      markTutorialStep('upload_video');
       behaviorLogger.startLogging(selectedPenId, sow?.id);
       // Detection fires via onLoad on the hidden img element
     } else if (isVideo) {
       setFileType('video');
       setStatus('ready');
       setRunning(true);
+      markTutorialStep('upload_video');
       behaviorLogger.startLogging(selectedPenId, sow?.id);
-      // Start simulation engine with expected piglet count
-      const expectedPiglets = sow?.current_litter_size || 9;
-      simulationEngine.start(expectedPiglets, sow?.id, selectedPenId);
+      // Start simulation engine with expected piglet count (matches PenMonitorPage logic)
+      const expectedPiglets = sow?.current_litter_size
+        || farrowingRecords.find(r => !r.farrowing_completed)?.born_alive
+        || 0;
+      simulationEngine.start(expectedPiglets || 9, sow?.id, selectedPenId);
       requestAnimationFrame(() => {
         const video = videoRef.current;
         if (video) {
@@ -487,6 +713,31 @@ export default function TestPenPage() {
       });
     } else {
       setError(t('unsupportedFile'));
+      setStatus('error');
+    }
+  };
+
+  const handleSampleVideo = async () => {
+    if (!canUseMedia || !selectedPenId) {
+      toast.error('Select a pen before loading sample video');
+      return;
+    }
+    setError(null);
+    const ok = await loadModel();
+    if (!ok) return;
+
+    try {
+      setStatus('loading-model');
+      const res = await fetch('/assets/sample_video.mp4');
+      if (!res.ok) throw new Error('Sample demo video not found in /assets');
+      const blob = await res.blob();
+      const file = new File([blob], 'sample_video.mp4', { type: 'video/mp4' });
+      await handleFile(file);
+      markTutorialStep('upload_video');
+      toast.success('Sample demo video loaded! AI tracking initialized.');
+    } catch (err) {
+      console.error('Failed to load sample video:', err);
+      toast.error('Could not load sample video clip');
       setStatus('error');
     }
   };
@@ -761,21 +1012,186 @@ export default function TestPenPage() {
   const sowPosture = (detection?.sowPosture ?? 'none').replace(/_/g, ' ').replace(/-/g, ' ');
   const profilesList = Object.values(sowProfiles);
 
+  // ── Onboarding System Tour State & Steps ────────────────────────────────────
+  const [isTourOpen, setIsTourOpen] = useState(false);
+
+  useEffect(() => {
+    if (location.pathname !== '/test-pen') {
+      setIsTourOpen(false);
+      return;
+    }
+    const tourDone = localStorage.getItem('prisma_atlas_testpen_tour_completed');
+    const tourSkipped = localStorage.getItem('prisma_atlas_testpen_tour_skipped');
+    const paramTour = searchParams.get('tour');
+    if (paramTour === 'true' || paramTour === '1') {
+      setIsTourOpen(true);
+    } else if (!tourDone && !tourSkipped) {
+      const timer = setTimeout(() => {
+        setIsTourOpen(true);
+      }, 1200);
+      return () => clearTimeout(timer);
+    }
+  }, [searchParams, location.pathname]);
+
+  const TOUR_STEPS: TourStep[] = useMemo(() => [
+    {
+      targetId: 'tour-pen-select',
+      title: '1. Select Assessment Pen',
+      badge: 'Step 1: Setup',
+      description: 'Choose a farrowing pen from your barn. The AI loads the sow profile, farrowing timeline, and historical baselines so you can evaluate detections against actual pen parameters.',
+      actionHint: 'Select any pen to unlock the media upload and video testing tools.',
+      placement: 'bottom',
+      actionButton: pens.length > 0 && !selectedPenId ? {
+        label: `Select ${pens[0].name}`,
+        onClick: () => setSelectedPenId(pens[0].id),
+      } : undefined,
+    },
+    {
+      targetId: 'tour-upload-controls',
+      title: '2. Upload Footage & Media',
+      badge: 'Step 2: Media',
+      description: 'Upload farm camera footage (MP4, WebM) or static pen photos (JPG, PNG). All YOLOv11 AI inference runs locally in your browser sandbox without altering live RTSP production cameras.',
+      actionHint: 'You can test custom footage from your farm here.',
+      placement: 'bottom',
+    },
+    {
+      targetId: 'tour-sample-video-btn',
+      title: '3. One-Click Demo Video',
+      badge: 'Step 3: Instant Demo',
+      description: 'Don\'t have footage right now? Click "Sample Demo Video" to instantly load pre-recorded farrowing pen footage and observe AI detections in action.',
+      actionHint: 'Click the button below to load the demo video right now!',
+      placement: 'bottom',
+      actionButton: {
+        label: 'Load Sample Demo Video',
+        onClick: () => {
+          if (!selectedPenId && pens.length > 0) {
+            setSelectedPenId(pens[0].id);
+          }
+          handleSampleVideo();
+        },
+      },
+    },
+    {
+      targetId: 'tour-conf-slider',
+      title: '4. AI Confidence Sensitivity',
+      badge: 'Step 4: AI Sensitivity',
+      description: 'Fine-tune the YOLOv11 detection confidence threshold between 0.10 and 0.90. Lower values help identify occluded piglets hidden in bedding, while higher values prevent false detections.',
+      actionHint: 'Default is 0.25 for optimal piglet and sow tracking balance.',
+      placement: 'bottom',
+    },
+    {
+      targetId: 'tour-video-container',
+      title: '5. Real-Time Vision & Bounding Boxes',
+      badge: 'Step 5: AI Vision',
+      description: 'The live canvas renders bounding boxes for the sow (magenta) and piglets (green), identifies sow posture (lying, standing, nursing), and tracks real-time crushing risk proximity zones.',
+      actionHint: 'Notice the live detection count badge and crushing risk tags.',
+      placement: 'top',
+    },
+    {
+      targetId: 'tour-clarification-banner',
+      title: '6. Role-Play Alert & Clarification',
+      badge: 'Step 6: Role-Play Decision',
+      description: 'When piglets go missing or crushing risk spikes, an alert banner appears asking the caretaker to make a decision: Pen is Fine, Piglet Died, Piglet Transferred, or I\'ll Check Pen.',
+      actionHint: 'Click "Simulate Alert" below to practice responding!',
+      placement: 'bottom',
+      onEnter: () => {
+        if (!activeClarification) {
+          simStore.triggerClarification({
+            trigger: 'piglet_drop',
+            timestamp: Date.now(),
+            videoTime: 0,
+            detectedCount: 9,
+            expectedCount: 12,
+            missingCount: 3,
+            crushingRisk: 0.45,
+          });
+        }
+      },
+      actionButton: {
+        label: 'Simulate Live Alert Banner',
+        onClick: () => {
+          simStore.triggerClarification({
+            trigger: 'piglet_drop',
+            timestamp: Date.now(),
+            videoTime: 0,
+            detectedCount: 9,
+            expectedCount: 12,
+            missingCount: 3,
+            crushingRisk: 0.45,
+          });
+        },
+      },
+    },
+    {
+      targetId: 'tour-training-checklist',
+      title: '7. Onboarding Training Checklist',
+      badge: 'Step 7: Certification',
+      description: 'Track your onboarding training through 4 guided milestones. Once all steps are practiced, you earn the AI Pen Monitoring certification badge!',
+      actionHint: 'Your progress is automatically saved to your browser session.',
+      placement: 'top',
+    },
+    {
+      targetId: 'tour-tabs-bar',
+      title: '8. Welfare & Farm Telemetry Tabs',
+      badge: 'Step 8: Deep Analytics',
+      description: 'Access complete pen telemetry matching the live RTSP monitor: Overview, Live Monitor (Welfare Insights & Age-adjusted Crushing Risk), Farrowing & Wellbeing, and Health & Events logs.',
+      actionHint: 'Explore the tabs below to view detailed posture timelines and decision logs.',
+      placement: 'top',
+      onEnter: () => setActiveTab('live-monitor'),
+    },
+    {
+      targetId: 'tour-live-step-camera',
+      title: '9. Start Real Live Stream: Add Barn Camera',
+      badge: 'Live Step 1: Camera',
+      description: 'Ready to monitor actual pigs in real-time? Move from uploaded video testing to real barn cameras! The Camera Setup Wizard guides you through adding RTSP IP cameras (Hikvision, Dahua, Reolink, Tapo, or Edge AI nodes) with auto-generated stream URLs and connection ping tests.',
+      actionHint: 'Click below to launch the Camera Setup Wizard with the live guided tour!',
+      placement: 'top',
+      actionButton: {
+        label: 'Open Camera Setup Wizard ➔',
+        onClick: () => navigate('/camera-setup?tour=true'),
+      },
+    },
+    {
+      targetId: 'tour-live-step-monitoring',
+      title: '10. Multi-Pen Live Monitoring Grid',
+      badge: 'Live Step 2: Barn Grid',
+      description: 'Once cameras are added, view all farrowing pens simultaneously in a synchronized 2x2 or 3x2 matrix. Each pen card streams live sub-second video with real-time piglet counts, sow posture tags, and instant crushing alert indicators.',
+      actionHint: 'Click below to open the barn-wide live monitoring matrix!',
+      placement: 'top',
+      actionButton: {
+        label: 'Go to Live Monitoring Grid ➔',
+        onClick: () => navigate('/monitoring?tour=true'),
+      },
+    },
+    {
+      targetId: 'tour-live-step-penlive',
+      title: '11. Dedicated Pen Live Stream',
+      badge: 'Live Step 3: Pen Stream',
+      description: 'Click any pen card in the monitoring grid to enter its dedicated Pen Live Stream (/pen/:id). Watch high-definition feeds, listen to audible crushing danger alarms, log newborn piglets, and record caretaker check-in interventions.',
+      actionHint: `Click below to jump directly into Pen #${selectedPenId || 1}'s live stream!`,
+      placement: 'top',
+      actionButton: {
+        label: `Open Pen #${selectedPenId || 1} Live Stream ➔`,
+        onClick: () => navigate(`/pen/${selectedPenId || 1}?tour=true`),
+      },
+    },
+  ], [pens, selectedPenId, handleSampleVideo, simStore, activeClarification, navigate]);
+
   return (
     <div className="space-y-5 animate-fade-in max-w-[1400px] mx-auto">
       {/* ── Header ───────────────────────────────────────────────────── */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-3">
             <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
               Test Pen
             {activeFarrowing && (
-              <span className="px-2.5 py-0.5 text-xs font-semibold rounded-full bg-pink-100 dark:bg-pink-900/40 text-pink-700 dark:text-pink-300 animate-pulse">
+              <span className="px-2.5 py-0.5 text-xs font-semibold rounded-full bg-pink-100 dark:bg-pink-900/40 text-pink-700 dark:text-pink-300">
                 Farrowing Active
               </span>
             )}
             {status === 'playing' && (
-              <span className="px-2.5 py-0.5 text-xs font-semibold rounded-full bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300 animate-pulse">
+              <span className="px-2.5 py-0.5 text-xs font-semibold rounded-full bg-green-100 dark:bg-green-900/40 text-green-700 dark:text-green-300">
                 Detecting
               </span>
             )}
@@ -785,6 +1201,11 @@ export default function TestPenPage() {
               </span>
             )}
           </h1>
+          <TourButton
+            onClick={() => setIsTourOpen(true)}
+            id="tour-start-btn"
+            title="Start Interactive System Tour"
+          />
           <PageInfoButton onClick={() => setIsInfoOpen(true)} />
         </div>
           <p className="text-sm text-gray-500 dark:text-slate-400 mt-1">
@@ -792,30 +1213,78 @@ export default function TestPenPage() {
           </p>
         </div>
 
-        {/* Quick stats pills */}
-        {detection && (
-          <div className="hidden sm:flex items-center gap-2">
-            <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 border border-green-200 dark:border-green-800">
-              <Baby className="h-3.5 w-3.5" /> {pigletCount} piglets
-            </span>
-            <span className={clsx(
-              'flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border',
-              riskValue >= 0.65 ? 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 border-red-200 dark:border-red-800'
-                : riskValue >= 0.4 ? 'bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800'
-                : 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800'
-            )}>
-              <Shield className="h-3.5 w-3.5" /> {(riskValue * 100).toFixed(0)}% risk
-            </span>
-            {fps > 0 && (
-              <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-cyan-50 dark:bg-cyan-900/20 text-cyan-700 dark:text-cyan-400 border border-cyan-200 dark:border-cyan-800">
-                <Cpu className="h-3.5 w-3.5" /> {fps} FPS
+        <div className="flex items-center gap-3">
+          {/* Quick stats pills */}
+          {detection && (
+            <div className="hidden sm:flex items-center gap-2">
+              <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400 border border-green-200 dark:border-green-800">
+                <Baby className="h-3.5 w-3.5" /> <strong className="font-mono">{pigletCount}</strong> piglets
               </span>
-            )}
+              <span className={clsx(
+                'flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border',
+                riskValue >= 0.65 ? 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400 border-red-200 dark:border-red-800'
+                  : riskValue >= 0.4 ? 'bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800'
+                  : 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800'
+              )}>
+                <Shield className="h-3.5 w-3.5" /> <strong className="font-mono">{(riskValue * 100).toFixed(0)}%</strong> risk
+              </span>
+              {fps > 0 && !isMobile && (
+                <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium bg-cyan-50 dark:bg-cyan-900/20 text-cyan-700 dark:text-cyan-400 border border-cyan-200 dark:border-cyan-800">
+                  <Cpu className="h-3.5 w-3.5" /> <strong className="font-mono">{fps}</strong> FPS
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* Device Mode Switcher (Desktop vs Mobile Mode for Testing) */}
+          <div className="flex items-center p-1 bg-gray-100 dark:bg-slate-800 rounded-xl border border-gray-200 dark:border-slate-700">
+            <button
+              onClick={() => setSimulatedMode('auto')}
+              className={clsx(
+                'flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all',
+                preference === 'auto'
+                  ? 'bg-primary-600 text-white shadow-sm'
+                  : 'text-gray-600 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white'
+              )}
+              title="Auto Mode: Automatically detects browser & DevTools dimensions"
+            >
+              <Zap className="h-3.5 w-3.5" />
+              <span>Auto ({isDesktop ? 'Desktop' : 'Mobile'})</span>
+            </button>
+            <button
+              onClick={() => setSimulatedMode('desktop')}
+              className={clsx(
+                'flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all',
+                preference === 'desktop'
+                  ? 'bg-blue-600 text-white shadow-sm'
+                  : 'text-gray-600 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white'
+              )}
+              title="Force Desktop Mode"
+            >
+              <Monitor className="h-3.5 w-3.5" />
+              <span>Desktop</span>
+            </button>
+            <button
+              onClick={() => {
+                setSimulatedMode('mobile');
+                stopDetection();
+              }}
+              className={clsx(
+                'flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-all',
+                preference === 'mobile'
+                  ? 'bg-amber-600 text-white shadow-sm'
+                  : 'text-gray-600 dark:text-slate-400 hover:text-gray-900 dark:hover:text-white'
+              )}
+              title="Force Mobile Mode"
+            >
+              <Smartphone className="h-3.5 w-3.5" />
+              <span>Mobile</span>
+            </button>
           </div>
-        )}
+        </div>
       </div>
 
-      <div className="bg-white dark:bg-slate-800/60 rounded-xl border border-gray-200 dark:border-slate-700 p-4">
+      <div id="tour-pen-select" className="bg-white dark:bg-slate-800/60 rounded-xl border border-gray-200 dark:border-slate-700 p-4">
         <div className="flex flex-col sm:flex-row sm:items-center gap-3">
           <label htmlFor="test-pen-select" className="text-sm font-medium text-gray-700 dark:text-slate-300">
             Assessment Pen
@@ -850,7 +1319,7 @@ export default function TestPenPage() {
         {/* Media area */}
         <div className="lg:col-span-2 space-y-0 rounded-2xl overflow-hidden border border-gray-200 dark:border-slate-700 bg-black">
           {/* Upload controls bar */}
-          <div className="flex flex-wrap items-center gap-2 px-4 py-3 bg-gray-900 border-b border-gray-800">
+          <div id="tour-upload-controls" className="flex flex-wrap items-center gap-2 px-4 py-3 bg-gray-900 border-b border-gray-800">
             <label className={clsx(
               'flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-medium text-white transition-colors',
               canUseMedia ? 'bg-blue-600 hover:bg-blue-700 cursor-pointer' : 'bg-gray-500 cursor-not-allowed opacity-70'
@@ -867,6 +1336,19 @@ export default function TestPenPage() {
               Video
               <input type="file" accept="video/*" className="hidden" disabled={!canUseMedia} onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }} />
             </label>
+            <button
+              id="tour-sample-video-btn"
+              onClick={handleSampleVideo}
+              disabled={!canUseMedia}
+              title="Load demo video to test detections"
+              className={clsx(
+                'flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium text-white transition-colors shadow-sm',
+                canUseMedia ? 'bg-emerald-600 hover:bg-emerald-700 cursor-pointer' : 'bg-gray-500 cursor-not-allowed opacity-70'
+              )}
+            >
+              <PlayCircle className="h-3.5 w-3.5" />
+              Sample Demo Video
+            </button>
 
             {status !== 'idle' && (
               <button onClick={stopDetection} title="Stop detection" className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors">
@@ -879,101 +1361,265 @@ export default function TestPenPage() {
               </button>
             )}
 
-            <div className="flex items-center gap-2 ml-auto bg-gray-800 px-3 py-1.5 rounded-lg">
-              <span className="text-[10px] text-gray-400">Conf</span>
+            <div id="tour-conf-slider" className="flex items-center gap-2 ml-auto bg-gray-800 px-3 py-1.5 rounded-lg">
+              <span className="text-xs text-gray-400 font-medium">Conf</span>
               <input type="range" min="0.1" max="0.9" step="0.05" value={confidenceThreshold} onChange={(e) => handleConfidenceChange(parseFloat(e.target.value))} className="w-16 h-1 bg-gray-600 rounded appearance-none cursor-pointer" title="Confidence threshold" />
-              <span className="text-[10px] font-mono text-gray-200">{confidenceThreshold.toFixed(2)}</span>
+              <span className="text-xs font-mono text-gray-200">{confidenceThreshold.toFixed(2)}</span>
             </div>
 
             {status === 'processing' && (
-              <span className="flex items-center gap-1.5 text-[10px] text-blue-400">
-                <Cpu className="h-3 w-3 animate-spin" /> Processing...
+              <span className="flex items-center gap-1.5 text-xs text-blue-400 font-medium">
+                <Cpu className="h-3.5 w-3.5 animate-spin" /> Processing...
               </span>
             )}
           </div>
 
-          {/* Video / Image canvas — displayCanvas renders center crop; overlay + model share the same coordinate space */}
-          <div className="relative h-[850px] bg-gray-950">
-            {/* Hidden source elements for playback/data only */}
-            {fileType === 'video' && (
-              <video
-                ref={videoRef}
-                className="hidden"
-                muted
-                loop
-                src={fileUrl || undefined}
-                onPlay={() => setVideoPlaying(true)}
-                onPause={() => setVideoPlaying(false)}
-                onEnded={() => setVideoPlaying(false)}
-                onTimeUpdate={() => setVideoCurrentTime(videoRef.current?.currentTime ?? 0)}
-                onLoadedMetadata={() => setVideoDuration(videoRef.current?.duration ?? 0)}
-              />
-            )}
-            {fileType === 'image' && (
-              <img ref={imageRef} className="hidden" src={fileUrl || undefined} alt="source" onLoad={runImageDetection} />
-            )}
-
-            {/* Display canvas — shows the cropped frame (identical region to what the model sees) */}
-            {fileUrl && <canvas ref={displayCanvasRef} className="absolute inset-0 w-full h-full" />}
-
-            {/* Overlay canvas — same dimensions as displayCanvas, so bbox coords align exactly */}
-            <canvas ref={overlayRef} className="absolute inset-0 w-full h-full pointer-events-none" />
-
-            {!fileUrl && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-6">
-                <Upload className="h-14 w-14 text-gray-600 mb-3" />
-                <p className="text-gray-400 text-sm mb-1 font-medium">
-                  {canUseMedia ? 'Upload an image or video to start' : 'Select a pen before uploading media'}
-                </p>
-                <p className="text-gray-600 text-xs">The AI model will detect sows, piglets, posture, and crushing risk</p>
+          {/* Mobile device mode: video streaming disabled to prevent lag */}
+          {isMobile ? (
+            <div className="relative aspect-video max-h-[580px] min-h-[340px] w-full flex flex-col items-center justify-center bg-gradient-to-b from-slate-900 via-gray-900 to-slate-950 p-6 text-center">
+              <div className="w-14 h-14 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center mb-3 text-amber-400">
+                <Smartphone className="w-7 h-7" />
               </div>
-            )}
+              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-amber-500/20 text-amber-300 border border-amber-500/30 mb-2">
+                <VideoOff className="w-3.5 h-3.5" />
+                <span>Livestreaming Prohibited on Mobile</span>
+              </div>
+              <h3 className="text-white font-semibold text-lg mb-1">Mobile Performance Mode Active</h3>
+              <p className="text-slate-400 text-xs max-w-md mb-5 leading-relaxed">
+                Live video playback and continuous frame inference are restricted to Desktop Mode to eliminate mobile lag and battery drain. Real-time telemetry, risk gauges, and farrowing analytics remain active.
+              </p>
 
-            {/* Custom video controls (native controls removed — they bypassed the crop wrapper) */}
-            {fileType === 'video' && fileUrl && (
-              <div className="absolute bottom-0 left-0 right-0 bg-black/70 backdrop-blur-sm px-4 py-2.5 flex items-center gap-3">
+              {/* Mobile Quick Action Buttons */}
+              <div className="flex flex-wrap items-center justify-center gap-3 mb-5">
+                <label className="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-medium bg-blue-600 hover:bg-blue-700 text-white cursor-pointer transition-colors shadow">
+                  <Image className="h-4 w-4" />
+                  Test Static Image Detection
+                  <input type="file" accept="image/*" className="hidden" disabled={!canUseMedia} onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }} />
+                </label>
                 <button
-                  onClick={() => { const v = videoRef.current; if (v) videoPlaying ? v.pause() : v.play(); }}
-                  className="text-white hover:text-blue-400 transition-colors flex-shrink-0"
+                  onClick={() => setSimulatedMode('desktop')}
+                  className="flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-medium bg-slate-800 hover:bg-slate-700 border border-slate-600 text-white transition-colors"
                 >
-                  {videoPlaying ? <Pause className="h-5 w-5" /> : <Play className="h-5 w-5" />}
+                  <Monitor className="h-4 w-4 text-blue-400" />
+                  Switch to Desktop Mode
                 </button>
-                <span className="text-xs text-white/60 font-mono whitespace-nowrap">
-                  {formatTime(videoCurrentTime)} / {formatTime(videoDuration)}
-                </span>
-                <input
-                  type="range"
-                  min={0}
-                  max={videoDuration || 100}
-                  step={0.1}
-                  value={videoCurrentTime}
-                  title="Video progress"
-                  aria-label="Video progress"
-                  onChange={(e) => {
-                    const v = videoRef.current;
-                    if (v) { v.currentTime = parseFloat(e.target.value); setVideoCurrentTime(parseFloat(e.target.value)); }
-                  }}
-                  className="flex-1 h-1 bg-gray-600 rounded appearance-none cursor-pointer accent-blue-500"
-                />
               </div>
-            )}
 
-            {/* Risk overlay badge */}
-            {detection && riskValue >= 0.4 && (
-              <div className={clsx(
-                'absolute top-3 right-3 flex items-center gap-1.5 text-white px-3 py-1.5 rounded-lg text-xs font-semibold backdrop-blur-sm',
-                riskValue >= 0.7 ? 'bg-red-600/80' : 'bg-amber-600/80'
-              )}>
-                <AlertTriangle className="h-3.5 w-3.5" />
-                {riskValue >= 0.7 ? 'HIGH RISK' : 'CAUTION'}
-              </div>
-            )}
-            {detection && detection.detections.length > 0 && (
-              <div className="absolute top-3 left-3 bg-black/60 text-white px-2.5 py-1 rounded-lg text-xs backdrop-blur-sm">
-                {detection.detections.length} detection{detection.detections.length !== 1 ? 's' : ''}
-              </div>
-            )}
-          </div>
+              {/* Real-time stats summary */}
+              {detection && (
+                <div className="flex flex-wrap items-center justify-center gap-2">
+                  <span className="px-3.5 py-1.5 rounded-lg bg-slate-800/80 border border-slate-700 text-xs text-slate-300">
+                    Piglets: <strong className="text-white font-mono ml-1">{pigletCount}</strong>
+                  </span>
+                  <span className="px-3.5 py-1.5 rounded-lg bg-slate-800/80 border border-slate-700 text-xs text-slate-300">
+                    Risk: <strong className="text-white font-mono ml-1">{(riskValue * 100).toFixed(0)}%</strong>
+                  </span>
+                  <span className="px-3.5 py-1.5 rounded-lg bg-slate-800/80 border border-slate-700 text-xs text-slate-300 capitalize">
+                    Posture: <strong className="text-white ml-1">{sowPosture}</strong>
+                  </span>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div id="tour-video-container" className="relative aspect-video max-h-[580px] min-h-[340px] w-full bg-gray-950">
+              {/* Hidden source elements for playback/data only */}
+              {fileType === 'video' && (
+                <video
+                  ref={videoRef}
+                  className="hidden"
+                  muted
+                  loop
+                  src={fileUrl || undefined}
+                  onPlay={() => setVideoPlaying(true)}
+                  onPause={() => setVideoPlaying(false)}
+                  onEnded={() => setVideoPlaying(false)}
+                  onTimeUpdate={() => setVideoCurrentTime(videoRef.current?.currentTime ?? 0)}
+                  onLoadedMetadata={() => setVideoDuration(videoRef.current?.duration ?? 0)}
+                />
+              )}
+              {fileType === 'image' && (
+                <img ref={imageRef} className="hidden" src={fileUrl || undefined} alt="source" onLoad={runImageDetection} />
+              )}
+
+              {/* Display canvas — shows the cropped frame (identical region to what the model sees) */}
+              {fileUrl && <canvas ref={displayCanvasRef} className="absolute inset-0 w-full h-full" />}
+
+              {/* Overlay canvas — same dimensions as displayCanvas, so bbox coords align exactly */}
+              <canvas ref={overlayRef} className="absolute inset-0 w-full h-full pointer-events-none" />
+
+              {!fileUrl && (
+                <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-6">
+                  <Upload className="h-14 w-14 text-gray-600 mb-3" />
+                  <p className="text-gray-400 text-sm mb-1 font-medium">
+                    {canUseMedia ? 'Upload an image or video to start' : 'Select a pen before uploading media'}
+                  </p>
+                  <p className="text-gray-600 text-xs">The AI model will detect sows, piglets, posture, and crushing risk</p>
+                </div>
+              )}
+
+              {/* Custom video controls (native controls removed — they bypassed the crop wrapper) */}
+              {fileType === 'video' && fileUrl && (
+                <div className="absolute bottom-0 left-0 right-0 bg-black/70 backdrop-blur-sm px-4 py-2.5 flex items-center gap-3">
+                  <button
+                    onClick={() => { const v = videoRef.current; if (v) videoPlaying ? v.pause() : v.play(); }}
+                    className="text-white hover:text-blue-400 transition-colors flex-shrink-0"
+                  >
+                    {videoPlaying ? <Pause className="h-5 w-5" /> : <Play className="h-5 w-5" />}
+                  </button>
+                  <span className="text-xs text-white/60 font-mono whitespace-nowrap">
+                    {formatTime(videoCurrentTime)} / {formatTime(videoDuration)}
+                  </span>
+                  <input
+                    type="range"
+                    min={0}
+                    max={videoDuration || 100}
+                    step={0.1}
+                    value={videoCurrentTime}
+                    title="Video progress"
+                    aria-label="Video progress"
+                    onChange={(e) => {
+                      const v = videoRef.current;
+                      if (v) { v.currentTime = parseFloat(e.target.value); setVideoCurrentTime(parseFloat(e.target.value)); }
+                    }}
+                    className="flex-1 h-1 bg-gray-600 rounded appearance-none cursor-pointer accent-blue-500"
+                  />
+                </div>
+              )}
+
+              {/* Risk overlay badge */}
+              {detection && riskValue >= 0.4 && (
+                <div className={clsx(
+                  'absolute top-3 right-3 flex items-center gap-1.5 text-white px-3 py-1.5 rounded-lg text-xs font-semibold backdrop-blur-sm',
+                  riskValue >= 0.7 ? 'bg-red-600/80' : 'bg-amber-600/80'
+                )}>
+                  <AlertTriangle className="h-3.5 w-3.5" />
+                  {riskValue >= 0.7 ? 'HIGH RISK' : 'CAUTION'}
+                </div>
+              )}
+              {detection && detection.detections.length > 0 && (
+                <div className="absolute top-3 left-3 bg-black/60 text-white px-2.5 py-1 rounded-lg text-xs backdrop-blur-sm">
+                  {detection.detections.length} detection{detection.detections.length !== 1 ? 's' : ''}
+                </div>
+              )}
+
+              {/* Interactive Clarification & Role-Play Banner */}
+              {activeClarification && (
+                <div id="tour-clarification-banner" className="absolute top-12 left-3 right-3 sm:left-6 sm:right-6 z-30 bg-slate-900/95 border-2 border-red-500 rounded-xl p-4 shadow-2xl backdrop-blur-md animate-fade-in text-white">
+                  <div className="flex items-start justify-between gap-3 mb-2.5">
+                    <div className="flex items-center gap-2.5">
+                      <div className="h-9 w-9 rounded-lg bg-red-600/30 border border-red-500/50 flex items-center justify-center text-red-400">
+                        <AlertTriangle className="h-5 w-5 animate-bounce" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-red-500 text-white">
+                            Role-Play Decision
+                          </span>
+                          <span className="text-xs text-slate-300 font-mono">
+                            Visible: {activeClarification.detectedCount} / Expected: {activeClarification.expectedCount} ({activeClarification.missingCount} Missing)
+                          </span>
+                        </div>
+                        <p className="text-sm font-semibold text-white mt-0.5">
+                          {activeClarification.trigger === 'crushing_risk'
+                            ? 'High Crushing Risk Detected'
+                            : activeClarification.trigger === 'both'
+                            ? 'Crushing Hazard + Piglet Discrepancy'
+                            : 'Piglet Count Drop Detected'}
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => simStore.dismissClarification()}
+                      className="text-xs text-slate-400 hover:text-white px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 transition"
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+
+                  {activeClarification.status === 'acknowledged' ? (
+                    <div className="bg-amber-950/60 border border-amber-600/50 rounded-lg p-3 text-xs text-amber-200 flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <Clock className="h-4 w-4 text-amber-400 animate-spin" />
+                        <span>Physical Pen Inspection in progress... Check completed?</span>
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => {
+                            simStore.resolveClarification('pen_is_fine');
+                            markTutorialStep('respond_alert');
+                            toast.success('Confirmed: Pen is fine');
+                          }}
+                          className="px-3 py-1 bg-green-600 hover:bg-green-700 text-white font-medium rounded text-xs transition"
+                        >
+                          ✓ Pen is Fine
+                        </button>
+                        <button
+                          onClick={() => {
+                            simStore.resolveClarification('piglet_died');
+                            markTutorialStep('respond_alert');
+                            toast.error('Mortality recorded');
+                          }}
+                          className="px-3 py-1 bg-red-600 hover:bg-red-700 text-white font-medium rounded text-xs transition"
+                        >
+                          ✕ Piglet Died
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
+                      <button
+                        onClick={() => {
+                          simStore.resolveClarification('pen_is_fine');
+                          markTutorialStep('respond_alert');
+                          toast.success('Role-Play: Pen is Fine (False Alarm Dismissed)');
+                        }}
+                        className="flex flex-col items-center justify-center p-2.5 rounded-lg bg-green-600 hover:bg-green-700 text-white transition-all text-xs font-semibold shadow hover:scale-[1.02]"
+                      >
+                        <span>✓ Pen is Fine</span>
+                        <span className="text-[10px] text-green-200 font-normal mt-0.5">False Alarm / Hidden</span>
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          simStore.resolveClarification('piglet_died');
+                          markTutorialStep('respond_alert');
+                          toast.error(`Role-Play: Piglet Died (-${activeClarification.missingCount || 1} baseline)`);
+                        }}
+                        className="flex flex-col items-center justify-center p-2.5 rounded-lg bg-red-600 hover:bg-red-700 text-white transition-all text-xs font-semibold shadow hover:scale-[1.02]"
+                      >
+                        <span>✕ Piglet Died</span>
+                        <span className="text-[10px] text-red-200 font-normal mt-0.5">Record Mortality</span>
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          simStore.resolveClarification('piglet_transferred');
+                          markTutorialStep('respond_alert');
+                          toast('Role-Play: Piglet Fostered / Transferred', { icon: '🔄' });
+                        }}
+                        className="flex flex-col items-center justify-center p-2.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white transition-all text-xs font-semibold shadow hover:scale-[1.02]"
+                      >
+                        <span>🔄 Transferred</span>
+                        <span className="text-[10px] text-blue-200 font-normal mt-0.5">Foster / Relocate</span>
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          simStore.resolveClarification('will_check');
+                          markTutorialStep('respond_alert');
+                          toast('Role-Play: Acknowledged, Checking Pen...', { icon: '👀' });
+                        }}
+                        className="flex flex-col items-center justify-center p-2.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white transition-all text-xs font-semibold shadow hover:scale-[1.02]"
+                      >
+                        <span>👀 I'll Check Pen</span>
+                        <span className="text-[10px] text-amber-200 font-normal mt-0.5">Start Inspection</span>
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {selectedPenId && videoPlaying && (
@@ -1030,22 +1676,22 @@ export default function TestPenPage() {
           <div className="grid grid-cols-2 gap-3">
             <div className="bg-white dark:bg-slate-800/60 rounded-xl border border-gray-200 dark:border-slate-700 p-4 text-center">
               <Baby className="h-5 w-5 mx-auto text-green-500 mb-1" />
-              <p className="text-2xl font-bold text-gray-900 dark:text-white">{pigletCount}</p>
-              <p className="text-xs text-gray-500 dark:text-slate-400">Piglets</p>
+              <p className="text-3xl font-bold font-mono tabular-nums text-gray-900 dark:text-white">{pigletCount}</p>
+              <p className="text-xs text-gray-500 dark:text-slate-400 font-medium">Piglets</p>
             </div>
             <div className="bg-white dark:bg-slate-800/60 rounded-xl border border-gray-200 dark:border-slate-700 p-4 text-center">
               <Activity className="h-5 w-5 mx-auto text-pink-500 mb-1" />
-              <p className="text-2xl font-bold text-gray-900 dark:text-white">{sowCount}</p>
-              <p className="text-xs text-gray-500 dark:text-slate-400">Sows</p>
+              <p className="text-3xl font-bold font-mono tabular-nums text-gray-900 dark:text-white">{sowCount}</p>
+              <p className="text-xs text-gray-500 dark:text-slate-400 font-medium">Sows</p>
             </div>
           </div>
 
           {/* Sow posture card */}
           <div className="bg-white dark:bg-slate-800/60 rounded-xl border border-gray-200 dark:border-slate-700 p-4">
-            <p className="text-xs text-gray-500 dark:text-slate-400 mb-1">Sow Posture</p>
+            <p className="text-xs text-gray-500 dark:text-slate-400 mb-1 font-medium">Sow Posture</p>
             <p className="text-lg font-bold text-gray-900 dark:text-white capitalize">{sowPosture !== 'none' ? sowPosture : '—'}</p>
             {detection?.sowPostureConfidence ? (
-              <p className="text-xs text-gray-400">{(detection.sowPostureConfidence * 100).toFixed(0)}% confidence</p>
+              <p className="text-xs text-gray-400 mt-0.5">{(detection.sowPostureConfidence * 100).toFixed(0)}% confidence</p>
             ) : null}
           </div>
 
@@ -1053,22 +1699,22 @@ export default function TestPenPage() {
           <div className="bg-white dark:bg-slate-800/60 rounded-xl border border-gray-200 dark:border-slate-700 p-4">
             <div className="flex items-center gap-2 mb-2">
               <Clock className="h-4 w-4 text-gray-500" />
-              <p className="text-xs font-semibold text-gray-500 dark:text-slate-400 uppercase tracking-wider">Session</p>
+              <p className="text-xs font-semibold text-gray-700 dark:text-slate-300">Session Activity</p>
             </div>
             <div className="grid grid-cols-2 gap-2 text-xs">
               <div className="bg-gray-50 dark:bg-slate-700/30 rounded-lg px-3 py-2">
-                <span className="text-gray-500 dark:text-slate-400 block">Frames</span>
-                <span className="font-bold text-gray-800 dark:text-white">{totalFrames}</span>
+                <span className="text-gray-500 dark:text-slate-400 block font-medium">Frames</span>
+                <span className="font-bold font-mono tabular-nums text-gray-800 dark:text-white text-sm">{totalFrames}</span>
               </div>
               <div className="bg-gray-50 dark:bg-slate-700/30 rounded-lg px-3 py-2">
-                <span className="text-gray-500 dark:text-slate-400 block">Duration</span>
-                <span className="font-bold text-gray-800 dark:text-white">
+                <span className="text-gray-500 dark:text-slate-400 block font-medium">Duration</span>
+                <span className="font-bold font-mono tabular-nums text-gray-800 dark:text-white text-sm">
                   {sessionStarted ? `${Math.round((Date.now() - sessionStarted) / 60000)} min` : '—'}
                 </span>
               </div>
             </div>
             {detection?.inferenceTimeMs && (
-              <p className="text-xs text-gray-400 mt-2">Inference: {detection.inferenceTimeMs.toFixed(0)}ms</p>
+              <p className="text-xs text-gray-400 mt-2 font-mono">Inference: {detection.inferenceTimeMs.toFixed(0)}ms</p>
             )}
           </div>
 
@@ -1109,14 +1755,208 @@ export default function TestPenPage() {
         </div>
       </div>
 
+      {/* ── Onboarding Tutorial & Training Checklist ─────────────────── */}
+      <div id="tour-training-checklist" className="bg-white dark:bg-slate-800/80 rounded-2xl border border-indigo-200 dark:border-indigo-900/60 p-4 shadow-sm">
+        <div className="flex items-center justify-between gap-3 mb-3">
+          <div className="flex items-center gap-2.5">
+            <div className="h-8 w-8 rounded-lg bg-indigo-100 dark:bg-indigo-900/50 flex items-center justify-center text-indigo-600 dark:text-indigo-400">
+              <GraduationCap className="h-4 w-4" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-bold text-gray-900 dark:text-white">
+                  Onboarding Training Checklist
+                </h3>
+                {tutorialProgress.complete_training ? (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300">
+                    <CheckCircle2 className="h-3 w-3" /> Training Certified
+                  </span>
+                ) : (
+                  <span className="text-xs text-indigo-600 dark:text-indigo-400 font-medium">
+                    Interactive Pen Simulator
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-gray-500 dark:text-slate-400">
+                Learn how AI detections work and role-play farm responses before going live.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <TourButton
+              onClick={() => setIsTourOpen(true)}
+              variant="subtle"
+              title="Start guided system tour"
+            />
+            <button
+              onClick={resetTutorial}
+              title="Reset checklist"
+              className="flex items-center gap-1 px-2.5 py-1 text-xs text-gray-500 hover:text-gray-700 dark:text-slate-400 dark:hover:text-slate-200 bg-gray-100 dark:bg-slate-700/50 rounded-lg transition-colors"
+            >
+              <RotateCcw className="h-3 w-3" /> Reset
+            </button>
+            <button
+              onClick={() => setShowTutorialPanel(!showTutorialPanel)}
+              className="text-xs text-indigo-600 dark:text-indigo-400 font-medium hover:underline"
+            >
+              {showTutorialPanel ? 'Collapse' : 'Expand'}
+            </button>
+          </div>
+        </div>
+
+        {showTutorialPanel && (
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 pt-1 border-t border-gray-100 dark:border-slate-700/60">
+            <div className={clsx(
+              'p-3 rounded-xl border text-xs transition-all',
+              tutorialProgress.upload_video
+                ? 'bg-emerald-50 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300'
+                : 'bg-gray-50 dark:bg-slate-700/30 border-gray-200 dark:border-slate-700 text-gray-600 dark:text-slate-300'
+            )}>
+              <div className="flex items-center gap-2 font-semibold mb-1">
+                {tutorialProgress.upload_video ? <CheckCircle2 className="h-4 w-4 text-emerald-600" /> : <div className="h-4 w-4 rounded-full border border-gray-400 flex items-center justify-center text-[10px]">1</div>}
+                <span>Step 1: Load Media</span>
+              </div>
+              <p className="text-[11px] opacity-80">Upload a video or click 'Sample Demo Video' to initialize the camera feed.</p>
+            </div>
+
+            <div className={clsx(
+              'p-3 rounded-xl border text-xs transition-all',
+              tutorialProgress.observe_detections
+                ? 'bg-emerald-50 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300'
+                : 'bg-gray-50 dark:bg-slate-700/30 border-gray-200 dark:border-slate-700 text-gray-600 dark:text-slate-300'
+            )}>
+              <div className="flex items-center gap-2 font-semibold mb-1">
+                {tutorialProgress.observe_detections ? <CheckCircle2 className="h-4 w-4 text-emerald-600" /> : <div className="h-4 w-4 rounded-full border border-gray-400 flex items-center justify-center text-[10px]">2</div>}
+                <span>Step 2: AI Detections</span>
+              </div>
+              <p className="text-[11px] opacity-80">Observe the real-time AI bounding boxes tracking the sow, piglets, and postures.</p>
+            </div>
+
+            <div className={clsx(
+              'p-3 rounded-xl border text-xs transition-all',
+              tutorialProgress.respond_alert
+                ? 'bg-emerald-50 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300'
+                : 'bg-gray-50 dark:bg-slate-700/30 border-gray-200 dark:border-slate-700 text-gray-600 dark:text-slate-300'
+            )}>
+              <div className="flex items-center gap-2 font-semibold mb-1">
+                {tutorialProgress.respond_alert ? <CheckCircle2 className="h-4 w-4 text-emerald-600" /> : <div className="h-4 w-4 rounded-full border border-gray-400 flex items-center justify-center text-[10px]">3</div>}
+                <span>Step 3: Role-Play Alert</span>
+              </div>
+              <p className="text-[11px] opacity-80">When a discrepancy triggers, practice clicking one of the 4 response actions.</p>
+            </div>
+
+            <div className={clsx(
+              'p-3 rounded-xl border text-xs transition-all',
+              tutorialProgress.complete_training
+                ? 'bg-emerald-50 dark:bg-emerald-950/20 border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300 font-semibold'
+                : 'bg-gray-50 dark:bg-slate-700/30 border-gray-200 dark:border-slate-700 text-gray-600 dark:text-slate-300'
+            )}>
+              <div className="flex items-center gap-2 font-semibold mb-1">
+                {tutorialProgress.complete_training ? <CheckCircle2 className="h-4 w-4 text-emerald-600" /> : <div className="h-4 w-4 rounded-full border border-gray-400 flex items-center justify-center text-[10px]">4</div>}
+                <span>Step 4: Certified</span>
+              </div>
+              <p className="text-[11px] opacity-80">
+                {tutorialProgress.complete_training
+                  ? 'Completed! Baseline updated in simulator. Ready for live monitoring.'
+                  : 'Complete steps 1-3 to earn your AI Pen Monitoring certification badge.'}
+              </p>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ── Live Streaming Transition Banner ────────────────────────── */}
+      <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 border border-indigo-500/30 rounded-2xl p-5 text-white shadow-xl">
+        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 mb-4">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                Production Transition
+              </span>
+              <h3 className="text-base font-bold text-white">Go Live with Barn IP Cameras</h3>
+            </div>
+            <p className="text-xs text-slate-300 mt-1">
+              Done evaluating footage in the sandbox? Connect real IP cameras and monitor all farrowing pens in real-time.
+            </p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div
+            id="tour-live-step-camera"
+            className="p-3.5 rounded-xl bg-slate-800/80 border border-slate-700 hover:border-indigo-500/50 transition-all flex flex-col justify-between"
+          >
+            <div>
+              <div className="flex items-center gap-2 text-indigo-400 font-semibold text-xs mb-1">
+                <Camera className="h-4 w-4" />
+                <span>1. Add Barn Camera</span>
+              </div>
+              <p className="text-[11px] text-slate-300 leading-relaxed mb-3">
+                Configure RTSP streams for Hikvision, Dahua, Reolink, Tapo, or Edge AI nodes with static IPs.
+              </p>
+            </div>
+            <button
+              onClick={() => navigate('/camera-setup?tour=true')}
+              className="w-full py-1.5 px-3 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium flex items-center justify-center gap-1.5 transition-colors shadow-sm"
+            >
+              <span>Setup Wizard</span>
+              <ChevronRight className="h-3 w-3" />
+            </button>
+          </div>
+
+          <div
+            id="tour-live-step-monitoring"
+            className="p-3.5 rounded-xl bg-slate-800/80 border border-slate-700 hover:border-indigo-500/50 transition-all flex flex-col justify-between"
+          >
+            <div>
+              <div className="flex items-center gap-2 text-indigo-400 font-semibold text-xs mb-1">
+                <LayoutDashboard className="h-4 w-4" />
+                <span>2. Multi-Pen Barn Grid</span>
+              </div>
+              <p className="text-[11px] text-slate-300 leading-relaxed mb-3">
+                Observe all pen livestreams simultaneously in a responsive 2x2 or 3x2 matrix with risk telemetry.
+              </p>
+            </div>
+            <button
+              onClick={() => navigate('/monitoring?tour=true')}
+              className="w-full py-1.5 px-3 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium flex items-center justify-center gap-1.5 transition-colors shadow-sm"
+            >
+              <span>Monitoring Grid</span>
+              <ChevronRight className="h-3 w-3" />
+            </button>
+          </div>
+
+          <div
+            id="tour-live-step-penlive"
+            className="p-3.5 rounded-xl bg-slate-800/80 border border-slate-700 hover:border-indigo-500/50 transition-all flex flex-col justify-between"
+          >
+            <div>
+              <div className="flex items-center gap-2 text-indigo-400 font-semibold text-xs mb-1">
+                <Radio className="h-4 w-4" />
+                <span>3. Dedicated Pen Stream</span>
+              </div>
+              <p className="text-[11px] text-slate-300 leading-relaxed mb-3">
+                Full-fidelity single-pen monitoring with audible alerts, farrowing logs, and intervention tracking.
+              </p>
+            </div>
+            <button
+              onClick={() => navigate(`/pen/${selectedPenId || 1}?tour=true`)}
+              className="w-full py-1.5 px-3 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-medium flex items-center justify-center gap-1.5 transition-colors shadow-sm"
+            >
+              <span>Open Pen #{selectedPenId || 1}</span>
+              <ChevronRight className="h-3 w-3" />
+            </button>
+          </div>
+        </div>
+      </div>
+
       {/* ── Tabs ───────────────────────────────────────────────────── */}
-      <div className="flex gap-1 bg-gray-100 dark:bg-slate-800/50 rounded-xl p-1 overflow-x-auto">
+      <div id="tour-tabs-bar" className="flex gap-1 bg-gray-100 dark:bg-slate-800/50 rounded-xl p-1 overflow-x-auto">
         {([
           { key: 'overview' as Tab, label: 'Overview', icon: <Eye className="h-4 w-4" /> },
           { key: 'live-monitor' as Tab, label: 'Live Monitor', icon: <Radio className="h-4 w-4" /> },
           { key: 'farrowing' as Tab, label: 'Farrowing & Wellbeing', icon: <Heart className="h-4 w-4" /> },
-          { key: 'detections' as Tab, label: 'Detections', icon: <BarChart3 className="h-4 w-4" /> },
-          { key: 'behavior' as Tab, label: 'Sow Behavior', icon: <Activity className="h-4 w-4" /> },
+          { key: 'health' as Tab, label: 'Health & Events', icon: <Activity className="h-4 w-4" /> },
         ]).map((tab) => (
           <button
             key={tab.key}
@@ -1259,6 +2099,36 @@ export default function TestPenPage() {
               >
                 <span className="flex items-center gap-1.5"><Eye className="h-3 w-3" /> Load Replay</span>
               </button>
+            </div>
+          </div>
+
+          {/* AI Welfare Insights */}
+          <div className="bg-white dark:bg-slate-800/60 rounded-2xl border border-gray-200 dark:border-slate-700 p-5">
+            <div className="flex items-center gap-2 mb-4">
+              <Shield className="h-5 w-5 text-indigo-500" />
+              <h3 className="font-semibold text-gray-900 dark:text-white text-sm">AI Welfare Insights</h3>
+              <span className="ml-auto text-xs text-gray-400">Real-time status</span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              {computeWelfareInsights(
+                sow,
+                farrowingRecords,
+                [],
+                {
+                  crushing_risk: riskValue,
+                  piglet_count: pigletCount,
+                  sow_posture: sowPosture,
+                }
+              ).map((insight, idx) => (
+                <InsightCard
+                  key={idx}
+                  status={insight.status}
+                  icon={insight.icon}
+                  label={insight.label}
+                  value={insight.value}
+                  detail={insight.detail}
+                />
+              ))}
             </div>
           </div>
 
@@ -2959,123 +3829,144 @@ export default function TestPenPage() {
         </div>
       )}
 
-      {/* ━━━━━━━━━━━━━ TAB: DETECTIONS ━━━━━━━━━━━━━━━━ */}
-      {activeTab === 'detections' && (
+      {/* ━━━━━━━━━━━━━ TAB: HEALTH & EVENTS ━━━━━━━━━━━━━ */}
+      {activeTab === 'health' && (
         <div className="space-y-5 animate-fade-in">
-          <div className="bg-white dark:bg-slate-800/60 rounded-2xl border border-gray-200 dark:border-slate-700 overflow-hidden">
-            <div className="px-5 py-4 border-b border-gray-100 dark:border-slate-700 flex items-center justify-between">
-              <h3 className="font-semibold text-gray-900 dark:text-white">Detection Details</h3>
-              {detection?.analytics && (
-                <div className="flex items-center gap-3 text-xs text-gray-500 dark:text-slate-400">
-                  <span>Avg conf: {(detection.analytics.avgConfidence * 100).toFixed(0)}%</span>
-                  <span>Move: {detection.analytics.movementEstimate}</span>
-                  <span>Inf: {detection.inferenceTimeMs?.toFixed(0)}ms</span>
+          {/* Active Alerts & Role-Play Decisions Summary */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+            {/* Role-Play Decision History */}
+            <div className="bg-white dark:bg-slate-800/60 rounded-2xl border border-gray-200 dark:border-slate-700 overflow-hidden">
+              <div className="px-5 py-4 border-b border-gray-100 dark:border-slate-700 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Shield className="h-5 w-5 text-indigo-500" />
+                  <h3 className="font-semibold text-gray-900 dark:text-white">Role-Play Decision Log</h3>
                 </div>
-              )}
-            </div>
-            <div className="p-5">
-              {detection && detection.detections.length > 0 ? (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-                  {detection.detections.map((det, idx) => {
-                    const catColor = CATEGORY_COLORS[det.category] || '#9E9E9E';
-                    return (
-                      <div key={idx} className="flex items-center gap-3 p-3 rounded-xl border border-gray-100 dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-700/20 transition-colors">
-                        <div className="h-10 w-10 rounded-lg flex items-center justify-center flex-shrink-0" style={{ backgroundColor: `${catColor}20` }}>
-                          {det.category === 'sow' ? <Activity className="h-5 w-5" style={{ color: catColor }} /> : <Baby className="h-5 w-5" style={{ color: catColor }} />}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-gray-900 dark:text-white capitalize">{det.displayName}</p>
-                          <p className="text-xs text-gray-500 dark:text-slate-400">{det.category} • {(det.confidence * 100).toFixed(0)}%</p>
-                        </div>
-                        <div className="w-12 bg-gray-200 dark:bg-gray-600 rounded-full h-1.5">
-                          <div className="h-1.5 rounded-full" style={{ width: `${det.confidence * 100}%`, backgroundColor: catColor }} />
-                        </div>
+                <span className="text-xs px-2 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400 font-medium">
+                  {clarificationHistory.length} Record{clarificationHistory.length !== 1 ? 's' : ''}
+                </span>
+              </div>
+              <div className="divide-y divide-gray-100 dark:divide-slate-700 max-h-[360px] overflow-y-auto">
+                {clarificationHistory.length === 0 ? (
+                  <div className="p-8 text-center text-gray-400 dark:text-slate-500 text-sm">
+                    <Shield className="h-8 w-8 mx-auto mb-2 opacity-40" />
+                    <p>No role-play decisions yet.</p>
+                    <p className="text-xs text-gray-400 mt-1">When an alert triggers, select a decision to practice your response.</p>
+                  </div>
+                ) : (
+                  clarificationHistory.map((entry) => (
+                    <div key={entry.id} className="p-4 hover:bg-gray-50 dark:hover:bg-slate-700/20 transition-colors">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className={clsx(
+                          'px-2 py-0.5 rounded-full text-xs font-semibold',
+                          entry.resolutionAction === 'pen_is_fine' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' :
+                          entry.resolutionAction === 'piglet_died' ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300' :
+                          entry.resolutionAction === 'piglet_transferred' ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300' :
+                          entry.resolutionAction === 'will_check' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300' :
+                          'bg-gray-100 text-gray-700 dark:bg-slate-700 dark:text-slate-300'
+                        )}>
+                          {entry.resolutionAction === 'pen_is_fine' ? '✓ Pen is Fine' :
+                           entry.resolutionAction === 'piglet_died' ? '✕ Piglet Died' :
+                           entry.resolutionAction === 'piglet_transferred' ? '🔄 Transferred' :
+                           entry.resolutionAction === 'will_check' ? '👀 Inspecting' : 'Pending'}
+                        </span>
+                        <span className="text-[11px] text-gray-400 font-mono">
+                          {new Date(entry.timestamp).toLocaleTimeString()}
+                        </span>
                       </div>
-                    );
-                  })}
+                      <p className="text-xs text-gray-700 dark:text-slate-300 font-medium">
+                        Trigger: <strong className="capitalize">{entry.trigger.replace('_', ' ')}</strong> • Detected: {entry.detectedCount} / Expected: {entry.expectedCount}
+                      </p>
+                      <p className="text-[11px] text-gray-500 dark:text-slate-400 mt-0.5">
+                        Crushing risk: {(entry.crushingRisk * 100).toFixed(0)}% • Missing: {entry.missingCount} piglet(s)
+                      </p>
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
+
+            {/* Simulated Event Stream */}
+            <div className="bg-white dark:bg-slate-800/60 rounded-2xl border border-gray-200 dark:border-slate-700 overflow-hidden">
+              <div className="px-5 py-4 border-b border-gray-100 dark:border-slate-700 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Activity className="h-5 w-5 text-blue-500" />
+                  <h3 className="font-semibold text-gray-900 dark:text-white">Simulated Event Stream</h3>
                 </div>
-              ) : (
-                <div className="text-center py-8 text-gray-400 dark:text-slate-500">
-                  <BarChart3 className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                  <p>No detections yet</p>
-                </div>
-              )}
+                <span className="text-xs text-gray-400 font-mono">
+                  {simEvents.length} events
+                </span>
+              </div>
+              <div className="divide-y divide-gray-100 dark:divide-slate-700 max-h-[360px] overflow-y-auto">
+                {simEvents.length === 0 ? (
+                  <div className="p-8 text-center text-gray-400 dark:text-slate-500 text-sm">
+                    <Activity className="h-8 w-8 mx-auto mb-2 opacity-40" />
+                    <p>No events logged yet. Play video to generate telemetry.</p>
+                  </div>
+                ) : (
+                  simEvents.map((evt) => (
+                    <EventFeedItem key={evt.id} event={evt} />
+                  ))
+                )}
+              </div>
             </div>
           </div>
-        </div>
-      )}
 
-      {/* ━━━━━━━━━━━━━ TAB: BEHAVIOR PROFILE ━━━━━━━━━━━━━ */}
-      {activeTab === 'behavior' && (
-        <div className="space-y-5 animate-fade-in">
-          <div className="bg-white dark:bg-slate-800/60 rounded-2xl border border-gray-200 dark:border-slate-700 overflow-hidden">
-            <div className="px-5 py-4 border-b border-gray-100 dark:border-slate-700 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Activity className="h-5 w-5 text-pink-500" />
-                <h3 className="font-semibold text-gray-900 dark:text-white">Sow Behavior Profile</h3>
-                <span className="text-xs text-gray-400">— this session</span>
-              </div>
-              <div className="flex items-center gap-3 text-xs text-gray-500">
-                {sessionStarted && (
-                  <span className="flex items-center gap-1">
-                    <Clock className="h-3 w-3" /> {Math.round((Date.now() - sessionStarted) / 60000)} min
+          {/* Detection Details and Sow Behavior Summary */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+            {/* Detection Details */}
+            <div className="bg-white dark:bg-slate-800/60 rounded-2xl border border-gray-200 dark:border-slate-700 overflow-hidden">
+              <div className="px-5 py-4 border-b border-gray-100 dark:border-slate-700 flex items-center justify-between">
+                <h3 className="font-semibold text-gray-900 dark:text-white text-sm">Vision Detections Breakdown</h3>
+                {detection?.analytics && (
+                  <span className="text-xs text-gray-400">
+                    Avg conf: {(detection.analytics.avgConfidence * 100).toFixed(0)}%
                   </span>
                 )}
-                <span>{totalFrames} frames</span>
-                <button onClick={resetSession} className="px-2 py-0.5 text-xs bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 text-gray-600 dark:text-gray-300 rounded transition-colors">
-                  Reset
-                </button>
+              </div>
+              <div className="p-4">
+                {detection && detection.detections.length > 0 ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-[300px] overflow-y-auto">
+                    {detection.detections.map((det, idx) => {
+                      const catColor = CATEGORY_COLORS[det.category] || '#9E9E9E';
+                      return (
+                        <div key={idx} className="flex items-center gap-2.5 p-2.5 rounded-xl border border-gray-100 dark:border-slate-700/60 bg-gray-50/50 dark:bg-slate-900/30">
+                          <div className="h-8 w-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ backgroundColor: `${catColor}20` }}>
+                            {det.category === 'sow' ? <Activity className="h-4 w-4" style={{ color: catColor }} /> : <Baby className="h-4 w-4" style={{ color: catColor }} />}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-semibold text-gray-900 dark:text-white capitalize truncate">{det.displayName}</p>
+                            <p className="text-[10px] text-gray-500 dark:text-slate-400">{det.category} • {(det.confidence * 100).toFixed(0)}%</p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <div className="p-6 text-center text-gray-400 text-xs">No active detections</div>
+                )}
               </div>
             </div>
 
-            {profilesList.length > 0 ? (
-              <>
-                <div className="p-5 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-                  {profilesList.map((profile) => (
-                    <ProfileCard key={profile.className} profile={profile} />
-                  ))}
-                </div>
-
-                {/* Posture distribution bar */}
-                {profilesList.length > 1 && (
-                  <div className="px-5 pb-5">
-                    <p className="text-xs text-gray-500 dark:text-slate-400 mb-2">Posture distribution</p>
-                    <div className="flex gap-0.5 h-3 rounded-full overflow-hidden">
-                      {(() => {
-                        const total = profilesList.reduce((s, p) => s + p.count, 0);
-                        return profilesList.map((p) => (
-                          <div
-                            key={p.className}
-                            title={`${p.posture}: ${((p.count / total) * 100).toFixed(0)}%`}
-                            className="transition-all duration-500"
-                            style={{ width: `${(p.count / total) * 100}%`, backgroundColor: POSTURE_COLORS[p.posture] ?? '#9E9E9E' }}
-                          />
-                        ));
-                      })()}
-                    </div>
-                    <div className="flex flex-wrap gap-3 mt-2">
-                      {(() => {
-                        const total = profilesList.reduce((s, x) => s + x.count, 0);
-                        return profilesList.map((p) => {
-                          const c = POSTURE_COLORS[p.posture] ?? '#9E9E9E';
-                          return (
-                            <span key={p.className} className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-slate-400">
-                              <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: c }} />
-                              {p.posture} {((p.count / total) * 100).toFixed(0)}%
-                            </span>
-                          );
-                        });
-                      })()}
+            {/* Sow Behavior Profile */}
+            <div className="bg-white dark:bg-slate-800/60 rounded-2xl border border-gray-200 dark:border-slate-700 overflow-hidden">
+              <div className="px-5 py-4 border-b border-gray-100 dark:border-slate-700 flex items-center justify-between">
+                <h3 className="font-semibold text-gray-900 dark:text-white text-sm">Session Posture Distribution</h3>
+                <span className="text-xs text-gray-400">{totalFrames} frames</span>
+              </div>
+              <div className="p-4">
+                {profilesList.length > 0 ? (
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-2 gap-2">
+                      {profilesList.map((profile) => (
+                        <ProfileCard key={profile.className} profile={profile} />
+                      ))}
                     </div>
                   </div>
+                ) : (
+                  <div className="p-6 text-center text-gray-400 text-xs">No posture statistics yet</div>
                 )}
-              </>
-            ) : (
-              <div className="p-8 text-center text-gray-400 dark:text-slate-500">
-                <Activity className="h-8 w-8 mx-auto mb-2 opacity-50" />
-                <p>No behavior data yet — start a detection session</p>
               </div>
-            )}
+            </div>
           </div>
         </div>
       )}
@@ -3098,6 +3989,17 @@ export default function TestPenPage() {
           "Farrowing Emulation: Toggle farrowing active to monitor how the state machine reacts to simulated rapid piglet growth.",
           "Event Analytics: Track historical frames simulated in real-time or fast-forward modes."
         ]}
+      />
+
+      <SystemTour
+        isOpen={isTourOpen}
+        onClose={() => setIsTourOpen(false)}
+        steps={TOUR_STEPS}
+        tourKey="prisma_atlas_testpen_tour"
+        onComplete={() => {
+          markTutorialStep('complete_training');
+          toast.success('Congratulations! You completed the live system tour.');
+        }}
       />
     </div>
   );
@@ -3452,11 +4354,11 @@ function FarrowingEnginePanelTest({
         </div>
 
         {/* State Flow Indicator */}
-        <div className="hidden sm:flex items-center gap-1 text-[9px] font-mono">
+        <div className="hidden sm:flex items-center gap-1 text-xs font-mono">
           {['NORMAL_MONITORING', 'PREDICTION_HIGH', 'FARROWING_STARTED', 'FARROWING_ACTIVE', 'FARROWING_COMPLETED'].map((s, i) => (
             <div key={s} className="flex items-center gap-1">
               <span className={clsx(
-                'px-1.5 py-0.5 rounded',
+                'px-2 py-0.5 rounded font-semibold',
                 s === state ? 'bg-gray-900 dark:bg-white text-white dark:text-gray-900 font-bold' : 'bg-gray-200 dark:bg-slate-700 text-gray-500 dark:text-slate-400'
               )}>
                 {s.split('_').map(w => w[0]).join('')}
@@ -3470,31 +4372,31 @@ function FarrowingEnginePanelTest({
       {/* Prediction Metrics */}
       {(state === 'NORMAL_MONITORING' || state === 'PREDICTION_HIGH') && (
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <div className="bg-white/70 dark:bg-slate-800/40 rounded-xl px-3 py-2">
-            <p className="text-[10px] text-gray-500 dark:text-slate-400 uppercase tracking-wider">Posture Trans/hr</p>
-            <p className={clsx('text-lg font-bold', prediction.postureTransitionsPerHour > 20 ? 'text-red-600' : 'text-gray-900 dark:text-white')}>
+          <div className="bg-white/80 dark:bg-slate-800/60 rounded-xl p-3 border border-gray-200 dark:border-slate-700/60 shadow-sm">
+            <p className="text-xs font-semibold text-gray-500 dark:text-slate-400">Posture Trans/hr</p>
+            <p className={clsx('text-2xl font-bold font-mono tabular-nums my-0.5', prediction.postureTransitionsPerHour > 20 ? 'text-red-600 dark:text-red-400' : 'text-gray-900 dark:text-white')}>
               {prediction.postureTransitionsPerHour}
             </p>
-            <p className="text-[9px] text-gray-400">threshold: 20</p>
+            <p className="text-xs text-gray-500 dark:text-slate-400">threshold: 20/hr</p>
           </div>
-          <div className="bg-white/70 dark:bg-slate-800/40 rounded-xl px-3 py-2">
-            <p className="text-[10px] text-gray-500 dark:text-slate-400 uppercase tracking-wider">Posture Switching/hr</p>
-            <p className={clsx('text-lg font-bold', prediction.nestingCountPerHour > 5 ? 'text-red-600' : 'text-gray-900 dark:text-white')}>
+          <div className="bg-white/80 dark:bg-slate-800/60 rounded-xl p-3 border border-gray-200 dark:border-slate-700/60 shadow-sm">
+            <p className="text-xs font-semibold text-gray-500 dark:text-slate-400">Posture Switching/hr</p>
+            <p className={clsx('text-2xl font-bold font-mono tabular-nums my-0.5', prediction.nestingCountPerHour > 5 ? 'text-red-600 dark:text-red-400' : 'text-gray-900 dark:text-white')}>
               {prediction.nestingCountPerHour}
             </p>
-            <p className="text-[9px] text-gray-400">threshold: 5</p>
+            <p className="text-xs text-gray-500 dark:text-slate-400">threshold: 5/hr</p>
           </div>
-          <div className="bg-white/70 dark:bg-slate-800/40 rounded-xl px-3 py-2">
-            <p className="text-[10px] text-gray-500 dark:text-slate-400 uppercase tracking-wider">% Time Lying</p>
-            <p className={clsx('text-lg font-bold', prediction.percentTimeLying > 50 ? 'text-amber-600' : 'text-gray-900 dark:text-white')}>
+          <div className="bg-white/80 dark:bg-slate-800/60 rounded-xl p-3 border border-gray-200 dark:border-slate-700/60 shadow-sm">
+            <p className="text-xs font-semibold text-gray-500 dark:text-slate-400">% Time Lying</p>
+            <p className={clsx('text-2xl font-bold font-mono tabular-nums my-0.5', prediction.percentTimeLying > 50 ? 'text-amber-600 dark:text-amber-400' : 'text-gray-900 dark:text-white')}>
               {prediction.percentTimeLying.toFixed(0)}%
             </p>
-            <p className="text-[9px] text-gray-400">threshold: 50%</p>
+            <p className="text-xs text-gray-500 dark:text-slate-400">threshold: 50%</p>
           </div>
-          <div className="bg-white/70 dark:bg-slate-800/40 rounded-xl px-3 py-2">
-            <p className="text-[10px] text-gray-500 dark:text-slate-400 uppercase tracking-wider">Eval Interval</p>
-            <p className="text-lg font-bold text-gray-900 dark:text-white">{monitoringInterval}m</p>
-            <p className="text-[9px] text-gray-400">prob: {prediction.farrowingProbability}</p>
+          <div className="bg-white/80 dark:bg-slate-800/60 rounded-xl p-3 border border-gray-200 dark:border-slate-700/60 shadow-sm">
+            <p className="text-xs font-semibold text-gray-500 dark:text-slate-400">Eval Interval</p>
+            <p className="text-2xl font-bold font-mono tabular-nums my-0.5 text-gray-900 dark:text-white">{monitoringInterval}m</p>
+            <p className="text-xs text-gray-500 dark:text-slate-400">prob: {prediction.farrowingProbability}</p>
           </div>
         </div>
       )}
@@ -3514,10 +4416,10 @@ function FarrowingEnginePanelTest({
               {/* Compact badges when collapsed */}
               {!showMetrics && (
                 <div className="flex items-center gap-2 ml-1">
-                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ backgroundColor: `${restlessnessResult.color}15`, color: restlessnessResult.color }}>
+                  <span className="text-xs font-semibold px-2 py-0.5 rounded" style={{ backgroundColor: `${restlessnessResult.color}15`, color: restlessnessResult.color }}>
                     Rest: {restlessnessResult.score}
                   </span>
-                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded" style={{ backgroundColor: `${likelihoodResult.color}15`, color: likelihoodResult.color }}>
+                  <span className="text-xs font-semibold px-2 py-0.5 rounded" style={{ backgroundColor: `${likelihoodResult.color}15`, color: likelihoodResult.color }}>
                     Likelihood: {likelihoodResult.score}%
                   </span>
                 </div>
@@ -3537,19 +4439,19 @@ function FarrowingEnginePanelTest({
                 {/* Restlessness Score */}
                 <div className="bg-gray-50 dark:bg-slate-800/60 rounded-xl p-4 space-y-2">
                   <div className="flex items-center justify-between">
-                    <p className="text-[10px] text-gray-500 dark:text-slate-400 uppercase tracking-wider font-semibold">Restlessness Score</p>
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ backgroundColor: `${restlessnessResult.color}20`, color: restlessnessResult.color }}>
+                    <p className="text-xs text-gray-600 dark:text-slate-300 font-semibold">Restlessness Score</p>
+                    <span className="text-xs font-bold px-2.5 py-0.5 rounded-full" style={{ backgroundColor: `${restlessnessResult.color}20`, color: restlessnessResult.color }}>
                       {restlessnessResult.level}
                     </span>
                   </div>
                   <div className="flex items-end gap-2">
-                    <p className="text-3xl font-black" style={{ color: restlessnessResult.color }}>{restlessnessResult.score}</p>
+                    <p className="text-3xl font-bold font-mono tabular-nums" style={{ color: restlessnessResult.color }}>{restlessnessResult.score}</p>
                     <span className="text-sm text-gray-400 mb-1">/ 100</span>
                   </div>
                   <div className="w-full bg-gray-200 dark:bg-slate-700 rounded-full h-2">
                     <div className="h-2 rounded-full transition-all duration-700" style={{ width: `${restlessnessResult.score}%`, backgroundColor: restlessnessResult.color }} />
                   </div>
-                  <div className="flex justify-between text-[9px] text-gray-400">
+                  <div className="flex justify-between text-xs text-gray-400">
                     <span>0 – Calm</span><span>30 – Active</span><span>60 – Restless</span><span>80+ Critical</span>
                   </div>
                 </div>
@@ -3557,19 +4459,19 @@ function FarrowingEnginePanelTest({
                 {/* Numeric Farrowing Likelihood % */}
                 <div className="bg-gray-50 dark:bg-slate-800/60 rounded-xl p-4 space-y-2">
                   <div className="flex items-center justify-between">
-                    <p className="text-[10px] text-gray-500 dark:text-slate-400 uppercase tracking-wider font-semibold">Farrowing Likelihood</p>
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full" style={{ backgroundColor: `${likelihoodResult.color}20`, color: likelihoodResult.color }}>
+                    <p className="text-xs text-gray-600 dark:text-slate-300 font-semibold">Farrowing Likelihood</p>
+                    <span className="text-xs font-bold px-2.5 py-0.5 rounded-full" style={{ backgroundColor: `${likelihoodResult.color}20`, color: likelihoodResult.color }}>
                       {likelihoodResult.label}
                     </span>
                   </div>
                   <div className="flex items-end gap-2">
-                    <p className="text-3xl font-black" style={{ color: likelihoodResult.color }}>{likelihoodResult.score}%</p>
+                    <p className="text-3xl font-bold font-mono tabular-nums" style={{ color: likelihoodResult.color }}>{likelihoodResult.score}%</p>
                     <span className="text-sm text-gray-400 mb-1">({likelihoodResult.label})</span>
                   </div>
                   <div className="w-full bg-gray-200 dark:bg-slate-700 rounded-full h-2">
                     <div className="h-2 rounded-full transition-all duration-700" style={{ width: `${likelihoodResult.score}%`, backgroundColor: likelihoodResult.color }} />
                   </div>
-                  <div className="flex justify-between text-[9px] text-gray-400">
+                  <div className="flex justify-between text-xs text-gray-400">
                     <span>0% – Low</span><span>30% – Moderate</span><span>60%+ – High</span>
                   </div>
                 </div>
@@ -3579,23 +4481,23 @@ function FarrowingEnginePanelTest({
               {trendData.length >= 2 && (
                 <div className="bg-gray-50 dark:bg-slate-800/60 rounded-xl p-4 space-y-2">
                   <div className="flex items-center justify-between">
-                    <p className="text-[10px] text-gray-500 dark:text-slate-400 uppercase tracking-wider font-semibold">Live Trend</p>
-                    <span className="text-[9px] text-gray-400">{trendData.length} data points • 30s interval</span>
+                    <p className="text-xs text-gray-600 dark:text-slate-300 font-semibold">Live Trend</p>
+                    <span className="text-xs text-gray-400">{trendData.length} data points • 30s interval</span>
                   </div>
                   <ResponsiveContainer width="100%" height={180}>
                     <LineChart data={trendData}>
                       <CartesianGrid strokeDasharray="3 3" strokeOpacity={0.15} />
-                      <XAxis dataKey="time" tick={{ fontSize: 9 }} interval="preserveStartEnd" />
-                      <YAxis domain={[0, 100]} tick={{ fontSize: 9 }} width={30} />
+                      <XAxis dataKey="time" tick={{ fontSize: 11 }} interval="preserveStartEnd" />
+                      <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} width={30} />
                       <RechartsTooltip
-                        contentStyle={{ fontSize: 11, borderRadius: 8, border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,.1)' }}
+                        contentStyle={{ fontSize: 12, borderRadius: 8, border: 'none', boxShadow: '0 4px 12px rgba(0,0,0,.1)' }}
                         labelStyle={{ fontWeight: 600 }}
                       />
                       <Line type="monotone" dataKey="restlessness" stroke="#F59E0B" strokeWidth={2} dot={false} name="Restlessness" />
                       <Line type="monotone" dataKey="likelihood" stroke="#DC2626" strokeWidth={2} dot={false} name="Likelihood %" />
                     </LineChart>
                   </ResponsiveContainer>
-                  <div className="flex justify-center gap-6 text-[10px]">
+                  <div className="flex justify-center gap-6 text-xs text-gray-600 dark:text-slate-400">
                     <span className="flex items-center gap-1.5"><span className="w-3 h-0.5 bg-amber-500 rounded" /> Restlessness</span>
                     <span className="flex items-center gap-1.5"><span className="w-3 h-0.5 bg-red-600 rounded" /> Likelihood %</span>
                   </div>
@@ -3617,18 +4519,18 @@ function FarrowingEnginePanelTest({
           </div>
           <div className="grid grid-cols-3 gap-3 text-center">
             <div>
-              <p className="text-2xl font-bold text-green-600">{activeSession.totalBorn}</p>
-              <p className="text-[10px] text-gray-500 uppercase">Piglets Born</p>
+              <p className="text-3xl font-bold font-mono tabular-nums text-green-600">{activeSession.totalBorn}</p>
+              <p className="text-xs text-gray-500 dark:text-slate-400 font-medium">Piglets Born</p>
             </div>
             <div>
-              <p className="text-2xl font-bold text-red-600">{activeSession.crushingIncidents}</p>
-              <p className="text-[10px] text-gray-500 uppercase">Crush Alerts</p>
+              <p className="text-3xl font-bold font-mono tabular-nums text-red-600">{activeSession.crushingIncidents}</p>
+              <p className="text-xs text-gray-500 dark:text-slate-400 font-medium">Crush Alerts</p>
             </div>
             <div>
-              <p className="text-2xl font-bold text-amber-600">
+              <p className="text-3xl font-bold font-mono tabular-nums text-amber-600">
                 {noNewPigletSinceMs > 0 ? `${Math.round(noNewPigletSinceMs / 60000)}m` : '—'}
               </p>
-              <p className="text-[10px] text-gray-500 uppercase">Since Last</p>
+              <p className="text-xs text-gray-500 dark:text-slate-400 font-medium">Since Last</p>
             </div>
           </div>
           {/* ── 3️⃣ Stagnation Escalation Alert ───────────────────────── */}
@@ -3662,7 +4564,7 @@ function FarrowingEnginePanelTest({
                   )}>
                     Stagnation: {stagnationResult.level}
                   </span>
-                  <span className="text-[10px] opacity-60">{Math.round(noNewPigletSinceMs / 60000)} min since last piglet</span>
+                  <span className="text-xs text-gray-500 dark:text-slate-400 font-mono">{Math.round(noNewPigletSinceMs / 60000)} min since last piglet</span>
                 </div>
                 <p className={clsx('text-xs mt-1 leading-relaxed', stagnationResult.color)}>
                   {stagnationResult.message}
@@ -3674,11 +4576,11 @@ function FarrowingEnginePanelTest({
           {/* Birth Timeline */}
           {activeSession.birthEvents.length > 0 && (
             <div className="space-y-1">
-              <p className="text-[10px] text-gray-500 dark:text-slate-400 uppercase tracking-wider">Birth Timeline</p>
-              <div className="flex flex-wrap gap-1">
+              <p className="text-xs font-semibold text-gray-700 dark:text-slate-300">Birth Timeline</p>
+              <div className="flex flex-wrap gap-1.5">
                 {activeSession.birthEvents.map((e, i) => (
-                  <span key={i} className="inline-flex items-center gap-1 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 text-[10px] px-2 py-0.5 rounded-full">
-                    #{e.pigletNumber} • {new Date(e.detectedAt).toLocaleTimeString()} • {(e.confidence * 100).toFixed(0)}%
+                  <span key={i} className="inline-flex items-center gap-1.5 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 text-xs px-2.5 py-1 rounded-full font-mono">
+                    #{e.pigletNumber} • {new Date(e.detectedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })} • {(e.confidence * 100).toFixed(0)}%
                   </span>
                 ))}
               </div>
@@ -3692,19 +4594,19 @@ function FarrowingEnginePanelTest({
         const last = completedSessions[completedSessions.length - 1];
         return (
           <div className="bg-white/70 dark:bg-slate-800/40 rounded-xl p-4">
-            <h4 className="font-semibold text-sm text-gray-900 dark:text-white mb-2">Farrowing Summary</h4>
+            <h4 className="font-semibold text-sm text-gray-900 dark:text-white mb-3">Farrowing Summary</h4>
             <div className="grid grid-cols-3 gap-3 text-center">
               <div>
-                <p className="text-2xl font-bold text-green-600">{last.totalBorn}</p>
-                <p className="text-[10px] text-gray-500 uppercase">Total Born</p>
+                <p className="text-3xl font-bold font-mono tabular-nums text-green-600">{last.totalBorn}</p>
+                <p className="text-xs text-gray-500 dark:text-slate-400 font-medium">Total Born</p>
               </div>
               <div>
-                <p className="text-2xl font-bold text-blue-600">{last.durationMinutes ?? '—'}</p>
-                <p className="text-[10px] text-gray-500 uppercase">Minutes</p>
+                <p className="text-3xl font-bold font-mono tabular-nums text-blue-600">{last.durationMinutes ?? '—'}</p>
+                <p className="text-xs text-gray-500 dark:text-slate-400 font-medium">Minutes</p>
               </div>
               <div>
-                <p className="text-2xl font-bold text-red-600">{last.crushingIncidents}</p>
-                <p className="text-[10px] text-gray-500 uppercase">Crush Events</p>
+                <p className="text-3xl font-bold font-mono tabular-nums text-red-600">{last.crushingIncidents}</p>
+                <p className="text-xs text-gray-500 dark:text-slate-400 font-medium">Crush Events</p>
               </div>
             </div>
           </div>
@@ -3714,7 +4616,7 @@ function FarrowingEnginePanelTest({
       {/* Safety Alerts */}
       {recentSafety.length > 0 && (
         <div className="space-y-1.5">
-          <p className="text-[10px] text-gray-500 dark:text-slate-400 uppercase tracking-wider font-semibold">Safety Checks</p>
+          <p className="text-xs font-semibold text-gray-700 dark:text-slate-300">Safety Checks</p>
           {recentSafety.map((s, i) => (
             <div key={i} className={clsx(
               'rounded-lg px-3 py-2 text-xs flex items-center gap-2',
@@ -3730,7 +4632,7 @@ function FarrowingEnginePanelTest({
       {/* Recent Farrowing Alerts */}
       {recentAlerts.length > 0 && (
         <div className="space-y-1.5">
-          <p className="text-[10px] text-gray-500 dark:text-slate-400 uppercase tracking-wider font-semibold">Engine Alerts</p>
+          <p className="text-xs font-semibold text-gray-700 dark:text-slate-300">Engine Alerts</p>
           {recentAlerts.map((a) => (
             <div key={a.id} className={clsx(
               'rounded-lg px-3 py-2 text-xs flex items-start gap-2',
@@ -3741,7 +4643,7 @@ function FarrowingEnginePanelTest({
               <Bell className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
               <div>
                 <p className="font-medium">{a.message}</p>
-                <p className="text-[10px] opacity-60 mt-0.5">{new Date(a.timestamp).toLocaleTimeString()}</p>
+                <p className="text-xs opacity-60 mt-0.5 font-mono">{new Date(a.timestamp).toLocaleTimeString()}</p>
               </div>
             </div>
           ))}

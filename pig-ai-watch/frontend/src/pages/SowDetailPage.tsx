@@ -6,17 +6,21 @@ import { useQuery } from '@tanstack/react-query';
 import {
   ArrowLeft,
   Tag,
-  Heart,
   Weight,
   Calendar,
-  MapPin,
   Baby,
-  Activity,
   AlertTriangle,
   Clock,
   FileText,
-  TrendingUp,
 } from 'lucide-react';
+import { 
+  PigIcon, 
+  FenceIcon, 
+  DnaIcon, 
+  ScaleIcon, 
+  ScanHeartIcon, 
+  VitalsIcon 
+} from '@/components/icons';
 import { format, formatDistanceToNow, subDays, isAfter } from 'date-fns';
 import clsx from 'clsx';
 import type { FarrowingRecord, Event as SowEvent, Alert } from '@/types';
@@ -107,11 +111,11 @@ export default function SowDetailPage() {
     : '—';
   const totalStillborn = records.reduce((sum, r) => sum + (r.stillborn || 0), 0);
 
-  const tabs: { key: TabKey; label: string; count?: number }[] = [
-    { key: 'overview',  label: 'Overview' },
-    { key: 'farrowing', label: 'Farrowing', count: totalFarrowings },
-    { key: 'alerts',    label: 'Alerts',    count: unresolvedAlerts.length },
-    { key: 'events',    label: 'Events',    count: recentEvents.length },
+  const tabs: { key: TabKey; label: string; icon: React.ComponentType<{ className?: string }>; count?: number }[] = [
+    { key: 'overview',  label: 'Overview',  icon: PigIcon },
+    { key: 'farrowing', label: 'Farrowing', icon: ScanHeartIcon, count: totalFarrowings },
+    { key: 'alerts',    label: 'Alerts',    icon: AlertTriangle, count: unresolvedAlerts.length },
+    { key: 'events',    label: 'Events',    icon: FileText,      count: recentEvents.length },
   ];
 
   return (
@@ -209,17 +213,18 @@ export default function SowDetailPage() {
             key={tab.key}
             onClick={() => setActiveTab(tab.key)}
             className={clsx(
-              'px-5 py-3 text-sm font-medium border-b-2 transition-all duration-200 -mb-px',
+              'flex items-center gap-2 px-5 py-3 text-sm font-medium border-b-2 transition-all duration-200 -mb-px',
               activeTab === tab.key
                 ? 'border-primary-500 text-primary-600 dark:text-primary-400'
                 : 'border-transparent text-gray-500 dark:text-slate-400 hover:text-gray-700 dark:hover:text-slate-300 hover:border-gray-300 dark:hover:border-slate-600'
             )}
             title={tab.label}
           >
-            {tab.label}
+            <tab.icon className="h-4 w-4 flex-shrink-0" />
+            <span>{tab.label}</span>
             {tab.count !== undefined && tab.count > 0 && (
               <span className={clsx(
-                'ml-2 px-1.5 py-0.5 rounded-full text-[10px] font-semibold',
+                'ml-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold',
                 activeTab === tab.key
                   ? 'bg-primary-100 dark:bg-primary-900/40 text-primary-700 dark:text-primary-300'
                   : 'bg-gray-100 dark:bg-slate-700/50 text-gray-500 dark:text-slate-400'
@@ -238,11 +243,11 @@ export default function SowDetailPage() {
             {/* Profile info cards */}
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
               <InfoCard icon={<Tag className="h-4 w-4" />} label="Tag ID" value={sow.tag_id} />
-              <InfoCard icon={<Heart className="h-4 w-4" />} label="Breed" value={sow.breed || 'N/A'} />
+              <InfoCard icon={<DnaIcon className="h-4 w-4" />} label="Breed" value={sow.breed || 'N/A'} />
               <InfoCard icon={<Weight className="h-4 w-4" />} label="Weight" value={sow.weight ? `${sow.weight} kg` : 'N/A'} />
-              <InfoCard icon={<TrendingUp className="h-4 w-4" />} label="Parity" value={String(sow.parity)} highlight />
+              <InfoCard icon={<ScaleIcon className="h-4 w-4" />} label="Parity" value={String(sow.parity)} highlight />
               <InfoCard icon={<Baby className="h-4 w-4" />} label="Litter Size" value={String(sow.current_litter_size)} />
-              <InfoCard icon={<MapPin className="h-4 w-4" />} label="Pen" value={penName} />
+              <InfoCard icon={<FenceIcon className="h-4 w-4" />} label="Pen" value={penName} />
             </div>
 
             {/* Key Dates */}
@@ -269,7 +274,7 @@ export default function SowDetailPage() {
                 )}
               </SectionCard>
 
-              <SectionCard title="Weekly Summary" subtitle="Last 7 days" icon={<Activity className="h-4.5 w-4.5" />}>
+              <SectionCard title="Weekly Summary" subtitle="Last 7 days" icon={<VitalsIcon className="h-4.5 w-4.5" />}>
                 <div className="grid grid-cols-3 gap-4">
                   <SummaryItem label="Events" value={eventsThisWeek.length} color="text-blue-600 dark:text-blue-400" />
                   <SummaryItem label="Alerts" value={alertsThisWeek.length} color="text-orange-600 dark:text-orange-400" />

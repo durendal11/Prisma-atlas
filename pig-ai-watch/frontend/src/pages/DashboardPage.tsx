@@ -4,15 +4,18 @@ import {
   AlertTriangle,
   ArrowRight,
   BarChart3,
-  MapPin,
   Baby,
   Shield,
   Video,
   Cpu,
-  Activity,
+  GraduationCap,
+  CheckCircle2,
+  PlayCircle,
+  Compass,
 } from 'lucide-react';
+import { FenceIcon, PigIcon, ScanHeartIcon } from '@/components/icons';
 import { AlertCard, RiskGauge } from '@/components';
-import { AIBriefingCard } from '@/components/AIBriefingCard';
+import { CrushingEventsWidget } from '@/components/CrushingEventsWidget';
 import { useDashboardStats, usePenStatus, useAlerts, useUpdateAlert } from '@/hooks';
 import { useTranslation } from '@/hooks/useTranslation';
 import { useWebSocket } from '@/hooks/useWebSocket';
@@ -46,6 +49,17 @@ export default function DashboardPage() {
   const { latestResult: testPenResult, isRunning: testPenRunning, totalFrames } = useTestPenStore();
 
   const [farrowing, setFarrowing] = useState<FarrowingLikelihood | null>(null);
+  const [trainingComplete, setTrainingComplete] = useState(false);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('prisma_atlas_onboarding_training');
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed.complete_training) setTrainingComplete(true);
+      }
+    } catch {}
+  }, []);
 
   // Fetch farrowing likelihood
   useEffect(() => {
@@ -131,9 +145,12 @@ export default function DashboardPage() {
             </div>
             <div className="flex items-center gap-3">
               <div className="flex gap-2">
-                <div className="text-center bg-white/15 backdrop-blur-sm rounded-xl px-3 py-1.5">
-                  <p className="text-lg font-bold text-white">{totalSows}</p>
-                  <p className="text-[9px] text-white/60 uppercase tracking-wide">Sows</p>
+                <div className="flex items-center gap-1.5 bg-white/15 backdrop-blur-sm rounded-xl px-2.5 py-1.5">
+                  <PigIcon className="h-4 w-4 text-white/80" />
+                  <div className="text-left">
+                    <p className="text-lg font-bold text-white leading-tight">{totalSows}</p>
+                    <p className="text-[9px] text-white/60 uppercase tracking-wide">Sows</p>
+                  </div>
                 </div>
                 <div className="text-center bg-white/15 backdrop-blur-sm rounded-xl px-3 py-1.5">
                   <p className="text-lg font-bold text-white">{totalPiglets}</p>
@@ -158,8 +175,55 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* AI Morning Briefing Widget */}
-      <AIBriefingCard penData={penStatuses || []} />
+      {/* Crushing Events Outcome Summary */}
+      <CrushingEventsWidget onManageThresholds={() => navigate('/settings')} />
+
+      {/* Interactive Onboarding Tutorial / Test Pen Simulator */}
+      <div className="bg-gradient-to-r from-indigo-900/90 via-slate-900/95 to-purple-950/90 border border-indigo-500/30 rounded-2xl p-5 shadow-lg text-white">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="flex items-start gap-3.5">
+            <div className="h-12 w-12 rounded-xl bg-indigo-500/20 border border-indigo-400/30 flex items-center justify-center text-indigo-400 flex-shrink-0">
+              <GraduationCap className="h-6 w-6" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-indigo-500/30 text-indigo-300 border border-indigo-500/40">
+                  Training Simulator
+                </span>
+                {trainingComplete ? (
+                  <span className="flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-medium bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                    <CheckCircle2 className="h-3 w-3" /> Certified
+                  </span>
+                ) : (
+                  <span className="text-xs text-slate-400">
+                    New Staff Onboarding
+                  </span>
+                )}
+              </div>
+              <h3 className="text-base font-semibold text-white mt-1">Interactive Pen Simulator & Decision Tutorial</h3>
+              <p className="text-xs text-slate-300 max-w-xl mt-0.5 leading-relaxed">
+                Test AI computer vision on sample or uploaded video clips. Practice assessing alerts and role-playing responses (Pen is Fine, Mortality, Transferred, Checking) with zero database risk.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            <Link
+              to="/test-pen?tour=true"
+              className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-indigo-300 hover:text-white border border-indigo-500/40 font-medium text-xs shadow transition-all hover:scale-105"
+            >
+              <Compass className="h-4 w-4" />
+              Start System Tour
+            </Link>
+            <Link
+              to="/test-pen"
+              className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-medium text-xs shadow-md transition-all hover:scale-105"
+            >
+              <PlayCircle className="h-4 w-4" />
+              Launch Simulator
+            </Link>
+          </div>
+        </div>
+      </div>
 
       {/* Farrowing Likelihood (compact) */}
       {farrowing && (
@@ -171,7 +235,7 @@ export default function DashboardPage() {
         )}>
           <div className="flex items-center gap-3">
             <div className={clsx('p-2 rounded-xl', farrowing.likelihood === 'High' ? 'bg-red-100 dark:bg-red-800/50' : farrowing.likelihood === 'Moderate' ? 'bg-yellow-100 dark:bg-yellow-800/50' : 'bg-green-100 dark:bg-green-800/50')}>
-              <Activity className={clsx('h-4 w-4', farrowing.likelihood === 'High' ? 'text-red-600' : farrowing.likelihood === 'Moderate' ? 'text-yellow-600' : 'text-green-600')} />
+              <ScanHeartIcon className={clsx('h-4 w-4', farrowing.likelihood === 'High' ? 'text-red-600' : farrowing.likelihood === 'Moderate' ? 'text-yellow-600' : 'text-green-600')} />
             </div>
             <div>
               <p className="text-sm font-semibold text-gray-900 dark:text-white">Farrowing: {farrowing.score}/100 — {farrowing.likelihood}</p>
@@ -202,7 +266,7 @@ export default function DashboardPage() {
 
         {(!penStatuses || penStatuses.length === 0) ? (
           <div className="bg-white dark:bg-slate-800/60 rounded-2xl border border-gray-200/60 dark:border-slate-700/50 p-10 text-center shadow-sm">
-            <MapPin className="h-10 w-10 mx-auto text-gray-300 dark:text-slate-600 mb-3" />
+            <FenceIcon className="h-10 w-10 mx-auto text-gray-300 dark:text-slate-600 mb-3" />
             <p className="text-sm text-gray-500 dark:text-slate-400">{t('noActivePens')}</p>
             <Link to="/monitoring" className="mt-3 inline-block text-xs text-primary-500 font-medium hover:underline">
               Add pens in Live Monitoring
@@ -228,7 +292,7 @@ export default function DashboardPage() {
                   )}
                   title={`${pen.pen_name} — ${pen.piglet_count} piglets — Risk ${(risk * 100).toFixed(0)}%${hasUnresolvedAlerts ? ' — Unresolved alerts' : ''}`}
                 >
-                  <MapPin className={clsx('h-6 w-6 mb-1.5', riskColor)} />
+                  <FenceIcon className={clsx('h-6 w-6 mb-1.5', riskColor)} />
                   <span className="text-xs font-semibold text-gray-900 dark:text-white truncate w-full text-center">{pen.pen_name}</span>
                   <span className="text-[10px] text-gray-400 dark:text-slate-500">
                     {pen.piglet_count} <Baby className="inline h-2.5 w-2.5 -mt-0.5" />

@@ -16,7 +16,11 @@ export type EventType =
   | 'activity_alert'
   | 'health_warning'
   | 'session_start'
-  | 'session_end';
+  | 'session_end'
+  | 'clarification_requested'
+  | 'clarification_resolved'
+  | 'piglet_mortality'
+  | 'piglet_transferred';
 
 export type EventSeverity = 'info' | 'warning' | 'critical';
 
@@ -68,6 +72,24 @@ export interface HealthEntry {
   timestamp: number;
   videoTime: number;
   score: number;
+}
+
+export type ClarificationAction = 'pen_is_fine' | 'piglet_died' | 'piglet_transferred' | 'will_check';
+
+export interface ClarificationPrompt {
+  id: string;
+  trigger: 'piglet_drop' | 'crushing_risk' | 'both';
+  timestamp: number;
+  videoTime: number;
+  detectedCount: number;
+  expectedCount: number;
+  missingCount: number;
+  crushingRisk: number;
+  status: 'pending' | 'acknowledged' | 'resolved';
+  acknowledgedAt?: number;
+  resolvedAt?: number;
+  resolutionAction?: ClarificationAction;
+  notes?: string;
 }
 
 export interface SimulationStats {
@@ -152,9 +174,17 @@ interface SimulationState {
   totalHealthSum: number;
   highRiskDurationMs: number;
 
+  // Clarification / Role-Play State
+  activeClarification: ClarificationPrompt | null;
+  clarificationHistory: ClarificationPrompt[];
+
   // Actions
   startSimulation: (expectedPiglets: number) => void;
   stopSimulation: () => void;
+  setExpectedPigletCount: (count: number) => void;
+  triggerClarification: (prompt: Omit<ClarificationPrompt, 'id' | 'status'>) => void;
+  resolveClarification: (action: ClarificationAction, notes?: string) => void;
+  dismissClarification: () => void;
   addEvent: (event: Omit<SimulationEvent, 'id'>) => void;
   addNursingSession: (session: NursingSession) => void;
   setCurrentNursingSession: (session: NursingSession | null) => void;
@@ -185,6 +215,8 @@ const initialState = {
   isSimulating: false,
   simulationStartTime: null as number | null,
   expectedPigletCount: 9,
+  activeClarification: null as ClarificationPrompt | null,
+  clarificationHistory: [] as ClarificationPrompt[],
   events: [] as SimulationEvent[],
   maxEvents: 200,
   nursingSessions: [] as NursingSession[],
@@ -243,6 +275,135 @@ export const useSimulationStore = create<SimulationState>((set, get) => ({
       set({ isSimulating: false });
     }
   },
+
+  setExpectedPigletCount: (count: number) => set({ expectedPigletCount: count }),
+
+  triggerClarification: (prompt) => {
+    const id = `clar-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const fullPrompt: ClarificationPrompt = {
+      ...prompt,
+      id,
+      status: 'pending',
+    };
+    set((s) => ({
+      activeClarification: fullPrompt,
+      clarificationHistory: [fullPrompt, ...s.clarificationHistory].slice(0, 50),
+      events: [
+        {
+          id: genEventId(),
+          timestamp: prompt.timestamp,
+          videoTime: prompt.videoTime,
+          type: 'clarification_requested' as EventType,
+          severity: (prompt.crushingRisk >= 0.7 || prompt.missingCount >= 3 ? 'critical' : 'warning') as EventSeverity,
+          title: `Role-Play Action Required: ${prompt.trigger === 'crushing_risk' ? 'Crushing Hazard' : 'Missing Piglet(s)'}`,
+          description: `Discrepancy detected: ${prompt.detectedCount} visible vs ${prompt.expectedCount} expected (${prompt.missingCount} missing). Risk: ${(prompt.crushingRisk * 100).toFixed(0)}%. Choose farm response.`,
+          data: { promptId: id, ...prompt },
+        },
+        ...s.events,
+      ].slice(0, s.maxEvents),
+    }));
+  },
+
+  resolveClarification: (action: ClarificationAction, notes?: string) => {
+    const s = get();
+    const current = s.activeClarification;
+    if (!current) return;
+
+    const now = Date.now();
+    const missing = current.missingCount || 1;
+
+    let newExpected = s.expectedPigletCount;
+    let eventTitle = '';
+    let eventDesc = '';
+    let eventType: EventType = 'clarification_resolved';
+    let severity: EventSeverity = 'info';
+
+    switch (action) {
+      case 'pen_is_fine':
+        eventTitle = 'Pen is Fine / False Alarm Dismissed';
+        eventDesc = `Farmer confirmed pen is safe. Temporary occlusion cleared. Baseline remains at ${newExpected} piglets.`;
+        eventType = 'clarification_resolved';
+        severity = 'info';
+        break;
+
+      case 'piglet_died':
+        newExpected = Math.max(0, s.expectedPigletCount - missing);
+        eventTitle = `Mortality Recorded (-${missing} Piglet${missing > 1 ? 's' : ''})`;
+        eventDesc = `Farmer confirmed crushing loss. Baseline adjusted from ${s.expectedPigletCount} to ${newExpected} piglets.`;
+        eventType = 'piglet_mortality';
+        severity = 'critical';
+        break;
+
+      case 'piglet_transferred':
+        newExpected = Math.max(0, s.expectedPigletCount - missing);
+        eventTitle = `Piglet Transferred / Fostered (-${missing})`;
+        eventDesc = `Piglet(s) fostered/relocated out of pen. Baseline updated from ${s.expectedPigletCount} to ${newExpected} piglets. No mortality recorded.`;
+        eventType = 'piglet_transferred';
+        severity = 'info';
+        break;
+
+      case 'will_check':
+        eventTitle = 'Physical Pen Check In Progress';
+        eventDesc = 'Farmer acknowledged alert and is inspecting pen. 20-minute inspection window initiated.';
+        eventType = 'clarification_requested';
+        severity = 'warning';
+        break;
+    }
+
+    if (action === 'will_check') {
+      const updatedPrompt: ClarificationPrompt = {
+        ...current,
+        status: 'acknowledged',
+        acknowledgedAt: now,
+        notes,
+      };
+      set((prev) => ({
+        activeClarification: updatedPrompt,
+        clarificationHistory: prev.clarificationHistory.map((p) => (p.id === current.id ? updatedPrompt : p)),
+        events: [
+          {
+            id: genEventId(),
+            timestamp: now,
+            videoTime: current.videoTime,
+            type: eventType,
+            severity,
+            title: eventTitle,
+            description: eventDesc,
+          },
+          ...prev.events,
+        ].slice(0, prev.maxEvents),
+      }));
+    } else {
+      const resolvedPrompt: ClarificationPrompt = {
+        ...current,
+        status: 'resolved',
+        resolvedAt: now,
+        resolutionAction: action,
+        notes,
+      };
+      set((prev) => ({
+        activeClarification: null,
+        expectedPigletCount: newExpected,
+        pigletDropAlert: false,
+        sustainedHighRisk: false,
+        clarificationHistory: prev.clarificationHistory.map((p) => (p.id === current.id ? resolvedPrompt : p)),
+        events: [
+          {
+            id: genEventId(),
+            timestamp: now,
+            videoTime: current.videoTime,
+            type: eventType,
+            severity,
+            title: eventTitle,
+            description: eventDesc,
+          },
+          ...prev.events,
+        ].slice(0, prev.maxEvents),
+      }));
+    }
+  },
+
+  dismissClarification: () => set({ activeClarification: null }),
 
   addEvent: (event) =>
     set((state) => ({

@@ -53,7 +53,7 @@ export interface SowUpdate {
 // Alert interface
 export interface Alert {
   id: number;
-  type: 'crushing_risk' | 'posture_change' | 'piglet_count_change' | 'system';
+  type: 'crushing_risk' | 'crushing_watch' | 'crushing_all_clear' | 'crushing_escalated' | 'posture_change' | 'piglet_count_change' | 'system';
   severity: 'low' | 'medium' | 'high' | 'critical';
   title: string;
   message: string | null;
@@ -66,6 +66,8 @@ export interface Alert {
   resolved_at: string | null;
   resolved_by: number | null;
   detection_data: string | null;
+  crushing_event_id?: number | null;
+  event_state?: string | null;
   created_at: string;
 }
 

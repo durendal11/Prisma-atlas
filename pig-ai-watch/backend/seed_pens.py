@@ -4,12 +4,21 @@ import asyncio
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import text
-import os
+from urllib.parse import quote_plus
 
-DATABASE_URL = os.environ.get(
-    "DATABASE_URL",
-    "postgresql+asyncpg://postgres:postgres@localhost:5432/pig_ai_watch"
-)
+def _build_database_url() -> str:
+    explicit = os.environ.get("DATABASE_URL")
+    if explicit:
+        return explicit
+
+    db_host = os.environ.get("DB_HOST", "localhost")
+    db_port = os.environ.get("DB_PORT", "5432")
+    db_user = os.environ.get("DB_USER", "postgres")
+    db_password = quote_plus(os.environ.get("DB_PASSWORD", "postgres"))
+    db_name = os.environ.get("DB_NAME", "pig_ai_watch")
+    return f"postgresql+asyncpg://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}"
+
+DATABASE_URL = _build_database_url()
 
 async def seed_pens():
     engine = create_async_engine(DATABASE_URL)

@@ -26,6 +26,8 @@ const ReplayPage = lazy(() => import('@/pages/ReplayPage'));
 const StatsPage = lazy(() => import('@/pages/StatsPage'));
 const RecordingSchedulePage = lazy(() => import('@/pages/RecordingSchedulePage'));
 const SetupGuidePage = lazy(() => import('@/pages/SetupGuidePage'));
+const TestPenPage = lazy(() => import('@/pages/TestPenPage'));
+const TasksPage = lazy(() => import('@/pages/TasksPage'));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -98,7 +100,7 @@ function NotificationBootstrap() {
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
+      <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <TokenHandler />
         <NotificationBootstrap />
         <Suspense fallback={<div className="flex items-center justify-center h-screen"><div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500" /></div>}>
@@ -116,7 +118,7 @@ export default function App() {
           >
             <Route index element={<DashboardPage />} />
             <Route path="monitoring" element={<LiveMonitoringPage />} />
-            <Route path="test-pen" element={<></>} />
+            <Route path="test-pen" element={<TestPenPage />} />
             <Route path="alerts" element={<AlertsPage />} />
             <Route path="alerts/archive" element={<AlertArchivesPage />} />
             <Route path="events" element={<EventLogsPage />} />
@@ -125,8 +127,7 @@ export default function App() {
             <Route path="sows/:sowId" element={<SowDetailPage />} />
             <Route path="settings" element={<SettingsPage />} />
             <Route path="behavior-logs" element={<BehaviorLogsPage />} />
-            <Route path="test-pen" element={<></>} />
-            <Route path="tasks" element={<></>} />
+            <Route path="tasks" element={<TasksPage />} />
             <Route path="farrowing" element={<FarrowingPage />} />
             <Route path="camera-setup" element={<CameraSetupPage />} />
             <Route path="pen/:penId" element={<PenMonitorPage />} />

@@ -19,8 +19,6 @@ import {
   AlertTriangle,
   CheckCircle2,
   Radio,
-  Maximize2,
-  Minimize2,
 } from 'lucide-react';
 
 import PigPen3D from '../components/landing/PigPen3D';
@@ -44,16 +42,17 @@ const TYPED_HEADER_WORDS = [
 
 // ── LIVE SYSTEM DEMO VIDEO URL ──────────────────────────────────────────────
 // Paste ANY YouTube link here (e.g. 'https://youtu.be/VR2NbQUNJMU' or
-// 'https://www.youtube.com/watch?v=...') or a direct MP4 URL!
-export const DEMO_VIDEO_URL = 'https://youtu.be/VR2NbQUNJMU';
+// 'https://www.youtube.com/watch?v=...') or a direct MP4 / GIF URL!
+export const DEMO_VIDEO_URL = '/assets/prisma-atlas-promo.mp4';
 
 function parseDemoVideo(url: string) {
   const isDirectVideo = /\.(mp4|webm|ogg)(\?.*)?$/i.test(url);
+  const isGif = /\.gif(\?.*)?$/i.test(url);
   const ytMatch = url.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([\w-]{11})/);
   const embedUrl = ytMatch && ytMatch[1]
     ? `https://www.youtube-nocookie.com/embed/${ytMatch[1]}?autoplay=1&mute=1&loop=1&playlist=${ytMatch[1]}&controls=1&modestbranding=1&rel=0&playsinline=1`
     : url;
-  return { isDirectVideo, embedUrl };
+  return { isDirectVideo, isGif, embedUrl };
 }
 
 /* ─── Aspect-Aware 360° Orbit & Cinematic CCTV Lens Zoom-In Camera ───────── */
@@ -143,7 +142,6 @@ export default function LandingPage() {
   const [appInstalled, setAppInstalled] = useState(false);
 
   const [videoScrollProgress, setVideoScrollProgress] = useState(0);
-  const [isFullscreen, setIsFullscreen] = useState(false);
 
   const mainContainerRef = useRef<HTMLDivElement>(null!);
   const videoWrapperRef = useRef<HTMLDivElement>(null!);
@@ -156,7 +154,7 @@ export default function LandingPage() {
 
   useEffect(() => {
     const currentTargetWord = TYPED_HEADER_WORDS[typedWordIndex % TYPED_HEADER_WORDS.length];
-    let timer: NodeJS.Timeout;
+    let timer: ReturnType<typeof setTimeout>;
 
     if (!isDeletingWord) {
       if (typedText.length < currentTargetWord.length) {
@@ -237,15 +235,9 @@ export default function LandingPage() {
     window.addEventListener('beforeinstallprompt', beforeInstallHandler);
     window.addEventListener('appinstalled', appInstalledHandler);
 
-    const handleFullscreenChange = () => {
-      setIsFullscreen(!!document.fullscreenElement);
-    };
-    document.addEventListener('fullscreenchange', handleFullscreenChange);
-
     return () => {
       window.removeEventListener('beforeinstallprompt', beforeInstallHandler);
       window.removeEventListener('appinstalled', appInstalledHandler);
-      document.removeEventListener('fullscreenchange', handleFullscreenChange);
     };
   }, []);
 
@@ -268,18 +260,6 @@ export default function LandingPage() {
     }
   };
 
-  const toggleFullscreen = async () => {
-    if (!videoWrapperRef.current) return;
-    if (!document.fullscreenElement) {
-      try {
-        await videoWrapperRef.current.requestFullscreen();
-      } catch (err) {
-        console.warn('Fullscreen request failed:', err);
-      }
-    } else {
-      await document.exitFullscreen();
-    }
-  };
 
   // Smooth continuous transition alphas
   const canvasAlpha = useMemo(() => {
@@ -711,6 +691,9 @@ export default function LandingPage() {
             <h2 className="text-3xl sm:text-5xl font-extrabold tracking-tight text-slate-900 mb-3 sm:mb-4">
               Watch PRISMA ATLAS in Action
             </h2>
+            <p className="text-[10px] font-mono text-slate-400 uppercase tracking-wider mt-1">
+              30-SECOND PRODUCT DEMO • MOTION DESIGN
+            </p>
             <p className="text-xs sm:text-base text-slate-600 leading-relaxed font-normal">
               Real-time YOLOv11 AI detection engine performing sow posture classification, piglet tracking, and instant crushing prevention alarms.
             </p>
@@ -726,39 +709,23 @@ export default function LandingPage() {
               transformOrigin: 'center center',
             }}
           >
-            {/* Live Telemetry Overlay Header */}
-            <div className="absolute top-0 inset-x-0 z-20 p-3 sm:p-6 flex items-center justify-between bg-gradient-to-b from-slate-950/85 via-slate-950/40 to-transparent pointer-events-none text-[10px] sm:text-xs font-mono text-white">
-              <div className="flex items-center gap-2 sm:gap-3">
-                <span className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 font-bold">
-                  <span className="w-1.5 h-1.5 sm:w-2 sm:h-2 rounded-full bg-emerald-400 animate-ping" />
-                  LIVE DEMO STREAM
-                </span>
-                <span className="hidden sm:inline text-white/70">YOLOv11 Inference • 1080p 60fps</span>
-              </div>
-              <div className="flex items-center gap-2 pointer-events-auto">
-                <div className="px-2.5 sm:px-3 py-1 rounded-full bg-black/60 border border-white/10 text-white/80">
-                  Inference: ~48ms
-                </div>
-                <button
-                  onClick={toggleFullscreen}
-                  className="p-1.5 rounded-full bg-black/60 border border-white/10 hover:bg-emerald-600 text-white transition flex items-center justify-center"
-                  title="Toggle Fullscreen"
-                >
-                  {isFullscreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
-                </button>
-              </div>
-            </div>
+
 
             {/* Embedded YouTube / MP4 Video with Autoplay and Fullscreen Support */}
             <div className="w-full aspect-video bg-black flex items-center justify-center">
-              {demoVideoConfig.isDirectVideo ? (
+              {demoVideoConfig.isGif ? (
+                <img
+                  src={DEMO_VIDEO_URL}
+                  alt="PRISMA ATLAS 30s Product Demo"
+                  className="w-full h-full object-cover"
+                />
+              ) : demoVideoConfig.isDirectVideo ? (
                 <video
                   src={DEMO_VIDEO_URL}
                   autoPlay
                   loop
                   muted
                   playsInline
-                  controls
                   className="w-full h-full object-cover"
                 />
               ) : (

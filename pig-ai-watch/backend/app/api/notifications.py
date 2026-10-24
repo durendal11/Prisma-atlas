@@ -85,3 +85,30 @@ async def unsubscribe_notifications(
     await db.commit()
 
     return NotificationUnsubscribeResponse(status="unsubscribed")
+
+
+@router.get("/telegram/status")
+async def get_telegram_status():
+    """Check Telegram bot status, getMe info, and detected chat ID."""
+    from app.services.telegram_sender import test_telegram_connection
+    return await test_telegram_connection()
+
+
+@router.post("/telegram/test")
+async def send_test_telegram(
+    title: str = "Test Farm Alert",
+    body: str = "This is a test notification from PRISMA ATLAS Pig AI Watch.",
+    pen_id: int = 1,
+    severity: str = "high",
+):
+    """Send a live test alert to Telegram."""
+    from app.services.telegram_sender import send_telegram_alert
+    success = await send_telegram_alert(
+        title=title,
+        body=body,
+        alert_type="test_alert",
+        pen_id=pen_id,
+        severity=severity,
+    )
+    return {"success": success, "message": "Alert sent" if success else "Failed to send (ensure bot received a message first)"}
+

@@ -11,6 +11,8 @@ interface CrushingRiskGaugeProps {
   showMessage?: boolean;
   proximityAlerts?: ProximityAlert[];
   totalPiglets?: number;
+  /** State machine phase from the backend CrushingStateMachine. */
+  eventPhase?: 'idle' | 'watch' | 'alert' | 'resolving' | 'all_clear' | 'escalated' | null;
 }
 
 const TICK_LABELS = ['Low', 'Moderate', 'Elevated', 'High'];
@@ -22,6 +24,7 @@ export default function CrushingRiskGauge({
   showMessage = true,
   proximityAlerts,
   totalPiglets,
+  eventPhase = null,
 }: CrushingRiskGaugeProps) {
   const [animatedWidth, setAnimatedWidth] = useState(0);
 
@@ -101,6 +104,31 @@ export default function CrushingRiskGauge({
           </span>
         </div>
       </div>
+
+      {/* State machine phase banner — shown only when eventPhase is set */}
+      {eventPhase && eventPhase !== 'idle' && (
+        <div className={clsx(
+          'flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold',
+          eventPhase === 'watch'     && 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
+          eventPhase === 'alert'     && 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300',
+          eventPhase === 'escalated' && 'bg-red-200 text-red-900 dark:bg-red-900/50 dark:text-red-200',
+          eventPhase === 'resolving' && 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300',
+          eventPhase === 'all_clear' && 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300',
+        )}>
+          {eventPhase === 'watch'     && <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />}
+          {eventPhase === 'alert'     && <span className="w-2 h-2 rounded-full bg-red-500 animate-ping" />}
+          {eventPhase === 'escalated' && <span className="w-2 h-2 rounded-full bg-red-600 animate-ping" />}
+          {eventPhase === 'resolving' && <span className="w-2 h-2 rounded-full bg-orange-400" />}
+          {eventPhase === 'all_clear' && <span>✅</span>}
+          <span>{
+            eventPhase === 'watch'     ? 'Watching… (75s confirmation window)' :
+            eventPhase === 'alert'     ? '⚠️ Risk Detected — Check Pen Now' :
+            eventPhase === 'escalated' ? '🚨 ESCALATED — No Response for 20+ min' :
+            eventPhase === 'resolving' ? 'Count recovering — verifying…' :
+            '✅ All Clear — Piglet count recovered'
+          }</span>
+        </div>
+      )}
 
       {/* Horizontal bar */}
       <div className="relative">

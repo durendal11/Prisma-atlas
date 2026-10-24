@@ -369,6 +369,19 @@ class SimulationEngine {
           videoTime,
           data: { detected, expected, missing },
         });
+
+        const activeClar = this.store.getState().activeClarification;
+        if (!activeClar || activeClar.status === 'resolved') {
+          this.store.getState().triggerClarification({
+            trigger: result.crushingRisk >= CONFIG.highRiskThreshold ? 'both' : 'piglet_drop',
+            timestamp: now,
+            videoTime,
+            detectedCount: detected,
+            expectedCount: expected,
+            missingCount: missing,
+            crushingRisk: result.crushingRisk,
+          });
+        }
       }
     } else if (detected >= expected) {
       this.state.consecutiveNormalPigletFrames++;
@@ -431,6 +444,21 @@ class SimulationEngine {
           videoTime,
           data: { risk: (risk * 100).toFixed(0), duration: CONFIG.sustainedRiskFrames },
         });
+
+        const activeClar = this.store.getState().activeClarification;
+        if (!activeClar || activeClar.status === 'resolved') {
+          const expected = this.store.getState().expectedPigletCount;
+          const detected = result.pigletCount;
+          this.store.getState().triggerClarification({
+            trigger: this.state.pigletDropAlerted ? 'both' : 'crushing_risk',
+            timestamp: now,
+            videoTime,
+            detectedCount: detected,
+            expectedCount: expected,
+            missingCount: Math.max(0, expected - detected),
+            crushingRisk: risk,
+          });
+        }
       }
     } else {
       this.state.consecutiveNormalRiskFrames++;

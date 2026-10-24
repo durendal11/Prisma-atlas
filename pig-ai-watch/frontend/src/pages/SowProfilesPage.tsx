@@ -10,13 +10,11 @@ import {
   Trash2, 
   Archive,
   X,
-  Users,
   MoreVertical,
-  MapPin,
   Baby,
-  TrendingUp,
   ChevronRight,
 } from 'lucide-react';
+import { PigIcon, FenceIcon, ScaleIcon } from '@/components/icons';
 import { format } from 'date-fns';
 import clsx from 'clsx';
 import toast from 'react-hot-toast';
@@ -207,8 +205,8 @@ export default function SowProfilesPage() {
       {/* ── Sow cards grid (Google Classroom inspired) ────────────────── */}
       {sows?.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-20 text-center">
-          <div className="h-20 w-20 rounded-full bg-gray-100 dark:bg-slate-800/60 flex items-center justify-center mb-4">
-            <Users className="h-10 w-10 text-gray-300 dark:text-slate-600" />
+          <div className="h-20 w-20 rounded-full bg-primary-50 dark:bg-primary-950/40 border border-primary-100 dark:border-primary-800/50 flex items-center justify-center mb-4 shadow-sm">
+            <PigIcon className="h-10 w-10 text-primary-500 dark:text-primary-400" />
           </div>
           <p className="text-lg font-medium text-gray-600 dark:text-slate-300">No sows found</p>
           <p className="text-sm text-gray-400 dark:text-slate-500 mt-1">Add your first sow to get started</p>
@@ -232,12 +230,14 @@ export default function SowProfilesPage() {
                 <div className="px-5 pt-5 pb-3 flex items-start justify-between">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2.5 mb-1">
-                      <div className={clsx('h-2.5 w-2.5 rounded-full flex-shrink-0', cfg.dot)} />
+                      <div className={clsx('h-7 w-7 rounded-lg flex items-center justify-center flex-shrink-0', cfg.bg)}>
+                        <PigIcon className={clsx('h-4 w-4', cfg.text)} />
+                      </div>
                       <h3 className="text-base font-semibold text-gray-900 dark:text-white truncate">
                         {sow.name || sow.tag_id}
                       </h3>
                     </div>
-                    <p className="text-xs text-gray-500 dark:text-slate-400 pl-5">
+                    <p className="text-xs text-gray-500 dark:text-slate-400 pl-9">
                       {sow.tag_id}{sow.breed ? ` · ${sow.breed}` : ''}
                     </p>
                   </div>
@@ -285,7 +285,7 @@ export default function SowProfilesPage() {
                 {/* Card body — key stats */}
                 <div className="px-5 pb-4 grid grid-cols-3 gap-3">
                   <div className="flex items-center gap-1.5 text-gray-500 dark:text-slate-400">
-                    <TrendingUp className="h-3.5 w-3.5 flex-shrink-0" />
+                    <ScaleIcon className="h-3.5 w-3.5 flex-shrink-0" />
                     <span className="text-xs">Parity <span className="font-semibold text-gray-700 dark:text-slate-200">{sow.parity}</span></span>
                   </div>
                   <div className="flex items-center gap-1.5 text-gray-500 dark:text-slate-400">
@@ -293,7 +293,7 @@ export default function SowProfilesPage() {
                     <span className="text-xs">Litter <span className="font-semibold text-gray-700 dark:text-slate-200">{sow.current_litter_size}</span></span>
                   </div>
                   <div className="flex items-center gap-1.5 text-gray-500 dark:text-slate-400">
-                    <MapPin className="h-3.5 w-3.5 flex-shrink-0" />
+                    <FenceIcon className="h-3.5 w-3.5 flex-shrink-0" />
                     <span className="text-xs truncate">{pen?.name || '—'}</span>
                   </div>
                 </div>

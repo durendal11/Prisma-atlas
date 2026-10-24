@@ -10,3 +10,6 @@ export type { CameraConnectionStatus } from './RTSPVideoFeed';
 export { default as AlertCard } from './AlertCard';
 export { default as SwipeableAlertCard } from './SwipeableAlertCard';
 export { default as EventListItem } from './EventListItem';
+export { SystemTour, type TourStep } from './SystemTour';
+export { TourButton } from './TourButton';
+export * from './icons';

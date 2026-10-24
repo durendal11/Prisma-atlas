@@ -138,3 +138,19 @@ async def broadcast_alert(title: str, body: str, alert_type: str = "system", pen
             severity=severity,
         )
     )
+
+    # Fire and forget — Telegram alert notification
+    try:
+        from app.services.telegram_sender import send_telegram_alert
+        asyncio.create_task(
+            send_telegram_alert(
+                title=title,
+                body=body,
+                alert_type=alert_type,
+                pen_id=pen_id,
+                severity=severity,
+            )
+        )
+    except Exception as e:
+        logger.error(f"Error launching Telegram alert task: {e}")
+

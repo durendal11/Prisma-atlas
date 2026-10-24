@@ -1,7 +1,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { PenOverduePanel } from '@/components/PenOverduePanel';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, Link, useSearchParams } from 'react-router-dom';
 import {
   computeRestlessnessScore,
   computeFarrowingLikelihood,
@@ -51,7 +51,7 @@ import {
   RefreshCw,
   Trash2,
 } from 'lucide-react';
-import { RTSPVideoFeed, CrushingRiskGauge, type CameraConnectionStatus } from '@/components';
+import { RTSPVideoFeed, CrushingRiskGauge, SystemTour, TourButton, type TourStep, type CameraConnectionStatus } from '@/components';
 import { AIPenAdvisoryCard } from '@/components/AIPenAdvisoryCard';
 import { useApi } from '@/hooks/useApi';
 import { usePenStatus, useAlerts } from '@/hooks';
@@ -198,12 +198,71 @@ export default function PenMonitorPage() {
   const [deletingPen, setDeletingPen] = useState(false);
   const [renamingPen, setRenamingPen] = useState(false);
   const [isInfoOpen, setIsInfoOpen] = useState(false);
+  const [searchParams] = useSearchParams();
+  const [isTourOpen, setIsTourOpen] = useState(false);
 
   // Pen & sow data
   const [sow, setSow] = useState<Sow | null>(null);
   const [penName, setPenName] = useState<string>('');
   const [currentPenCameraSource, setCurrentPenCameraSource] = useState<string | null>(null);
   const [otherPensWithCameras, setOtherPensWithCameras] = useState<Array<{ id: number; name: string }>>([]);
+
+  useEffect(() => {
+    const paramTour = searchParams.get('tour');
+    if (paramTour === 'true' || paramTour === '1') {
+      setIsTourOpen(true);
+    }
+  }, [searchParams]);
+
+  const PEN_LIVE_TOUR_STEPS: TourStep[] = useMemo(() => [
+    {
+      targetId: 'tour-penlive-header',
+      title: '1. Pen Livestream & Sow Status',
+      badge: 'Live Stream Hub',
+      description: `Welcome to the dedicated live monitoring room for ${penName || `Pen #${numericPenId}`}. Track sow identity tag, parity, lactation timeline, and real-time edge connection state.`,
+      actionHint: 'Notice the live badge, piglet summary pills, and pen controls.',
+      placement: 'bottom',
+    },
+    {
+      targetId: 'tour-penlive-video',
+      title: '2. Sub-Second RTSP/WebRTC Video',
+      badge: 'Vision Stream',
+      description: 'The real-time camera feed streams directly with client-side YOLOv11 AI detection. Piglets are tracked with green bounding boxes, the sow with magenta, and dangerous proximity zones are highlighted automatically.',
+      placement: 'bottom',
+    },
+    {
+      targetId: 'tour-penlive-gauge',
+      title: '3. Age-Adjusted Crushing Risk Gauge',
+      badge: 'Crushing Risk AI',
+      description: 'The risk gauge continuously analyzes sow posture (standing, lateral lying, sternal) relative to piglet proximity and neonatal age. If danger escalates, audible alarms and mobile alerts fire immediately.',
+      placement: 'bottom',
+    },
+    {
+      targetId: 'tour-penlive-tabs',
+      title: '4. Farm Telemetry & Wellbeing Tabs',
+      badge: 'Telemetry & Records',
+      description: 'Access complete barn data: Overview (Welfare Insights & Posture), Live Monitor (historical timeline & alerts), Farrowing (birth logging & gestation tracker), and Health Events.',
+      placement: 'top',
+    },
+    {
+      targetId: 'tour-penlive-actions',
+      title: '5. AI Advisory & Caretaker Action',
+      badge: 'Action & Care',
+      description: 'View real-time AI advisory recommendations and record caretaker interventions (e.g. check pen, reposition piglet, heat lamp adjustment).',
+      placement: 'top',
+    },
+    {
+      targetId: 'tour-penlive-sandbox-link',
+      title: '6. Switch to Sandbox Training Anytime',
+      badge: 'Testing & Simulator',
+      description: 'Need to test a scenario or train a new farm hand? Jump into the Test Pen Sandbox at any time to upload test footage and evaluate detections without affecting production cameras.',
+      placement: 'bottom',
+      actionButton: {
+        label: 'Open Test Pen Sandbox ➔',
+        onClick: () => navigate(`/test-pen?pen=${numericPenId}&tour=true`),
+      },
+    },
+  ], [penName, numericPenId, navigate]);
 
   // Farrowing
   const [farrowingRecords, setFarrowingRecords] = useState<FarrowingRecord[]>([]);
@@ -727,6 +786,9 @@ export default function PenMonitorPage() {
   const riskValue = latestDetection?.crushingRisk ?? liveDetection?.data?.risk_level ?? penStatus?.crushing_risk ?? 0;
   const pigletCountLive = latestDetection?.pigletCount ?? liveDetection?.data?.piglet_count ?? penStatus?.piglet_count ?? 0;
   const sowPostureLive = (latestDetection?.sowPosture ?? liveDetection?.data?.posture ?? penStatus?.sow_posture ?? 'unknown').replace(/_/g, ' ').replace(/-/g, ' ');
+  // State machine phase from backend (broadcast in WS message as crushing_event.phase)
+  const eventPhase: 'idle' | 'watch' | 'alert' | 'resolving' | 'all_clear' | 'escalated' | null =
+    (liveDetection?.data as any)?.crushing_event?.phase ?? null;
   const hasRecentCompletedFarrowing = farrowingRecords.some((r) => 
     r.farrowing_completed && 
     (Date.now() - new Date(r.farrowing_completed).getTime()) < 40 * 86400000
@@ -789,7 +851,7 @@ export default function PenMonitorPage() {
           >
             <Trash2 className="h-5 w-5" />
           </button>
-          <div className="min-w-0">
+          <div id="tour-penlive-header" className="min-w-0">
             <div className="flex items-center gap-3">
               <h1 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2 truncate">
                 {penName}
@@ -799,6 +861,20 @@ export default function PenMonitorPage() {
                   </span>
                 )}
               </h1>
+              <TourButton
+                onClick={() => setIsTourOpen(true)}
+                id="tour-start-btn"
+                title="Start Pen Live Stream Tour"
+              />
+              <Link
+                to={`/test-pen?pen=${numericPenId}&tour=true`}
+                id="tour-penlive-sandbox-link"
+                className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-semibold transition-all hover:scale-105 active:scale-95 border border-slate-200 dark:border-slate-700"
+                title="Open Test Pen Training Simulator for this pen"
+              >
+                <Target className="h-3.5 w-3.5 text-indigo-500" />
+                <span>Sandbox Simulator</span>
+              </Link>
               <PageInfoButton onClick={() => setIsInfoOpen(true)} />
             </div>
             <p className="text-xs sm:text-sm text-gray-500 dark:text-slate-400 truncate">
@@ -876,7 +952,7 @@ export default function PenMonitorPage() {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         {/* Live Camera */}
-        <div className="lg:col-span-2 rounded-2xl overflow-hidden border border-gray-200 dark:border-slate-700 bg-black">
+        <div id="tour-penlive-video" className="lg:col-span-2 rounded-2xl overflow-hidden border border-gray-200 dark:border-slate-700 bg-black">
           <RTSPVideoFeed
             penId={penId || ''}
             penName={penName}
@@ -896,8 +972,8 @@ export default function PenMonitorPage() {
         {/* Quick Info Panel */}
         <div className="space-y-4">
           {/* Crushing Risk Gauge */}
-          <div className="bg-white dark:bg-slate-800/60 rounded-2xl border border-gray-200 dark:border-slate-700 p-5">
-            <CrushingRiskGauge rawRisk={riskValue} daysSinceFarrowing={daysSinceFarrowing} size="lg" proximityAlerts={latestDetection?.proximityAlerts} totalPiglets={pigletCountLive} />
+          <div id="tour-penlive-gauge" className="bg-white dark:bg-slate-800/60 rounded-2xl border border-gray-200 dark:border-slate-700 p-5">
+            <CrushingRiskGauge rawRisk={riskValue} daysSinceFarrowing={daysSinceFarrowing} size="lg" proximityAlerts={latestDetection?.proximityAlerts} totalPiglets={pigletCountLive} eventPhase={eventPhase} />
           </div>
 
           {/* Live Counts */}
@@ -943,7 +1019,7 @@ export default function PenMonitorPage() {
 
       {/* ── Tab navigation ─────────────────────────────────────────── */}
       <div className="overflow-x-auto -mx-1 px-1 scrollbar-hide">
-        <div className="flex gap-1 bg-gray-100 dark:bg-slate-800/50 rounded-xl p-1 min-w-max sm:min-w-0">
+        <div id="tour-penlive-tabs" className="flex gap-1 bg-gray-100 dark:bg-slate-800/50 rounded-xl p-1 min-w-max sm:min-w-0">
           {([
             { key: 'overview' as Tab, label: 'Overview', icon: <Eye className="h-4 w-4" /> },
             { key: 'live-monitor' as Tab, label: 'Live Monitor', icon: <Radio className="h-4 w-4" /> },
@@ -1005,7 +1081,9 @@ export default function PenMonitorPage() {
             </div>
           </div>
 
-          <AIPenAdvisoryCard penId={penId} penStatus={penStatus} recentEvents={penEvents} />
+          <div id="tour-penlive-actions">
+            <AIPenAdvisoryCard penId={penId} penStatus={penStatus} recentEvents={penEvents} />
+          </div>
 
           {/* Quick farrowing summary if active */}
           {activeFarrowing && (
@@ -2641,6 +2719,16 @@ export default function PenMonitorPage() {
           "Health & Safety Alerts: Instantly alerts you of imminent crushing risks and any sudden changes to the pen environment or sow activity.",
           "Behavioral Feedback: Features an event feed recording lactation sessions, resting states, and AI advisories for the localized pen."
         ]}
+      />
+
+      <SystemTour
+        isOpen={isTourOpen}
+        onClose={() => setIsTourOpen(false)}
+        steps={PEN_LIVE_TOUR_STEPS}
+        tourKey="prisma_atlas_penlive_tour"
+        onComplete={() => {
+          toast.success('Pen live stream tour complete! You are now monitoring this pen.');
+        }}
       />
     </div>
   );

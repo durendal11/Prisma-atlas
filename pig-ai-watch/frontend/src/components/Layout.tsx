@@ -1,23 +1,26 @@
-import { Outlet, NavLink, useNavigate, useLocation } from 'react-router-dom';
+import { Outlet, NavLink, useLocation } from 'react-router-dom';
 import { 
   LayoutDashboard, 
-  Video, 
   Bell, 
   ClipboardList, 
-  Users, 
   Settings, 
   LogOut,
   Menu,
   X,
-  Activity,
-  Heart,
   Sparkles,
-  Camera,
-  Eye,
   BarChart3,
   CalendarDays,
   BookOpen
 } from 'lucide-react';
+import { 
+  PigIcon, 
+  FenceIcon, 
+  ScanHeartIcon, 
+  ScanEyeIcon, 
+  CameraAiIcon, 
+  CctvIcon,
+  PrismaLogoIcon 
+} from '@/components/icons';
 import { useState } from 'react';
 import { useAuthStore, useAlertStore } from '@/store';
 import { useAlertStats } from '@/hooks';
@@ -28,37 +31,22 @@ import { useEffect } from 'react';
 
 const navigation = [
   { name: 'Dashboard', href: '/', icon: LayoutDashboard },
-  { name: 'Live Monitoring', href: '/monitoring', icon: Video },
-  { name: 'Test Pen', href: '/test-pen', icon: Video },
-  { name: 'Farrowing', href: '/farrowing', icon: Heart },
-  { name: 'Replay', href: '/replay', icon: Eye },
+  { name: 'Live Monitoring', href: '/monitoring', icon: CctvIcon },
+  { name: 'Test Pen', href: '/test-pen', icon: FenceIcon },
+  { name: 'Farrowing', href: '/farrowing', icon: ScanHeartIcon },
+  { name: 'Replay', href: '/replay', icon: ScanEyeIcon },
   { name: 'Alerts', href: '/alerts', icon: Bell },
   { name: 'Event Logs', href: '/events', icon: ClipboardList },
-  { name: 'Sow Profiles', href: '/sows', icon: Users },
+  { name: 'Sow Profiles', href: '/sows', icon: PigIcon },
   { name: 'Statistics', href: '/stats', icon: BarChart3 },
   { name: 'Recording Schedule', href: '/recording-schedule', icon: CalendarDays },
-  { name: 'Camera Setup', href: '/camera-setup', icon: Camera },
+  { name: 'Camera Setup', href: '/camera-setup', icon: CameraAiIcon },
   { name: 'Setup Guide', href: '/setup-guide', icon: BookOpen },
   { name: 'Settings', href: '/settings', icon: Settings },
 ];
 
-// Get landing page URL based on environment
-const getLandingPageUrl = () => {
-  // Check if running in Electron
-  if (window.electronAPI) {
-    return null; // Stay in app, don't redirect
-  }
-  // Development: redirect to landing page
-  if (['localhost', '127.0.0.1'].includes(window.location.hostname)) {
-    return 'http://localhost:3000';
-  }
-  // Production: same origin
-  return window.location.origin;
-};
-
 export default function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const navigate = useNavigate();
   const location = useLocation();
   const { user, logout } = useAuthStore();
   const { data: alertStats } = useAlertStats();
@@ -76,15 +64,8 @@ export default function Layout() {
 
   const handleLogout = () => {
     logout();
-    
-    // Redirect to landing page with logout flag
-    const landingUrl = getLandingPageUrl();
-    if (landingUrl) {
-      window.location.href = `${landingUrl}?logout=true`;
-    } else {
-      // Electron or same-origin: just navigate to login
-      navigate('/login');
-    }
+    localStorage.removeItem('access_token');
+    window.location.href = '/welcome';
   };
 
   return (
@@ -110,7 +91,7 @@ export default function Layout() {
         <div className="flex h-16 items-center justify-between px-4 border-b border-gray-200/50 dark:border-slate-700/50">
           <div className="flex items-center gap-3 group">
             <div className="relative">
-              <Activity className="h-8 w-8 text-primary-500 transition-transform duration-300 group-hover:scale-110" />
+              <PrismaLogoIcon className="h-8 w-8 transition-transform duration-300 group-hover:scale-110" />
               <Sparkles className="absolute -top-1 -right-1 h-3 w-3 text-accent-400 opacity-0 group-hover:opacity-100 transition-opacity duration-300 animate-pulse" />
             </div>
             <span className="text-xl font-bold bg-gradient-to-r from-primary-600 to-primary-400 dark:from-primary-400 dark:to-primary-300 bg-clip-text text-transparent">
@@ -148,6 +129,15 @@ export default function Layout() {
               {item.name === 'Alerts' && unreadCount > 0 && (
                 <span className="ml-auto bg-red-500 text-white text-xs px-2 py-0.5 rounded-full animate-bounce-in shadow-lg shadow-red-500/30">
                   {unreadCount > 99 ? '99+' : unreadCount}
+                </span>
+              )}
+              {item.name === 'Setup Guide' && (
+                <span className="ml-auto flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800">
+                  <span className="relative flex h-1.5 w-1.5">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-90 duration-1000" />
+                    <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500" />
+                  </span>
+                  Guide
                 </span>
               )}
             </NavLink>
@@ -196,6 +186,18 @@ export default function Layout() {
           <div className="flex-1" />
           
           <div className="flex items-center gap-3">
+            <NavLink
+              to="/setup-guide"
+              className="hidden sm:flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-xl bg-indigo-50/90 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 border border-indigo-200/80 dark:border-indigo-800/80 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 transition-all hover:scale-105 active:scale-95 shadow-sm hover:shadow-[0_0_12px_rgba(99,102,241,0.35)]"
+              title="Open Setup Guide & System Tour"
+            >
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-90 duration-1000" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500 ring-2 ring-white dark:ring-slate-900" />
+              </span>
+              <BookOpen className="h-3.5 w-3.5 text-indigo-600 dark:text-indigo-400" />
+              <span>Guide & Tour</span>
+            </NavLink>
             <NavLink
               to="/alerts"
               className="relative p-2.5 hover:bg-gray-100 dark:hover:bg-slate-800 rounded-xl transition-all duration-200 hover:scale-105 active:scale-95 group"

@@ -1,0 +1,4 @@
+# Root Docker Compose entrypoint for PRISMA ATLAS
+# Delegates to pig-ai-watch stack
+include:
+  - path: pig-ai-watch/docker-compose.yml

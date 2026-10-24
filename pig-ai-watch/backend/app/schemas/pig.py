@@ -121,6 +121,9 @@ class AlertResponse(AlertBase):
     resolved_at: Optional[datetime]
     resolved_by: Optional[int]
     detection_data: Optional[str]
+    # State machine fields (None for non-crushing alerts)
+    event_state: Optional[str] = None
+    crushing_event_id: Optional[int] = None
     created_at: datetime
     
     class Config:
@@ -279,3 +282,52 @@ class PenStatus(BaseModel):
     crushing_risk: float
     last_updated: datetime
     is_streaming: bool
+
+
+# ─── Crushing Event Schemas ─────────────────────────────────────────────────────
+
+class CrushingEventResponse(BaseModel):
+    """Full crushing event row — returned by GET /api/crush-events/{id}."""
+    id: int
+    pen_id: int
+    sow_id: Optional[int] = None
+    alert_id: Optional[int] = None
+
+    # Timeline
+    watch_started_at: Optional[datetime] = None
+    alerted_at: Optional[datetime] = None
+    resolved_at: Optional[datetime] = None
+    dismissed_at: Optional[datetime] = None
+    dismissed_by: Optional[int] = None
+
+    # Count context
+    baseline_count: Optional[int] = None
+    min_count_seen: Optional[int] = None
+    recovery_count: Optional[int] = None
+    duration_minutes: Optional[float] = None
+
+    # Outcome
+    outcome: Optional[str] = None
+
+    # Trend context
+    trend_slope: Optional[float] = None
+    trend_r2: Optional[float] = None
+    clump_detected: bool = False
+
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class CrushingEventSummaryResponse(BaseModel):
+    """Aggregate outcome stats — returned by GET /api/crush-events/summary."""
+    total: int
+    prevented: int
+    likely_crush: int
+    false_positive: int
+    unresolved: int
+    # false_positive / total (0.0–1.0), None if no events
+    false_positive_rate: Optional[float] = None
+    period_days: int

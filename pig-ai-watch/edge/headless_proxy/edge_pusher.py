@@ -9,6 +9,21 @@ from pathlib import Path
 from urllib.parse import urlsplit, urlunsplit
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+import shutil
+
+def _find_ffmpeg() -> str:
+    found = shutil.which("ffmpeg")
+    if found:
+        return found
+    candidates = [
+        Path(sys.executable).parent / "ffmpeg.exe",
+        Path(__file__).resolve().parents[3] / "tools" / "ffmpeg.exe",
+        Path(__file__).resolve().parents[3] / ".venv" / "Scripts" / "ffmpeg.exe",
+    ]
+    for c in candidates:
+        if c.exists():
+            return str(c)
+    return "ffmpeg"
 
 try:
     from dotenv import load_dotenv
@@ -176,12 +191,14 @@ class PushWorker(threading.Thread):
 
     def _build_ffmpeg_cmd(self, source_url: str) -> list[str]:
         cloud_url = f"rtsp://{CLOUD_IP}:{RTSP_PORT}/{self.stream_path}"
-        cmd = ["ffmpeg", "-y"]
+        cmd = [_find_ffmpeg(), "-y"]
         if source_url.startswith("rtsp://"):
             cmd.extend(
                 [
                     "-rtsp_transport",
                     "tcp",
+                    "-timeout",
+                    "5000000",
                     "-probesize",
                     "32",
                     "-analyzeduration",
@@ -249,6 +266,7 @@ class PushWorker(threading.Thread):
                 continue
 
             source_url = self._source_candidates[self._source_index]
+            print(f"[*] Connecting to camera feed: {_sanitize_url(source_url)}...")
             try:
                 proc = subprocess.Popen(self._build_ffmpeg_cmd(source_url))
             except FileNotFoundError:

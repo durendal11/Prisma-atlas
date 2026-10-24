@@ -136,6 +136,11 @@ class Settings(BaseSettings):
     SMTP_FROM_EMAIL: Optional[str] = None
     SMTP_FROM_NAME: str = "Pig AI Watch"
 
+    # Telegram Bot alert notifications
+    TELEGRAM_ENABLED: bool = True
+    TELEGRAM_BOT_TOKEN: Optional[str] = "8979923577:AAEyhNDQFeb34t2V_KQnWJiUFhhQTN6ZdHw"
+    TELEGRAM_CHAT_ID: Optional[str] = None
+
     @property
     def resolved_database_url(self) -> str:
         if self.DATABASE_URL:

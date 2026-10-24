@@ -1,9 +1,10 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useAuthStore, useDetectionStore } from '@/store';
-import { Camera, RefreshCw, AlertCircle, Wifi, WifiOff, Activity, AlertTriangle, Cpu, VideoOff } from 'lucide-react';
+import { Camera, RefreshCw, AlertCircle, Wifi, WifiOff, Activity, AlertTriangle, Cpu, VideoOff, Smartphone, Monitor } from 'lucide-react';
 import { onnxDetector, DetectionResult, Detection, drawRiskHighlights } from '@/utils/onnxDetector';
 import type { ProximityAlert } from '@/utils/onnxDetector';
 import { WebRTCVideoPlayer } from './WebRTCVideoPlayer';
+import { useDeviceMode } from '@/hooks/useDeviceMode';
 
 // ── Connection status type ──────────────────────────────────────────────────
 export type CameraConnectionStatus = 'probing' | 'connected' | 'disconnected' | 'error';
@@ -87,6 +88,7 @@ export const RTSPVideoFeed: React.FC<RTSPVideoFeedProps> = ({
   const [useWebRTC, setUseWebRTC] = useState<boolean>(true);
   const { token } = useAuthStore();
   const setDetection = useDetectionStore((s) => s.setDetection);
+  const { isStreamingAllowed, toggleMode } = useDeviceMode();
 
   // Notify parent when connection status changes
   const prevStatusRef = useRef<CameraConnectionStatus>('probing');
@@ -115,8 +117,12 @@ const fastProbeCache = new Map<string, { timestamp: number; data: any }>();
     // Fast-path: if camera was probed within the last 60 seconds, connect instantly in 0ms!
     if (cached && (now - cached.timestamp < 60000)) {
       setConnectionStatus('connected');
-      const url = `/api/stream/${penId}?token=${token}`;
-      setStreamUrl(url);
+      if (isStreamingAllowed) {
+        const url = `/api/stream/${penId}?token=${token}`;
+        setStreamUrl(url);
+      } else {
+        setStreamUrl('');
+      }
       setLoading(false);
       if (cached.data.camera_info) setCameraInfo(cached.data.camera_info);
       if (cached.data.has_last_detection && cached.data.last_detection) setDetectionData(cached.data.last_detection);
@@ -150,15 +156,23 @@ const fastProbeCache = new Map<string, { timestamp: number; data: any }>();
           if (isRunning && hasSource) {
             // Camera is running — safe to connect stream
             setConnectionStatus('connected');
-            const url = `/api/stream/${penId}?token=${token}`;
-            setStreamUrl(url);
+            if (isStreamingAllowed) {
+              const url = `/api/stream/${penId}?token=${token}`;
+              setStreamUrl(url);
+            } else {
+              setStreamUrl('');
+            }
             setLoading(false);
             setReconnectAttempts(0);
           } else if (hasSource && !isRunning) {
             // Source configured but stream not running — try to connect anyway
             setConnectionStatus('connected');
-            const url = `/api/stream/${penId}?token=${token}`;
-            setStreamUrl(url);
+            if (isStreamingAllowed) {
+              const url = `/api/stream/${penId}?token=${token}`;
+              setStreamUrl(url);
+            } else {
+              setStreamUrl('');
+            }
             setLoading(false);
             setReconnectAttempts(0);
           } else {
@@ -290,7 +304,7 @@ const fastProbeCache = new Map<string, { timestamp: number; data: any }>();
 
   // Load ONNX model for client-side detection
   useEffect(() => {
-    if (!useClientDetection) return;
+    if (!useClientDetection || !isStreamingAllowed) return;
     
     const loadModel = async () => {
       if (onnxDetector.isReady()) {
@@ -411,8 +425,8 @@ const fastProbeCache = new Map<string, { timestamp: number; data: any }>();
     // Schedule next check IMMEDIATELY to keep loop smooth
     animationRef.current = requestAnimationFrame(runClientDetection);
     
-    // Don't run detection if disconnected, paused, or model not ready
-    if (!useClientDetection || !modelLoaded || !onnxDetector.isReady() || isPaused || connectionStatus === 'disconnected') {
+    // Don't run detection if mobile mode, disconnected, paused, or model not ready
+    if (!isStreamingAllowed || !useClientDetection || !modelLoaded || !onnxDetector.isReady() || isPaused || connectionStatus === 'disconnected') {
       return;
     }
 
@@ -554,6 +568,41 @@ const fastProbeCache = new Map<string, { timestamp: number; data: any }>();
 
       {/* Video Stream */}
       <div className="relative aspect-video w-full">
+        {/* Mobile device restriction: Stream disabled to reduce lag */}
+        {!isStreamingAllowed && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-b from-slate-900 via-gray-900 to-slate-950 p-6 text-center z-20">
+            <div className="w-12 h-12 rounded-2xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center mb-3 text-blue-400">
+              <Smartphone className="w-6 h-6" />
+            </div>
+            <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-blue-500/20 text-blue-300 border border-blue-500/30 mb-2">
+              <Monitor className="w-3.5 h-3.5" />
+              <span>Livestreaming: Desktop Mode Only</span>
+            </div>
+            <h4 className="text-white font-semibold text-base mb-1">Mobile Performance Mode Active</h4>
+            <p className="text-slate-400 text-xs max-w-sm mb-4 leading-relaxed">
+              Live video decoding is paused on mobile devices to eliminate lag and conserve data. Real-time telemetry, risk gauges, and alerts remain fully active.
+            </p>
+            {/* Real-time telemetry preview */}
+            <div className="flex flex-wrap items-center justify-center gap-2 mb-4">
+              <span className="px-3 py-1.5 rounded-lg bg-slate-800/80 border border-slate-700 text-xs font-medium text-slate-200">
+                Piglets: <strong className="text-white font-mono ml-1">{detectionData?.piglet_count ?? 0}</strong>
+              </span>
+              <span className="px-3 py-1.5 rounded-lg bg-slate-800/80 border border-slate-700 text-xs font-medium text-slate-200">
+                Crush Risk: <strong className="text-white font-mono ml-1">{((detectionData?.crushing_risk ?? 0) * 100).toFixed(0)}%</strong>
+              </span>
+              <span className="px-3 py-1.5 rounded-lg bg-slate-800/80 border border-slate-700 text-xs font-medium text-slate-200 capitalize">
+                Sow: <strong className="text-white ml-1">{detectionData?.sow_posture?.replace('_', ' ') ?? 'Monitored'}</strong>
+              </span>
+            </div>
+            <button
+              onClick={toggleMode}
+              className="text-xs text-blue-400 hover:text-blue-300 underline underline-offset-4 transition-colors"
+            >
+              Test with Desktop Mode enabled
+            </button>
+          </div>
+        )}
+
         {/* Disconnected — camera not configured or unreachable */}
         {connectionStatus === 'disconnected' && !loading && (
           <div className="absolute inset-0 flex items-center justify-center bg-gray-800/95 z-20">

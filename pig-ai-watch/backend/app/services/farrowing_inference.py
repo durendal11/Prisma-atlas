@@ -9,11 +9,16 @@ Implements biologically accurate rules for:
   - Pre-farrowing posture switching (restlessness inference)
 
 All rules operate on detection timestamps and counts — no new model output required.
+
+Upgraded with:
+  - CrushingStateMachine: IDLE → WATCH → ALERT → RESOLVING → ALL_CLEAR / ESCALATED
+  - Trend Engine: linear regression on stable median count for early warning & V-shape rejection
 """
 from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Any
 from dataclasses import dataclass, field
 from collections import deque
+from enum import Enum
 import statistics
 import logging
 
@@ -25,15 +30,26 @@ logger = logging.getLogger(__name__)
 # ─── Configuration ───────────────────────────────────────────────────────────
 
 # Crushing risk thresholds (3-tier system)
-CRUSHING_PIGLET_DROP_CRITICAL = 2       # ≥2 piglets missing + sow lying + clump = CRITICAL
+CRUSHING_PIGLET_DROP_CRITICAL = 2       # ≥2 piglets missing + sow lying = CRITICAL
 CRUSHING_PIGLET_DROP_ADVISORY = 1       # ≥1 piglet missing OR clump near sow = ADVISORY
-CRUSHING_DURATION_MINUTES = 0           # 0 = immediate alert on first qualifying snapshot
-                                         # (set > 0 to require sustained window before alerting)
+CRUSHING_DURATION_MINUTES = 1           # condition must persist ≥1 min before CRITICAL fires
 CRUSHING_SOW_POSTURES = {"sleeping", "sleeping_lactating", "lying_lateral", "sow-sleep", "sow-sleep-lactate"}
 
+# ── State Machine timings ────────────────────────────────────────────────────
+WATCH_WINDOW_SECONDS = 75               # 75 s watch-and-wait before pushing ALERT
+RESOLVING_GRACE_SECONDS = 120           # 2 min stable recovery before ALL_CLEAR
+ESCALATION_TIMEOUT_MINUTES = 20        # no recovery after 20 min → ESCALATED
+
+# ── Trend Engine ────────────────────────────────────────────────────────────
+TREND_WINDOW = 8                        # readings for regression
+TREND_WATCH_SLOPE = -0.3               # piglets/reading triggering WATCH-mode assist
+TREND_WARN_SLOPE = -0.6                # steeper decline — assists early ALERT escalation
+TREND_MIN_R2 = 0.50                    # R² floor — rejects noisy / V-shape regressions
+TREND_MIN_READINGS = 5                 # minimum readings before regression is computed
+
 # Stable count tracker
-STABLE_COUNT_WINDOW = 15                 # snapshots for rolling median (~30s at 2s intervals)
-SUSTAINED_CONFIRMATION_MINUTES = 2       # median must hold for 2 min to become "confirmed"
+STABLE_COUNT_WINDOW = 15               # snapshots for rolling median (~30s at 2s intervals)
+SUSTAINED_CONFIRMATION_MINUTES = 2     # median must hold for 2 min to become "confirmed"
 
 # Alert cooldowns (avoid spam)
 CRUSHING_CRITICAL_COOLDOWN_MINUTES = 10  # critical: 10 min
@@ -52,6 +68,286 @@ AVERAGE_PIGLET_INTERVAL_MINUTES = (15, 20)  # normal birth interval
 # Pre-farrowing posture switching (restlessness)
 POSTURE_SWITCH_THRESHOLD = 6        # >6 posture changes in 30 minutes
 POSTURE_SWITCH_WINDOW_MINUTES = 30
+
+
+# ─── State Machine ───────────────────────────────────────────────────────────
+
+class CrushingPhase(str, Enum):
+    IDLE       = "idle"
+    WATCH      = "watch"
+    ALERT      = "alert"
+    RESOLVING  = "resolving"
+    ALL_CLEAR  = "all_clear"
+    ESCALATED  = "escalated"
+
+
+@dataclass
+class CrushingStateMachineState:
+    """Tracks per-pen crushing event state machine."""
+    phase: CrushingPhase = CrushingPhase.IDLE
+
+    # Timeline
+    watch_started_at: Optional[datetime] = None
+    alerted_at: Optional[datetime] = None
+    resolving_started_at: Optional[datetime] = None
+    resolved_at: Optional[datetime] = None
+
+    # Context captured during the event
+    baseline_at_alert: int = 0
+    min_count_seen: int = 999
+    alert_id: Optional[int] = None          # DB Alert.id (set externally after DB write)
+    crushing_event_id: Optional[int] = None  # DB CrushingEvent.id (set externally)
+
+    # Cooldowns for terminal-state pushes
+    last_escalated_at: Optional[datetime] = None
+
+
+class CrushingStateMachine:
+    """
+    State machine for crushing risk events per pen.
+
+    Transitions:
+      IDLE      → WATCH       : conditions first detected (no push; dashboard gauge rises)
+      WATCH     → IDLE        : conditions cleared < WATCH_WINDOW_SECONDS (false positive, silent)
+      WATCH     → ALERT       : conditions sustained ≥ WATCH_WINDOW_SECONDS (push sent)
+      ALERT     → RESOLVING   : count begins recovering
+      ALERT     → ESCALATED   : no recovery after ESCALATION_TIMEOUT_MINUTES (2nd push)
+      RESOLVING → ALL_CLEAR   : count stable near baseline for RESOLVING_GRACE_SECONDS (push)
+      RESOLVING → ALERT       : count drops again during grace period
+      ALL_CLEAR → IDLE        : terminal — resets for next event
+      ESCALATED → RESOLVING   : count starts recovering even after escalation
+    """
+
+    def __init__(self):
+        self.state = CrushingStateMachineState()
+
+    def reset(self):
+        self.state = CrushingStateMachineState()
+
+    @property
+    def phase(self) -> CrushingPhase:
+        return self.state.phase
+
+    @property
+    def is_active(self) -> bool:
+        return self.state.phase not in (
+            CrushingPhase.IDLE, CrushingPhase.ALL_CLEAR, CrushingPhase.ESCALATED
+        )
+
+    def update(
+        self,
+        now: datetime,
+        conditions_met: bool,
+        count_recovered: bool,
+        current_count: int,
+    ) -> Optional["InferenceAlert"]:
+        """
+        Feed current detection state and return an InferenceAlert on transition, else None.
+        Updates self.state.phase in-place.
+        """
+        s = self.state
+        phase = s.phase
+
+        # Track minimum count seen during active events
+        if phase in (CrushingPhase.WATCH, CrushingPhase.ALERT,
+                     CrushingPhase.RESOLVING, CrushingPhase.ESCALATED):
+            s.min_count_seen = min(s.min_count_seen, current_count)
+
+        # ── IDLE ─────────────────────────────────────────────────────────
+        if phase == CrushingPhase.IDLE:
+            if conditions_met:
+                s.phase = CrushingPhase.WATCH
+                s.watch_started_at = now
+                s.min_count_seen = current_count
+                logger.info("CrushingSM → WATCH at %s", now)
+                return InferenceAlert(
+                    type="crushing_watch",
+                    severity="low",
+                    title="Crushing Risk Gauge Rising — Watching",
+                    message=(
+                        "Potential crushing conditions detected. "
+                        f"Monitoring for {WATCH_WINDOW_SECONDS}s before alerting. "
+                        "No action needed yet."
+                    ),
+                    data={"phase": "watch", "watch_started_at": now.isoformat()},
+                )
+            return None
+
+        # ── WATCH ─────────────────────────────────────────────────────────
+        if phase == CrushingPhase.WATCH:
+            if not conditions_met:
+                elapsed = (
+                    (now - s.watch_started_at).total_seconds() if s.watch_started_at else 0
+                )
+                logger.info(
+                    "CrushingSM WATCH → IDLE (false positive suppressed, elapsed %.0fs)", elapsed
+                )
+                s.phase = CrushingPhase.IDLE
+                s.watch_started_at = None
+                return InferenceAlert(
+                    type="crushing_false_positive",
+                    severity="low",
+                    title="Crushing Watch Cleared — False Positive",
+                    message=(
+                        f"Risk conditions resolved within the watch window ({elapsed:.0f}s). "
+                        "No push notification was sent."
+                    ),
+                    data={"phase": "false_positive", "elapsed_seconds": round(elapsed, 1)},
+                )
+
+            if s.watch_started_at and (
+                    (now - s.watch_started_at).total_seconds() >= WATCH_WINDOW_SECONDS):
+                # Sustained past watch window — escalate; calling code emits the push
+                s.phase = CrushingPhase.ALERT
+                s.alerted_at = now
+                s.baseline_at_alert = s.min_count_seen
+                logger.info(
+                    "CrushingSM WATCH → ALERT at %s (sustained %.0fs)",
+                    now, (now - s.watch_started_at).total_seconds()
+                )
+            return None
+
+        # ── ALERT ─────────────────────────────────────────────────────────
+        if phase == CrushingPhase.ALERT:
+            if count_recovered:
+                s.phase = CrushingPhase.RESOLVING
+                s.resolving_started_at = now
+                logger.info("CrushingSM ALERT → RESOLVING at %s", now)
+                return None
+
+            if (s.alerted_at and
+                    (now - s.alerted_at).total_seconds() / 60 >= ESCALATION_TIMEOUT_MINUTES):
+                if not self._on_cooldown(s.last_escalated_at, now, 30):
+                    s.phase = CrushingPhase.ESCALATED
+                    s.last_escalated_at = now
+                    logger.warning("CrushingSM ALERT → ESCALATED at %s", now)
+                    return InferenceAlert(
+                        type="crushing_escalated",
+                        severity="critical",
+                        title="⚠️ Crushing Risk — No Response After 20 Minutes",
+                        message=(
+                            f"Piglet count has not recovered for {ESCALATION_TIMEOUT_MINUTES} "
+                            f"minutes. Immediate intervention required — check pen now."
+                        ),
+                        data={
+                            "phase": "escalated",
+                            "duration_minutes": ESCALATION_TIMEOUT_MINUTES,
+                            "min_count_seen": s.min_count_seen,
+                        },
+                    )
+            return None
+
+        # ── RESOLVING ─────────────────────────────────────────────────────
+        if phase == CrushingPhase.RESOLVING:
+            if not count_recovered:
+                s.phase = CrushingPhase.ALERT
+                s.resolving_started_at = None
+                logger.info("CrushingSM RESOLVING → ALERT (count dropped again) at %s", now)
+                return None
+
+            if (s.resolving_started_at and
+                    (now - s.resolving_started_at).total_seconds() >= RESOLVING_GRACE_SECONDS):
+                s.phase = CrushingPhase.ALL_CLEAR
+                s.resolved_at = now
+                duration = (
+                    (now - s.alerted_at).total_seconds() / 60 if s.alerted_at else 0
+                )
+                logger.info("CrushingSM RESOLVING → ALL_CLEAR at %s", now)
+                return InferenceAlert(
+                    type="crushing_all_clear",
+                    severity="low",
+                    title="✅ All Clear — Piglet Count Recovered",
+                    message=(
+                        f"Piglet count has recovered and remained stable. "
+                        f"Crushing risk has resolved ({duration:.0f} min after initial alert). "
+                        f"Please confirm piglets are safe."
+                    ),
+                    data={
+                        "phase": "all_clear",
+                        "duration_minutes": round(duration, 1),
+                        "min_count_seen": s.min_count_seen,
+                        "current_count": current_count,
+                    },
+                )
+            return None
+
+        # ── ESCALATED ─────────────────────────────────────────────────────
+        if phase == CrushingPhase.ESCALATED:
+            if count_recovered:
+                s.phase = CrushingPhase.RESOLVING
+                s.resolving_started_at = now
+                logger.info("CrushingSM ESCALATED → RESOLVING at %s", now)
+            return None
+
+        # ── ALL_CLEAR (terminal) ───────────────────────────────────────────
+        if phase == CrushingPhase.ALL_CLEAR:
+            s.phase = CrushingPhase.IDLE
+            s.watch_started_at = None
+            s.alerted_at = None
+            s.resolving_started_at = None
+            s.resolved_at = None
+            s.min_count_seen = 999
+            s.alert_id = None
+            s.crushing_event_id = None
+            return None
+
+        return None
+
+    @staticmethod
+    def _on_cooldown(last_at: Optional[datetime], now: datetime, minutes: int) -> bool:
+        if last_at is None:
+            return False
+        return (now - last_at).total_seconds() < minutes * 60
+
+
+# ─── Trend Engine ────────────────────────────────────────────────────────────
+
+@dataclass
+class TrendSignal:
+    """Result of linear regression on recent stable piglet counts."""
+    slope: float          # piglets per reading (negative = declining)
+    r_squared: float      # goodness-of-fit (0–1); low R² = noisy/V-shape
+    direction: str        # "declining", "rapid_decline", "stable", "rising"
+    readings: int
+
+
+def _compute_trend(values: List[float]) -> TrendSignal:
+    """
+    Fit a linear regression to a list of count values.
+
+    A V-shape (spike down then recovery) will produce a low R² because the
+    data does not fit a line well — this naturally rejects false positives.
+    A genuine crush shows a monotone decline with high R².
+    """
+    n = len(values)
+    if n < TREND_MIN_READINGS:
+        return TrendSignal(slope=0.0, r_squared=0.0, direction="stable", readings=n)
+
+    xs = list(range(n))
+    x_mean = sum(xs) / n
+    y_mean = sum(values) / n
+
+    ss_xy = sum((x - x_mean) * (y - y_mean) for x, y in zip(xs, values))
+    ss_xx = sum((x - x_mean) ** 2 for x in xs)
+    ss_yy = sum((y - y_mean) ** 2 for y in values)
+
+    if ss_xx == 0:
+        return TrendSignal(slope=0.0, r_squared=1.0, direction="stable", readings=n)
+
+    slope = ss_xy / ss_xx
+    r_squared = (ss_xy ** 2) / (ss_xx * ss_yy) if ss_yy > 0 else 0.0
+
+    if slope <= TREND_WARN_SLOPE and r_squared >= TREND_MIN_R2:
+        direction = "rapid_decline"
+    elif slope <= TREND_WATCH_SLOPE and r_squared >= TREND_MIN_R2:
+        direction = "declining"
+    elif slope >= 0.3 and r_squared >= TREND_MIN_R2:
+        direction = "rising"
+    else:
+        direction = "stable"
+
+    return TrendSignal(slope=round(slope, 3), r_squared=round(r_squared, 3),
+                       direction=direction, readings=n)
 
 
 # ─── Data Structures ────────────────────────────────────────────────────────
@@ -79,16 +375,24 @@ class FarrowingInferenceState:
     recent_counts: deque = field(default_factory=lambda: deque(maxlen=STABLE_COUNT_WINDOW))
     stable_median_count: int = 0
 
+    # Trend engine: last TREND_WINDOW stable-median values for regression
+    trend_readings: deque = field(default_factory=lambda: deque(maxlen=TREND_WINDOW))
+
     # Highest confirmed count: only ratchets up when median sustains ≥2 min
     highest_ever_confirmed: int = 0
     median_sustained_since: Optional[datetime] = None
     median_sustained_value: int = 0
 
+    # User-inputted baseline: farmer's confirmed born_alive count after farrowing.
+    # When set, this seeds highest_ever_confirmed so the engine doesn't cold-start.
+    user_baseline: int = 0
+
     # Legacy baseline (still computed for backwards compatibility)
     baseline_piglet_count: int = 0
 
-    # Crushing risk tracking
+    # Sustained-window crushing path (duration-based confirmation)
     piglet_drop_started_at: Optional[datetime] = None
+    last_crushing_critical_at: Optional[datetime] = None
 
     # Inactivity tracking
     last_posture_change_at: Optional[datetime] = None
@@ -100,8 +404,7 @@ class FarrowingInferenceState:
     last_new_piglet_at: Optional[datetime] = None
     highest_piglet_count: int = 0
 
-    # Alert cooldowns (avoid spam) — separate cooldowns per tier
-    last_crushing_critical_at: Optional[datetime] = None
+    # Alert cooldowns for non-crushing alerts (crushing now managed by CrushingStateMachine)
     last_crushing_advisory_at: Optional[datetime] = None
     last_crushing_info_at: Optional[datetime] = None
     last_crushing_alert_at: Optional[datetime] = None  # legacy compat
@@ -131,18 +434,21 @@ class FarrowingInferenceEngine:
     Feed detection snapshots via `process_detection()`.
     Retrieve alerts via the returned list.
 
-    Enhanced with smart crushing detection that uses clump analysis
-    and rolling-median count stabilization to reduce false positives
-    while catching true crushing events faster.
+    Upgraded with:
+      - CrushingStateMachine: IDLE → WATCH → ALERT → RESOLVING → ALL_CLEAR / ESCALATED
+      - Trend Engine: early negative-slope detection + V-shape false-positive rejection
+      - Smart crushing detection with clump analysis and rolling-median count stabilization
     """
 
     def __init__(self):
         self.state = FarrowingInferenceState()
         self.clump_detector = PigletClumpDetector()
+        self.sm = CrushingStateMachine()          # per-pen state machine
 
     def reset(self):
         self.state = FarrowingInferenceState()
         self.clump_detector.reset()
+        self.sm.reset()
 
     def set_farrowing_active(self, active: bool):
         """Call when farrowing session starts/ends."""
@@ -150,6 +456,98 @@ class FarrowingInferenceEngine:
         if active:
             self.state.last_new_piglet_at = datetime.utcnow()
             self.state.highest_piglet_count = 0
+
+    def set_user_baseline(self, born_alive: int):
+        """
+        Seed the inference engine with the farmer's confirmed piglet count.
+
+        This prevents cold-start issues where the AI baseline is 0 and needs
+        several minutes of observation to ratchet up to the real count.
+        The user_baseline also provides the ground-truth reference for
+        determining how many piglets are genuinely missing vs. occluded.
+        """
+        if born_alive > 0:
+            self.state.user_baseline = born_alive
+            # Only seed if AI hasn't already established a higher count
+            if born_alive > self.state.highest_ever_confirmed:
+                self.state.highest_ever_confirmed = born_alive
+            if born_alive > self.state.baseline_piglet_count:
+                self.state.baseline_piglet_count = born_alive
+            self.state.stable_median_count = max(
+                self.state.stable_median_count, born_alive
+            )
+            logger.info(
+                "User baseline set: %d piglets (born_alive). "
+                "highest_ever_confirmed=%d, baseline=%d",
+                born_alive,
+                self.state.highest_ever_confirmed,
+                self.state.baseline_piglet_count,
+            )
+
+    def reduce_baseline(self, count_reduction: int = 1, reason: str = "confirmed_death"):
+        """
+        Reduce the expected piglet count after a confirmed death or transfer.
+
+        Without this, the system keeps alerting about the same "missing" piglet
+        indefinitely after a mortality event.
+
+        Args:
+            count_reduction: Number of piglets to subtract from the baseline.
+            reason: Why the baseline is being reduced (for logging).
+        """
+        prev = self.state.highest_ever_confirmed
+        self.state.highest_ever_confirmed = max(
+            0, self.state.highest_ever_confirmed - count_reduction
+        )
+        self.state.user_baseline = max(
+            0, self.state.user_baseline - count_reduction
+        )
+        self.state.baseline_piglet_count = max(
+            0, self.state.baseline_piglet_count - count_reduction
+        )
+        logger.info(
+            "Baseline reduced by %d (%s): highest_ever %d → %d, "
+            "user_baseline now %d",
+            count_reduction,
+            reason,
+            prev,
+            self.state.highest_ever_confirmed,
+            self.state.user_baseline,
+        )
+
+    @property
+    def effective_baseline(self) -> int:
+        """
+        Best available baseline count, preferring user input over AI observation.
+
+        Priority:
+          1. highest_ever_confirmed (AI-validated, sustained median)
+          2. user_baseline (farmer input, used as seed)
+          3. baseline_piglet_count (legacy rolling max)
+        """
+        if self.state.highest_ever_confirmed > 0:
+            return self.state.highest_ever_confirmed
+        if self.state.user_baseline > 0:
+            return self.state.user_baseline
+        return self.state.baseline_piglet_count
+
+    @property
+    def crushing_phase(self) -> CrushingPhase:
+        """Current state machine phase — expose for WebSocket broadcast."""
+        return self.sm.phase
+
+    @property
+    def crushing_event_context(self) -> dict:
+        """Serializable state machine context for WebSocket broadcast."""
+        s = self.sm.state
+        return {
+            "phase": s.phase.value,
+            "watch_started_at": s.watch_started_at.isoformat() if s.watch_started_at else None,
+            "alerted_at": s.alerted_at.isoformat() if s.alerted_at else None,
+            "min_count_seen": s.min_count_seen if s.min_count_seen < 999 else None,
+            "crushing_event_id": s.crushing_event_id,
+            "alert_id": s.alert_id,
+        }
 
     def process_detection(
         self,
@@ -171,7 +569,7 @@ class FarrowingInferenceEngine:
         alerts: List[InferenceAlert] = []
         now = snapshot.timestamp
 
-        # ── Run clump analysis if bbox data is available ─────────────
+        # ── Run clump analysis if bbox data is available ──────────────────────
         if piglet_boxes is not None:
             clump = self.clump_detector.analyze(
                 piglet_boxes,
@@ -198,12 +596,15 @@ class FarrowingInferenceEngine:
         if snapshot.piglet_count > 0:
             self.state.last_piglet_seen_at = now
 
-        # ── Update stable count tracker ──────────────────────────────
+        # ── Update stable count tracker ───────────────────────────────────
         effective_count = snapshot.piglet_count
         if clump and clump.likely_actual_count > effective_count:
             effective_count = clump.likely_actual_count
 
         self._update_stable_count(effective_count, now)
+
+        # Feed stable median into trend engine readings
+        self.state.trend_readings.append(float(self.state.stable_median_count))
 
         # Legacy baseline (backwards compat): rolling max of last 30 min
         recent = [d for d in self.state.detection_history
@@ -211,33 +612,33 @@ class FarrowingInferenceEngine:
         if recent:
             self.state.baseline_piglet_count = max(d.piglet_count for d in recent)
 
-        # ── Rule 7: Smart crushing risk inference (3-tier) ───────────
+        # ── Rule 7: Smart crushing risk (State Machine + Trend) ────────────
         crushing_alerts = self._check_smart_crushing(snapshot, clump, now)
         alerts.extend(crushing_alerts)
 
-        # ── Rule 8a: Prolonged inactivity (no posture change) ────────
+        # ── Rule 8a: Prolonged inactivity (no posture change) ─────────────
         inactivity_alert = self._check_inactivity(snapshot, now)
         if inactivity_alert:
             alerts.append(inactivity_alert)
 
-        # ── Rule 8b: No piglet detection ─────────────────────────────
+        # ── Rule 8b: No piglet detection ─────────────────────────────────
         piglet_missing_alert = self._check_piglet_missing(snapshot, now)
         if piglet_missing_alert:
             alerts.append(piglet_missing_alert)
 
-        # ── Rule 9: Dystocia detection ───────────────────────────────
+        # ── Rule 9: Dystocia detection ───────────────────────────────────
         dystocia_alert = self._check_dystocia(snapshot, now)
         if dystocia_alert:
             alerts.append(dystocia_alert)
 
-        # ── Rule 4: Pre-farrowing posture switching ──────────────────
+        # ── Rule 4: Pre-farrowing posture switching ──────────────────────
         switching_alert = self._check_posture_switching(now)
         if switching_alert:
             alerts.append(switching_alert)
 
         return alerts
 
-    # ─── Stable Count Tracker ────────────────────────────────────────────
+    # ─── Stable Count Tracker ────────────────────────────────────────────────
 
     def _update_stable_count(self, effective_count: int, now: datetime):
         """
@@ -270,7 +671,18 @@ class FarrowingInferenceEngine:
                     )
                     self.state.highest_ever_confirmed = median
 
-    # ─── Smart Crushing Risk (3-Tier) ────────────────────────────────────
+    # ─── Trend Engine ─────────────────────────────────────────────────────────────
+
+    def _check_crush_trend(self) -> TrendSignal:
+        """
+        Run linear regression on the last TREND_WINDOW stable-median readings.
+
+        A genuine crush causes a monotone decline (high R², negative slope).
+        A lighting/occlusion glitch causes a V-shape (low R² — rejected).
+        """
+        return _compute_trend(list(self.state.trend_readings))
+
+    # ─── Smart Crushing Risk (State Machine + Trend) ─────────────────────────────
 
     def _check_smart_crushing(
         self,
@@ -279,16 +691,20 @@ class FarrowingInferenceEngine:
         now: datetime,
     ) -> List[InferenceAlert]:
         """
-        Smart crushing detection with 3 severity tiers:
+        Smart crushing detection using state machine + trend engine.
 
-        CRITICAL: Sow lying + piglet count dropped ≥2 from confirmed + clump near sow
-                  → "Possible piglet crushing — check pen immediately"
+        The state machine guards against noise by requiring conditions to be
+        sustained for WATCH_WINDOW_SECONDS before emitting a push alert.
+        The trend engine adds early detection and rejects V-shape false positives.
 
-        HIGH (Advisory): Sow lying + (count dropped by 1 OR clump near sow with stable count)
-                  → "Piglets clustered near sow — please overlook pen"
-
-        MEDIUM (Info): Count flickering (high variance) regardless of posture
-                  → "Piglet count unstable — possible occlusion or clumping"
+        Alert types emitted:
+          crushing_watch         — dashboard-only, no push (IDLE→WATCH)
+          crushing_false_positive — silent, no push (WATCH→IDLE)
+          crushing_risk          — critical push (WATCH→ALERT sustained)
+          crushing_all_clear     — soft push (RESOLVING→ALL_CLEAR)
+          crushing_escalated     — critical push (ALERT→ESCALATED timeout)
+          crushing_advisory      — advisory push (below CRITICAL threshold)
+          detection_anomaly      — medium push (high count variance)
         """
         results: List[InferenceAlert] = []
 
@@ -300,11 +716,9 @@ class FarrowingInferenceEngine:
             "lying" in posture_normalized
         )
 
-        # Use the best available baseline
+        # Best available baseline
         confirmed = self.state.highest_ever_confirmed
         median = self.state.stable_median_count
-
-        # Fall back to legacy baseline if confirmed count hasn't been established yet
         if confirmed <= 0:
             confirmed = self.state.baseline_piglet_count
 
@@ -314,111 +728,111 @@ class FarrowingInferenceEngine:
         if clump:
             likely_actual = clump.likely_actual_count
 
-        # Calculate drop from confirmed baseline
         drop_from_confirmed = confirmed - likely_actual if confirmed > 0 else 0
         drop_from_median = median - current if median > 0 else 0
 
-        # Clump signals
         has_clump_near_sow = clump.cluster_near_sow if clump else False
         clumping_likely = clump.clumping_likely if clump else False
-        # Use clump variance if available; fall back to engine's own count history
-        if clump:
-            count_variance = clump.count_variance
-        elif len(self.state.recent_counts) >= 3:
-            count_variance = statistics.variance(self.state.recent_counts)
-        else:
-            count_variance = 0.0
+        count_variance = (
+            clump.count_variance if clump
+            else (statistics.variance(self.state.recent_counts)
+                  if len(self.state.recent_counts) >= 3 else 0.0)
+        )
 
-        # ── Tier 1: CRITICAL ────────────────────────────────────────────
-        # Sow lying + significant drop + evidence of clumping
-        if sow_lying and confirmed > 0 and drop_from_confirmed >= CRUSHING_PIGLET_DROP_CRITICAL:
-            if not self._on_cooldown_minutes(self.state.last_crushing_critical_at, now,
-                                              CRUSHING_CRITICAL_COOLDOWN_MINUTES):
+        # ── Trend signal ───────────────────────────────────────────────────
+        trend = self._check_crush_trend()
+        trend_rapid = trend.direction == "rapid_decline"
 
-                if CRUSHING_DURATION_MINUTES == 0:
-                    # Immediate critical alert
-                    self.state.last_crushing_critical_at = now
-                    self.state.last_crushing_alert_at = now  # legacy
-                    self.state.piglet_drop_started_at = None
+        # Count recovery: current is within 1 of confirmed baseline
+        count_recovered = (confirmed > 0 and likely_actual >= confirmed - 1)
 
-                    drop_pct = (drop_from_confirmed / confirmed * 100) if confirmed > 0 else 0
+        # ── CRITICAL conditions ───────────────────────────────────────────────
+        critical_conditions_met = (
+            sow_lying and confirmed > 0 and drop_from_confirmed >= CRUSHING_PIGLET_DROP_CRITICAL
+        )
+        # Trend-assisted: rapid decline lowers threshold to advisory-level drop
+        trend_assisted_critical = (
+            sow_lying and confirmed > 0 and
+            drop_from_confirmed >= CRUSHING_PIGLET_DROP_ADVISORY and
+            trend_rapid
+        )
+        critical_conditions_met = critical_conditions_met or trend_assisted_critical
 
-                    results.append(InferenceAlert(
-                        type="crushing_risk",
-                        severity="critical",
-                        title="Potential Crushing Risk Detected",
-                        message=(
-                            f"Sow in lying posture ({snapshot.sow_posture}) with "
-                            f"piglet visibility dropped from {confirmed} to {likely_actual} "
-                            f"({drop_from_confirmed} missing, {drop_pct:.0f}% drop). "
-                            f"{'Piglet clump detected near sow body. ' if has_clump_near_sow else ''}"
-                            f"Possible piglet crushing — check pen immediately."
-                        ),
-                        data={
-                            "baseline_piglets": confirmed,
-                            "current_piglets": current,
-                            "likely_actual": likely_actual,
-                            "missing_count": drop_from_confirmed,
-                            "drop_percent": round(drop_pct, 1),
-                            "sow_posture": snapshot.sow_posture,
-                            "clump_near_sow": has_clump_near_sow,
-                            "clumping_likely": clumping_likely,
-                            "immediate": True,
-                            "tier": "critical",
-                        }
-                    ))
-                    # Critical alert fired — don't also fire advisory/info
-                    return results
+        # ── Feed state machine ───────────────────────────────────────────────
+        prev_phase = self.sm.phase
+        sm_alert = self.sm.update(
+            now=now,
+            conditions_met=critical_conditions_met,
+            count_recovered=count_recovered,
+            current_count=current,
+        )
+        new_phase = self.sm.phase
 
-                else:
-                    # Sustained-window path
-                    if self.state.piglet_drop_started_at is None:
-                        self.state.piglet_drop_started_at = now
-                    else:
-                        drop_duration = (now - self.state.piglet_drop_started_at).total_seconds() / 60
-                        if drop_duration >= CRUSHING_DURATION_MINUTES:
-                            self.state.last_crushing_critical_at = now
-                            self.state.last_crushing_alert_at = now
-                            self.state.piglet_drop_started_at = None
+        trend_data = {
+            "trend_slope": trend.slope,
+            "trend_r2": trend.r_squared,
+            "trend_direction": trend.direction,
+        }
 
-                            drop_pct = (drop_from_confirmed / confirmed * 100) if confirmed > 0 else 0
+        # Emit non-critical SM transitions (watch, false_positive, all_clear, escalated)
+        if sm_alert:
+            sm_alert.data.update({
+                "baseline_piglets": confirmed,
+                "current_piglets": current,
+                "likely_actual": likely_actual,
+                "sow_posture": snapshot.sow_posture,
+                "clump_near_sow": has_clump_near_sow,
+                **trend_data,
+            })
+            results.append(sm_alert)
 
-                            results.append(InferenceAlert(
-                                type="crushing_risk",
-                                severity="critical",
-                                title="Potential Crushing Risk Detected",
-                                message=(
-                                    f"Sow in lying posture ({snapshot.sow_posture}) with "
-                                    f"piglet visibility dropped from {confirmed} to {likely_actual} "
-                                    f"({drop_from_confirmed} missing, {drop_pct:.0f}% drop) "
-                                    f"for {drop_duration:.0f} minutes. "
-                                    f"{'Piglet clump detected near sow body. ' if has_clump_near_sow else ''}"
-                                    f"Possible piglet crushing — check pen immediately."
-                                ),
-                                data={
-                                    "baseline_piglets": confirmed,
-                                    "current_piglets": current,
-                                    "likely_actual": likely_actual,
-                                    "missing_count": drop_from_confirmed,
-                                    "drop_percent": round(drop_pct, 1),
-                                    "duration_minutes": round(drop_duration, 1),
-                                    "sow_posture": snapshot.sow_posture,
-                                    "clump_near_sow": has_clump_near_sow,
-                                    "clumping_likely": clumping_likely,
-                                    "immediate": False,
-                                    "tier": "critical",
-                                }
-                            ))
-                            return results
+        # ── WATCH → ALERT: emit the actual push alert ─────────────────────────
+        if prev_phase == CrushingPhase.WATCH and new_phase == CrushingPhase.ALERT:
+            watch_elapsed = (
+                (now - self.sm.state.watch_started_at).total_seconds()
+                if self.sm.state.watch_started_at else 0
+            )
+            drop_pct = (drop_from_confirmed / confirmed * 100) if confirmed > 0 else 0
+            results.append(InferenceAlert(
+                type="crushing_risk",
+                severity="critical",
+                title="⚠️ Potential Crushing Risk Detected",
+                message=(
+                    f"Sow in lying posture ({snapshot.sow_posture}) with piglet visibility "
+                    f"dropped from {confirmed} to {likely_actual} "
+                    f"({drop_from_confirmed} missing, {drop_pct:.0f}% drop) "
+                    f"sustained for {watch_elapsed:.0f}s. "
+                    f"{'Piglet clump detected near sow. ' if has_clump_near_sow else ''}"
+                    f"Check pen immediately."
+                ),
+                data={
+                    "baseline_piglets": confirmed,
+                    "current_piglets": current,
+                    "likely_actual": likely_actual,
+                    "missing_count": drop_from_confirmed,
+                    "drop_percent": round(drop_pct, 1),
+                    "sustained_seconds": round(watch_elapsed, 1),
+                    "sow_posture": snapshot.sow_posture,
+                    "clump_near_sow": has_clump_near_sow,
+                    "clumping_likely": clumping_likely,
+                    "tier": "critical",
+                    "phase": "alert",
+                    **trend_data,
+                },
+            ))
+            return results
 
-        # ── Tier 2: HIGH / ADVISORY ─────────────────────────────────────
-        # Sow lying + (minor drop OR clump near sow with stable count)
-        # → "Please overlook pen — piglets may be hidden"
-        if sow_lying and confirmed > 0:
+        # If we got a SM alert (watch/false_positive/all_clear/escalated), return early
+        if sm_alert:
+            return results
+
+        # ── Tier 2: HIGH / ADVISORY (only when SM is IDLE — not tracking an event) ──
+        if self.sm.phase == CrushingPhase.IDLE and sow_lying and confirmed > 0:
             advisory_triggered = False
             advisory_reason = ""
 
-            if drop_from_confirmed >= CRUSHING_PIGLET_DROP_ADVISORY and drop_from_confirmed < CRUSHING_PIGLET_DROP_CRITICAL:
+            if (drop_from_confirmed >= CRUSHING_PIGLET_DROP_ADVISORY and
+                    drop_from_confirmed < CRUSHING_PIGLET_DROP_CRITICAL):
                 advisory_triggered = True
                 advisory_reason = (
                     f"{drop_from_confirmed} piglet(s) not visible "
@@ -463,12 +877,12 @@ class FarrowingInferenceEngine:
                             "stable_median": median,
                             "tier": "advisory",
                             "requires_human_review": True,
+                            **trend_data,
                         }
                     ))
                     return results
 
-        # ── Tier 3: MEDIUM / INFO ───────────────────────────────────────
-        # High count variance = flickering detections (regardless of posture)
+        # ── Tier 3: MEDIUM / INFO ─────────────────────────────────────────────
         if count_variance >= 2.0 and len(self.state.recent_counts) >= 5:
             if not self._on_cooldown_minutes(self.state.last_crushing_info_at, now,
                                               CRUSHING_INFO_COOLDOWN_MINUTES):
@@ -490,14 +904,18 @@ class FarrowingInferenceEngine:
                         "sow_posture": snapshot.sow_posture,
                         "clumping_likely": clumping_likely,
                         "tier": "info",
+                        **trend_data,
                     }
                 ))
 
-        # Reset drop timer if no significant drop
-        if drop_from_confirmed < CRUSHING_PIGLET_DROP_ADVISORY:
-            self.state.piglet_drop_started_at = None
-
         return results
+
+    # ── NOTE: Legacy duplicate methods removed ────────────────────────────
+    # The state-machine-enabled versions (above) are now the sole definitions.
+    # The previous legacy duplicates (reset, set_farrowing_active,
+    # process_detection, _update_stable_count, _check_smart_crushing)
+    # were shadowing the SM+Trend versions and have been removed.
+    # ─────────────────────────────────────────────────────────────────────
 
     # ─── Correction 8a: Prolonged Inactivity ─────────────────────────────
 

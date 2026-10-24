@@ -31,7 +31,7 @@ const resolveApiBaseUrl = () => {
 
 const API_BASE_URL = resolveApiBaseUrl();
 const isLocalDev = ['localhost', '127.0.0.1'].includes(window.location.hostname);
-const LANDING_URL = isLocalDev ? 'http://localhost:3000' : '/';
+const LANDING_URL = '/welcome';
 
 console.log('API Base URL:', API_BASE_URL);
 

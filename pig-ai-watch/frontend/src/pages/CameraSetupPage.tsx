@@ -1,7 +1,9 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from '@/hooks/useTranslation';
 import { PageSkeleton, useLoading } from '@/components/ui/Skeleton';
 import { PageInfoButton, PageInfoModal } from '@/components/ui/PageInfoModal';
+import { SystemTour, TourButton, type TourStep } from '@/components';
 import { 
   Camera, 
   ChevronRight, 
@@ -31,7 +33,7 @@ import {
   EyeOff,
   X,
   Cpu,
-  Cloud
+  Cloud,
 } from 'lucide-react';
 import { pensApi, streamApi } from '@/api';
 import type { Pen } from '@/types';
@@ -281,6 +283,9 @@ type PageView = 'overview' | 'wizard';
 
 export default function CameraSetupPage() {
   const { t } = useTranslation();
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const [isTourOpen, setIsTourOpen] = useState(false);
   const [view, setView] = useState<PageView>('overview');
   const [currentStep, setCurrentStep] = useState(1);
   const [cameras, setCameras] = useState<CameraConfig[]>([]);
@@ -294,6 +299,99 @@ export default function CameraSetupPage() {
   const [disconnectingPen, setDisconnectingPen] = useState<number | null>(null);
   const [showUrlFor, setShowUrlFor] = useState<number | null>(null);
   const [cameraStatuses, setCameraStatuses] = useState<Record<number, 'checking' | 'online' | 'offline'>>(cameraStatusCache);
+
+  useEffect(() => {
+    const paramTour = searchParams.get('tour');
+    if (paramTour === 'true' || paramTour === '1') {
+      setIsTourOpen(true);
+    }
+  }, [searchParams]);
+
+  const CAMERA_TOUR_STEPS: TourStep[] = useMemo(() => [
+    {
+      targetId: 'tour-camera-header',
+      title: '1. IP Camera & RTSP Hub',
+      badge: 'Step 1: Introduction',
+      description: 'Connect live commercial IP cameras from your barn pens. Prisma-Atlas ingests RTSP video streams from local cameras or Edge AI boxes to perform real-time sow and piglet monitoring.',
+      actionHint: 'Notice connected pens count and quick controls.',
+      placement: 'bottom',
+    },
+    {
+      targetId: 'tour-add-camera-btn',
+      title: '2. Add Real IP Camera',
+      badge: 'Step 2: Add Camera',
+      description: 'Click "Add New Camera" to configure RTSP feeds for your pen. The wizard supports Hikvision, Dahua, Reolink, Tapo, Uniview, Axis, and Edge AI nodes.',
+      actionHint: 'Click below to launch the setup wizard right now!',
+      placement: 'bottom',
+      actionButton: {
+        label: 'Open Camera Setup Wizard',
+        onClick: () => {
+          setCameras([createEmptyConfig()]);
+          setActiveCameraIdx(0);
+          setCurrentStep(1);
+          setView('wizard');
+        },
+      },
+    },
+    {
+      targetId: 'tour-camera-stepper',
+      title: '3. 6-Step Setup Process',
+      badge: 'Step 3: Workflow',
+      description: 'Follow the 6 steps: 1) Select Brand, 2) Verify RTSP support, 3) Set Account Credentials, 4) Configure Static IP & Port 554, 5) Link to Barn Pen, and 6) Test & Save.',
+      actionHint: 'Follow the step indicator to complete setup.',
+      placement: 'bottom',
+      onEnter: () => setView('wizard'),
+    },
+    {
+      targetId: 'tour-camera-step-content',
+      title: '4. Brand Presets & Auto-URL Generation',
+      badge: 'Step 4: Brand Presets',
+      description: 'Select your camera manufacturer. Prisma-Atlas automatically structures the correct RTSP channel URL (e.g. /Streaming/Channels/101 for Hikvision or /stream1 for Tapo).',
+      placement: 'top',
+      onEnter: () => {
+        setView('wizard');
+        setCurrentStep(1);
+      },
+    },
+    {
+      targetId: 'tour-camera-step-content',
+      title: '5. Network IP & RTSP Port 554',
+      badge: 'Step 5: Network Setup',
+      description: 'Assign your camera a static IP address on your local barn network and RTSP port 554. Using a static IP guarantees continuous live streaming without connection drops.',
+      placement: 'top',
+      onEnter: () => {
+        setView('wizard');
+        setCurrentStep(4);
+      },
+    },
+    {
+      targetId: 'tour-camera-step-content',
+      title: '6. Stream Test & Pen Mapping',
+      badge: 'Step 6: Test & Save',
+      description: 'Verify the stream handshake with the edge backend. Once saved, the video stream immediately starts running and is accessible across all monitoring views!',
+      placement: 'top',
+      onEnter: () => {
+        setView('wizard');
+        setCurrentStep(6);
+      },
+      actionButton: {
+        label: 'Go to Live Monitoring Grid ➔',
+        onClick: () => navigate('/monitoring?tour=true'),
+      },
+    },
+    {
+      targetId: 'tour-connected-pens',
+      title: '7. Multi-Pen Monitoring & Stream Launch',
+      badge: 'Step 7: Live Production',
+      description: 'All active cameras appear here with reachability indicators. Now that a camera is connected, you can view the multi-pen grid or jump directly into the dedicated Pen Live Stream!',
+      placement: 'top',
+      onEnter: () => setView('overview'),
+      actionButton: {
+        label: 'Open Pen #1 Live Stream ➔',
+        onClick: () => navigate('/pen/1?tour=true'),
+      },
+    },
+  ], [navigate]);
 
   const connectedPens = pens.filter(p => p.camera_source);
   const unconnectedPens = pens.filter(p => !p.camera_source);
@@ -1448,7 +1546,7 @@ export default function CameraSetupPage() {
   const renderOverview = () => (
     <div className="space-y-6 animate-fade-in">
       {/* Connected Cameras */}
-      <div>
+      <div id="tour-connected-pens">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
             <Video className="h-5 w-5 text-green-500" />
@@ -1689,7 +1787,7 @@ export default function CameraSetupPage() {
       </div>
 
       {/* Stepper */}
-      <div className="bg-white dark:bg-slate-800/50 rounded-xl border border-gray-100 dark:border-slate-700/50 p-4">
+      <div id="tour-camera-stepper" className="bg-white dark:bg-slate-800/50 rounded-xl border border-gray-100 dark:border-slate-700/50 p-4">
         <div className="flex items-center justify-between">
           {STEPS.map((step, idx) => (
             <div key={step.id} className="flex items-center flex-1 last:flex-initial">
@@ -1737,7 +1835,7 @@ export default function CameraSetupPage() {
       </div>
 
       {/* Step Content */}
-      <div className="bg-white dark:bg-slate-800/50 rounded-xl border border-gray-100 dark:border-slate-700/50 p-6 min-h-[400px]">
+      <div id="tour-camera-step-content" className="bg-white dark:bg-slate-800/50 rounded-xl border border-gray-100 dark:border-slate-700/50 p-6 min-h-[400px]">
         {renderCurrentStep()}
       </div>
 
@@ -1785,12 +1883,17 @@ export default function CameraSetupPage() {
       {/* Page Header */}
       <div className="flex items-center justify-between animate-slide-in-left">
         <div>
-          <div className="flex items-center gap-3">
+          <div id="tour-camera-header" className="flex items-center gap-3">
             <h1 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-3">
               <Camera className="h-7 w-7 text-primary-500" />
               Camera Setup
             </h1>
             <PageInfoButton onClick={() => setIsInfoOpen(true)} />
+            <TourButton
+              onClick={() => setIsTourOpen(true)}
+              id="tour-start-btn"
+              title="Start Camera System Tour"
+            />
           </div>
           <p className="text-gray-500 dark:text-slate-400">Configure cameras for each pen in your facility</p>
         </div>
@@ -1806,6 +1909,7 @@ export default function CameraSetupPage() {
           )}
           {view === 'overview' && (
             <button
+              id="tour-add-camera-btn"
               onClick={() => {
                 setCameras([createEmptyConfig()]);
                 setActiveCameraIdx(0);
@@ -1993,6 +2097,16 @@ export default function CameraSetupPage() {
           </div>
         </div>
       )}
+
+      <SystemTour
+        isOpen={isTourOpen}
+        onClose={() => setIsTourOpen(false)}
+        steps={CAMERA_TOUR_STEPS}
+        tourKey="prisma_atlas_camera_tour"
+        onComplete={() => {
+          toast.success('Camera setup tour completed! You are ready to stream.');
+        }}
+      />
     </div>
   );
 }

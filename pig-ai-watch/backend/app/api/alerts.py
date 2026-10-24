@@ -7,7 +7,7 @@ from datetime import datetime
 from app.core.database import get_db
 from app.core.security import get_current_user
 from app.models.user import User
-from app.models.pig import Alert
+from app.models.pig import Alert, CrushingEvent
 from app.schemas.pig import AlertCreate, AlertUpdate, AlertResponse
 from app.core.firebase import broadcast_alert
 from app.api.websocket import ws_manager
@@ -389,3 +389,64 @@ async def mark_all_alerts_read(
     await db.commit()
     
     return {"message": f"Marked {len(alerts)} alerts as read"}
+
+
+@router.post("/{alert_id}/dismiss-pen-fine")
+async def dismiss_pen_fine(
+    alert_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Quick-action endpoint used by push notification deep-link.
+
+    Caretaker taps 'Pen is Fine' in the notification or alert card.
+    Finds the linked CrushingEvent and delegates to the dismiss logic:
+      - If count had recovered -> outcome = prevented
+      - Otherwise             -> outcome = unresolved
+    Also marks this alert as resolved.
+    """
+    alert_result = await db.execute(select(Alert).where(Alert.id == alert_id))
+    alert = alert_result.scalar_one_or_none()
+    if not alert:
+        raise HTTPException(status_code=404, detail="Alert not found")
+
+    now = datetime.utcnow()
+
+    # Mark alert resolved regardless of whether there is a crush event
+    if not alert.is_resolved:
+        alert.is_resolved = True
+        alert.resolved_at = now
+        alert.resolved_by = current_user.id
+
+    outcome = "unresolved"
+
+    # Delegate to CrushingEvent if linked
+    if alert.crushing_event_id:
+        ev_result = await db.execute(
+            select(CrushingEvent).where(CrushingEvent.id == alert.crushing_event_id)
+        )
+        event = ev_result.scalar_one_or_none()
+        if event:
+            event.dismissed_at = now
+            event.dismissed_by = current_user.id
+            event.outcome = (
+                "prevented"
+                if (event.recovery_count is not None and event.baseline_count is not None)
+                else "unresolved"
+            )
+            outcome = event.outcome
+            if not event.resolved_at:
+                event.resolved_at = now
+                if event.alerted_at:
+                    event.duration_minutes = (
+                        (now - event.alerted_at).total_seconds() / 60
+                    )
+
+    await db.commit()
+    return {
+        "message": "Pen marked as fine",
+        "alert_id": alert_id,
+        "outcome": outcome,
+        "resolved_at": now.isoformat(),
+    }

@@ -18,6 +18,7 @@ This document explains the technical mechanics of the Pig AI Watch system, inclu
 8. [Data Flow Diagram](#data-flow-diagram)
 9. [Configuration Parameters](#configuration-parameters)
 10. [Scientific & Veterinary Foundations](#scientific--veterinary-foundations)
+11. [How to Start Services (Backend, Frontend, Edge)](#how-to-start-services-backend-frontend-edge)
 
 ---
 
@@ -646,13 +647,267 @@ The crushing risk algorithm prioritizes safety by:
 - Providing clear visual indicators (green → yellow → orange → red)
 
 
-## startiong
+---
 
-cd /Users/arcelmacasling/prisma-atlas/pig-ai-watch && ./start-dev.sh
+## How to Start Services (Backend, Frontend, Edge)
 
-cd /Users/arcelmacasling/prisma-atlas/pig-ai-watch/backend && source venv/bin/activate && uvicorn app.main:app --host 127.0.0.1 --port 8000
+This section provides step-by-step instructions for running the complete Pig AI Watch ecosystem locally or across distributed edge nodes and cloud droplets.
 
-cd /Users/arcelmacasling/prisma-atlas/pig-ai-watch/desktop && NODE_ENV=development npx electron .
+### Architecture Overview of Services
 
-# Quick start (all services)
-cd /Users/arcelmacasling/prisma-atlas/pig-ai-watch && ./start-dev.sh
+| Component | Default Port / Protocol | Runtime | Primary Role |
+| :--- | :--- | :--- | :--- |
+| **Backend API** | `8000` (HTTP/REST & WebSockets) | Python / FastAPI / Uvicorn | Database persistence, auth, analytics, telemetry ingestion, live alerts |
+| **Frontend Dashboard** | `3000` (or `5173`) (HTTP) | Node.js / React / Vite | Web monitoring interface, posture gauges, alert feed, live camera player |
+| **Edge Agent** | Local daemon / HTTP client | Python 3.11+ / YOLO / OpenCV | CCTV/RTSP capture, edge inference, crushing analysis, alert telemetry push |
+| **Edge Pusher** | `8554` (RTSP outbound) | Python / FFmpeg | Transcodes local RTSP/USB camera to Cloud MediaMTX gateway (`rtsp://<host>:8554/<pen_id>`) |
+| **MediaMTX** *(Optional/Cloud)* | `8554` (RTSP), `8889` (WebRTC), `8888` (HLS) | Go / MediaMTX | RTSP stream proxy bridging Edge camera streams to web browsers |
+
+---
+
+### Method 1: All-in-One Quick Start (Local Development)
+
+To launch both the **Backend** and **Frontend** simultaneously with a single command from the project root:
+
+```bash
+# From pig-ai-watch/
+./start-dev.sh
+```
+
+- Automatically activates virtual environments (`venv` or `.venv`).
+- Boots the FastAPI backend on port `8000`.
+- Boots the Vite React dashboard on port `3000`.
+- Gracefully handles port conflicts and kills all services on `Ctrl + C`.
+
+---
+
+### Method 2: Running Services Individually (Manual Setup)
+
+#### 1. Backend (FastAPI Server)
+
+**Prerequisites**: Python 3.10+ installed.
+
+1. Navigate to the backend directory:
+   ```bash
+   cd pig-ai-watch/backend
+   ```
+
+2. Create and activate a Python virtual environment:
+   ```bash
+   # Linux / macOS
+   python3 -m venv venv
+   source venv/bin/activate
+
+   # Windows (PowerShell)
+   python -m venv venv
+   .\venv\Scripts\Activate.ps1
+
+   # Windows (Command Prompt)
+   venv\Scripts\activate.bat
+   ```
+
+3. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+4. Configure environment variables (if not already set):
+   ```bash
+   cp .env.example .env
+   # Verify database credentials, JWT secret, and port settings
+   ```
+
+5. Run database migrations (if required):
+   ```bash
+   alembic upgrade head
+   ```
+
+6. Start the FastAPI server:
+   ```bash
+   # Development mode with hot-reload:
+   uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+   ```
+
+7. **Verify Backend Health**:
+   - Swagger / OpenAPI Docs: `http://localhost:8000/docs`
+   - Healthcheck: `http://localhost:8000/api/health`
+
+---
+
+#### 2. Frontend (React + Vite Web Dashboard)
+
+**Prerequisites**: Node.js 18+ and `npm` or `pnpm`.
+
+1. Navigate to the frontend directory:
+   ```bash
+   cd pig-ai-watch/frontend
+   ```
+
+2. Install dependencies:
+   ```bash
+   npm install
+   # or
+   pnpm install
+   ```
+   *(Note: The postinstall script automatically synchronizes ONNX runtime web assets).*
+
+3. Start the Vite development server:
+   ```bash
+   npm run dev -- --port 3000
+   ```
+
+4. **Verify Frontend**:
+   - Main Web Dashboard: `http://localhost:3000`
+   - Welcome / Landing Page: `http://localhost:3000/welcome`
+
+*(Optional) Desktop App (Electron)*:
+If running the desktop application wrapper:
+```bash
+cd pig-ai-watch/desktop
+npm install
+NODE_ENV=development npx electron .
+```
+
+---
+
+#### 3. Edge Device (Edge Agent & RTSP Pusher)
+
+Edge devices (e.g., Raspberry Pi 4/5, Jetson Orin Nano, or local edge PC) operate in one of two configurations:
+1. **`agent.py`**: Runs local YOLO/ONNX posture inference and uploads behavior/crushing telemetry to the Backend API.
+2. **`edge_pusher.py`**: Reads local camera streams (or demo videos) and streams them via RTSP to MediaMTX.
+
+##### Step 1: Install Edge Dependencies & FFmpeg
+
+Ensure `ffmpeg` is installed on the edge machine:
+```bash
+# Ubuntu / Raspberry Pi OS
+sudo apt-get update && sudo apt-get install -y ffmpeg
+
+# macOS (Homebrew)
+brew install ffmpeg
+
+# Windows
+winget install Gyan.FFmpeg
+```
+
+Setup virtual environment:
+```bash
+cd pig-ai-watch/edge
+python3 -m venv venv
+
+# Linux / Raspberry Pi / macOS
+source venv/bin/activate
+
+# Windows
+venv\Scripts\activate
+
+pip install -r requirements.txt
+```
+
+##### Step 2: Configure Edge Environment (`edge/.env`)
+
+Create or update `pig-ai-watch/edge/.env`:
+```env
+# Point to your central Backend API (local host or cloud droplet IP/domain)
+CLOUD_API_URL=http://YOUR_SERVER_IP:8000
+
+# Edge Authentication key matching EDGE_API_KEY in backend .env
+EDGE_API_KEY=your_secure_edge_key
+
+# YOLO / ONNX Model path
+MODEL_PATH=models/pig_detection.onnx
+
+# Input cameras per pen (RTSP URL, USB device index e.g. 0, or file path)
+CAMERA_PEN_1=rtsp://192.168.1.100:554/stream
+# CAMERA_PEN_1=0                                  # Webcam
+# CAMERA_PEN_1=headless_proxy/demo.mp4            # Local video loop
+```
+
+##### Step 3: Run Edge Services
+
+**Option A: Automated Combined Script (Recommended)**
+```bash
+cd pig-ai-watch
+./start-edge.sh
+```
+This starts both `agent.py` and `headless_proxy/edge_pusher.py` in background jobs with auto-restart/health supervision and clean shutdown on `Ctrl + C`.
+
+**Option B: Manual Terminal Execution**
+
+- **Terminal 1 — Edge AI Inference Agent**:
+  ```bash
+  cd pig-ai-watch/edge
+  source venv/bin/activate
+  python agent.py
+  ```
+  *Expected Output:*
+  `INFO Edge agent starting...`
+  `INFO YOLO model loaded: models/pig_detection.onnx`
+  `INFO Starting inference loop (2.0s interval)...`
+
+- **Terminal 2 — Headless RTSP Stream Pusher**:
+  ```bash
+  cd pig-ai-watch/edge/headless_proxy
+  source ../venv/bin/activate
+  python edge_pusher.py
+  ```
+  *Expected Output:*
+  `INFO Edge pusher started. Publishing pen feeds to rtsp://...:8554/pen_1`
+
+##### Step 4: Run as Unattended 24/7 Systemd Services (Raspberry Pi / Linux)
+
+For unattended production installations on edge nodes:
+```bash
+# Copy provided service definitions
+sudo cp pig-ai-watch/edge/edge-agent.service /etc/systemd/system/
+sudo cp pig-ai-watch/edge/edge-pusher.service /etc/systemd/system/
+
+# Reload systemd and enable on boot
+sudo systemctl daemon-reload
+sudo systemctl enable --now edge-agent.service
+sudo systemctl enable --now edge-pusher.service
+
+# Inspect service logs
+journalctl -u edge-agent.service -f
+journalctl -u edge-pusher.service -f
+```
+
+---
+
+### Method 3: Containerized Deployment (Docker Compose)
+
+To run the complete cloud stack (FastAPI Backend, Frontend, MediaMTX, PostgreSQL, Redis) via Docker:
+
+```bash
+# Linux / macOS
+cd pig-ai-watch
+./start-docker.sh
+
+# Windows
+cd pig-ai-watch
+.\start-docker.bat
+```
+
+Or manually:
+```bash
+docker compose up -d --build
+```
+
+---
+
+### Verification & End-to-End Health Checks
+
+1. **Backend Connectivity**: Check `curl http://localhost:8000/api/health` returns `{"status": "healthy"}`.
+2. **Frontend UI**: Open `http://localhost:3000` in your browser and check that pen cards load.
+3. **Edge Ingestion**: Inspect backend logs:
+   ```bash
+   # If running direct uvicorn:
+   # Observe logs for: "POST /api/behavior/log HTTP/1.1 200 OK"
+   # Or in Docker:
+   docker logs pig-ai-watch-backend --tail 50
+   ```
+4. **RTSP Stream Check**: Verify MediaMTX stream path connectivity:
+   ```bash
+   # Test port 8554 reachable from edge
+   nc -vz -w 5 <SERVER_HOST> 8554
+   ```

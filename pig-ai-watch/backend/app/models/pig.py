@@ -76,7 +76,9 @@ class Alert(TenantAware, Base):
     __tablename__ = "alerts"
     
     id = Column(Integer, primary_key=True, index=True)
-    type = Column(String(50), nullable=False)  # crushing_risk, posture_change, piglet_count_change, system
+    type = Column(String(50), nullable=False)  # crushing_risk, crushing_watch, crushing_all_clear,
+                                                # crushing_escalated, crushing_false_positive,
+                                                # posture_change, piglet_count_change, system
     severity = Column(String(20), nullable=False)  # low, medium, high, critical
     title = Column(String(200), nullable=False)
     message = Column(Text)
@@ -89,6 +91,10 @@ class Alert(TenantAware, Base):
     resolved_at = Column(DateTime(timezone=True))
     resolved_by = Column(Integer, ForeignKey("users.id"))
     detection_data = Column(Text)  # JSON string with detection details
+    # State machine phase at time of alert (watch/alert/all_clear/escalated/false_positive)
+    event_state = Column(String(20), nullable=True)
+    # FK to CrushingEvent row — NULL for non-crushing alerts
+    crushing_event_id = Column(Integer, ForeignKey("crushing_events.id"), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
     sow = relationship("Sow", back_populates="alerts")
@@ -435,3 +441,47 @@ class StorageStatus(TenantAware, Base):
     
     pen = relationship("Pen")
 
+
+class CrushingEvent(TenantAware, Base):
+    """
+    One row per crushing risk lifecycle event (WATCH → ALERT → RESOLVED).
+    Stores the full timeline and final outcome for analytics and finalization.
+    """
+    __tablename__ = "crushing_events"
+
+    id = Column(Integer, primary_key=True, index=True)
+    pen_id = Column(Integer, ForeignKey("pens.id"), nullable=False, index=True)
+    sow_id = Column(Integer, ForeignKey("sows.id"), nullable=True)
+    # FK to the primary Alert row (the crushing_risk alert, not watch/all_clear)
+    alert_id = Column(Integer, ForeignKey("alerts.id"), nullable=True)
+
+    # ── Timeline ───────────────────────────────────────────────────────────
+    watch_started_at = Column(DateTime(timezone=True))
+    alerted_at = Column(DateTime(timezone=True))
+    resolved_at = Column(DateTime(timezone=True))
+    dismissed_at = Column(DateTime(timezone=True))      # caretaker "Pen is Fine" tap
+    dismissed_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+
+    # ── Count context ───────────────────────────────────────────────────────
+    baseline_count = Column(Integer)   # highest_ever_confirmed at event start
+    min_count_seen = Column(Integer)   # lowest piglet count seen during event
+    recovery_count = Column(Integer)   # count at time of resolution
+    duration_minutes = Column(Float)   # from alerted_at to resolved_at
+
+    # ── Outcome ──────────────────────────────────────────────────────────────
+    # prevented      — count recovered; caretaker helped the piglet
+    # likely_crush   — count never recovered; sow remained lying
+    # false_positive — count recovered before WATCH window expired (no push sent)
+    # unresolved     — caretaker dismissed without clear recovery signal
+    outcome = Column(String(20), nullable=True)
+
+    # ── Trend context ──────────────────────────────────────────────────────────
+    trend_slope = Column(Float)           # slope at time of alert (piglets/reading)
+    trend_r2 = Column(Float)              # regression R² at time of alert
+    clump_detected = Column(Boolean, default=False)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    pen = relationship("Pen")
+    sow = relationship("Sow")
