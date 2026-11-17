@@ -132,11 +132,6 @@ export default function LoginPage() {
     [setAuth, navigate, from]
   );
 
-  const fillDemo = () => {
-    setUsername('admin');
-    setPassword('admin123');
-    setError('');
-  };
 
   const handleCustomGoogleClick = () => {
     if (!hasGoogleClientId) {
@@ -354,31 +349,6 @@ export default function LoginPage() {
                 )}
               </button>
             </form>
-
-            {/* Demo Credentials Box */}
-            <div className="rounded-xl bg-slate-950/60 border border-slate-800 p-3.5">
-              <div className="flex items-center justify-between mb-1.5">
-                <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400 font-semibold">
-                  Demo Credentials
-                </span>
-                <button
-                  type="button"
-                  onClick={fillDemo}
-                  className="text-[11px] text-emerald-400 hover:text-emerald-300 font-semibold underline underline-offset-2 transition"
-                >
-                  Auto-fill Demo
-                </button>
-              </div>
-              <div className="flex items-center justify-between font-mono text-slate-300 text-xs bg-slate-900/90 px-3 py-2 rounded-lg border border-slate-800/80">
-                <span>
-                  <span className="text-slate-500">user:</span> admin
-                </span>
-                <span className="text-slate-700">|</span>
-                <span>
-                  <span className="text-slate-500">pass:</span> admin123
-                </span>
-              </div>
-            </div>
 
             {/* Divider */}
             <div className="relative flex items-center justify-center">

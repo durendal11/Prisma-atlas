@@ -645,7 +645,7 @@ export default function LandingPage() {
           <div className="lg:col-span-5 flex flex-col items-center justify-center mt-6 lg:mt-0">
             {/* Replace imageSrc with your custom screenshot URL (e.g. '/assets/your_mobile_screenshot.png') */}
             <MobileDevice3D
-              imageSrc="/assets/philippine_pig_farm.png"
+              imageSrc="/assets/mobile_dashboard.png"
             />
             <span className="text-[10px] font-mono text-slate-400 mt-4 tracking-wider uppercase">
               Mobile Web App & Instant Push Alerts

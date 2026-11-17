@@ -95,9 +95,6 @@ echo   LOCAL LINK (This laptop only):
 echo   Dashboard:  http://localhost:3000
 echo   API Docs:   http://localhost:8000/docs
 echo.
-echo   DEFAULT ADMIN LOGIN:
-echo   Username:   admin
-echo   Password:   admin123
 echo  ========================================================================
 echo.
 echo   CCTV / Video Streaming:

@@ -135,11 +135,6 @@ export default function LoginModal({ open, onClose }: Props) {
     }
   }, [setAuth, navigate, onClose]);
 
-  const fillDemo = () => {
-    setUsername('admin');
-    setPassword('admin123');
-    setError('');
-  };
 
   return (
     <AnimatePresence>
@@ -304,31 +299,6 @@ export default function LoginModal({ open, onClose }: Props) {
                   )}
                 </button>
               </form>
-
-              {/* Demo Credentials Box */}
-              <div className="rounded-xl bg-slate-50 border border-slate-200/80 p-3.5">
-                <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400 font-semibold">
-                    Demo Credentials
-                  </span>
-                  <button
-                    type="button"
-                    onClick={fillDemo}
-                    className="text-[11px] text-emerald-600 hover:text-emerald-700 font-semibold underline underline-offset-2 transition"
-                  >
-                    Auto-fill Demo
-                  </button>
-                </div>
-                <div className="flex items-center justify-between font-mono text-slate-700 text-xs bg-white px-3 py-2 rounded-lg border border-slate-200/60">
-                  <span>
-                    <span className="text-slate-400">user:</span> admin
-                  </span>
-                  <span className="text-slate-300">|</span>
-                  <span>
-                    <span className="text-slate-400">pass:</span> admin123
-                  </span>
-                </div>
-              </div>
 
               {/* Divider */}
               <div className="relative flex items-center justify-center">

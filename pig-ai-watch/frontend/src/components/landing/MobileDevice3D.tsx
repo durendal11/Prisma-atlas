@@ -91,7 +91,7 @@ export default function MobileDevice3D({
               <img
                 src={currentImage}
                 alt="PRISMA ATLAS Mobile System Preview"
-                className="absolute inset-0 w-full h-full object-cover filter brightness-[0.98] contrast-105 transition-transform duration-700 group-hover:scale-105"
+                className="absolute inset-0 w-full h-full object-cover object-top filter brightness-[0.98] contrast-105 transition-transform duration-700 group-hover:scale-105"
                 onError={() => setCurrentImage('/assets/philippine_pig_farm.png')}
               />
             ) : (
