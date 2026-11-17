@@ -70,7 +70,6 @@ import {
   VideoOff,
   GraduationCap,
   CheckCircle2,
-  PlayCircle,
   RotateCcw,
   Camera,
   LayoutDashboard,
@@ -213,12 +212,13 @@ export default function TestPenPage() {
   const api = useApi();
   const queryClient = useQueryClient();
   const videoRef = useRef<HTMLVideoElement>(null);
+  // Set when a video is uploaded; the <video> element starts itself once its metadata loads.
+  const autoPlayRef = useRef(false);
   const imageRef = useRef<HTMLImageElement>(null);
   const overlayRef = useRef<HTMLCanvasElement>(null);
   const animationRef = useRef<number | null>(null);
   const fpsHistoryRef = useRef<number[]>([]);
   // Reusable offscreen canvas for center-crop preprocessing (excludes side pens)
-  const cropCanvasRef = useRef<HTMLCanvasElement | null>(null);
   // Display canvas — renders the cropped frame; overlay + model input share this exact coordinate space
   const displayCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -239,7 +239,7 @@ export default function TestPenPage() {
   const penId = selectedPenId ?? 0;
   const canUseMedia = selectedPenId !== null;
   const lastProcessedFrameTimeRef = useRef(0);
-  const [confidenceThreshold, setConfidenceThreshold] = useState<number>(0.25);
+  const [confidenceThreshold, setConfidenceThreshold] = useState<number>(0.5);
   const [activeTab, setActiveTab] = useState<Tab>('overview');
   // Video playback state (for custom controls — native controls removed to enforce crop)
   const [videoPlaying, setVideoPlaying] = useState(false);
@@ -513,11 +513,12 @@ export default function TestPenPage() {
 
     ctx.font = 'bold 13px monospace';
     ctx.fillStyle = 'rgba(0,0,0,0.75)';
-    ctx.fillRect(overlay.width - 160, overlay.height - 55, 150, 48);
+    // Top-right so it doesn't sit on the video timeline
+    ctx.fillRect(overlay.width - 160, 8, 150, 48);
     ctx.fillStyle = '#00ff00';
-    ctx.fillText(`FPS: ${fpsValue}`, overlay.width - 150, overlay.height - 33);
+    ctx.fillText(`FPS: ${fpsValue}`, overlay.width - 150, 28);
     ctx.fillStyle = '#00ffff';
-    ctx.fillText(`Inf: ${inferenceTime.toFixed(0)}ms`, overlay.width - 150, overlay.height - 13);
+    ctx.fillText(`Inf: ${inferenceTime.toFixed(0)}ms`, overlay.width - 150, 48);
   }, []);
 
   // ── Detection loops ───────────────────────────────────────────────────────
@@ -535,18 +536,11 @@ export default function TestPenPage() {
     lastProcessedFrameTimeRef.current = timestamp;
 
     try {
-      // Crop center portion of the video frame at 55% zoom — removes side pens from inference
-      if (!cropCanvasRef.current) cropCanvasRef.current = document.createElement('canvas');
-      const cc = cropCanvasRef.current;
-      const vw = video.videoWidth, vh = video.videoHeight;
-      cc.width = Math.round(vw / 1.6);
-      cc.height = vh;
-      const ccCtx = cc.getContext('2d');
-      if (ccCtx) ccCtx.drawImage(video, Math.round((vw - cc.width) / 2), 0, cc.width, vh, 0, 0, cc.width, vh);
-
-      // Mirror the cropped frame to displayCanvas (using client dimensions to prevent DOM layout thrashing)
+      // Full frame, no crop: the model is trained on full frames and the
+      // old center crop cut the sow off (sow undetected).
+      // Mirror the frame to displayCanvas (using client dimensions to prevent DOM layout thrashing)
       const dc = displayCanvasRef.current;
-      if (dc && ccCtx) {
+      if (dc) {
         const dcW = dc.clientWidth || 640;
         const dcH = dc.clientHeight || 360;
         if (dc.width !== dcW || dc.height !== dcH) {
@@ -554,10 +548,10 @@ export default function TestPenPage() {
           dc.height = dcH;
         }
         const dcCtx = dc.getContext('2d');
-        if (dcCtx) dcCtx.drawImage(cc, 0, 0, dc.width, dc.height);
+        if (dcCtx) dcCtx.drawImage(video, 0, 0, dc.width, dc.height);
       }
 
-      const result = await onnxDetector.detect(ccCtx ? cc : video);
+      const result = await onnxDetector.detect(video);
 
       const now = performance.now();
       fpsHistoryRef.current.push(now);
@@ -626,18 +620,16 @@ export default function TestPenPage() {
     if (!img || !onnxDetector.isReady()) return;
     setStatus('processing');
     try {
-      // Crop center portion of the image at 55% zoom — removes side pens from inference
+      // Full image, no crop (model is trained on full frames)
       const canvas = document.createElement('canvas');
       const srcW = img.naturalWidth || img.width;
       const srcH = img.naturalHeight || img.height;
-      const cropW = Math.round(srcW / 1.6);
-      const cropX = Math.round((srcW - cropW) / 2);
-      canvas.width = cropW;
+      canvas.width = srcW;
       canvas.height = srcH;
       const ctx = canvas.getContext('2d');
       if (!ctx) throw new Error('Canvas context failed');
-      ctx.drawImage(img, cropX, 0, cropW, srcH, 0, 0, cropW, srcH);
-      // Mirror crop to displayCanvas so overlay aligns perfectly
+      ctx.drawImage(img, 0, 0, srcW, srcH);
+      // Mirror image to displayCanvas so overlay aligns perfectly
       const dc = displayCanvasRef.current;
       if (dc) {
         const dcRect = dc.getBoundingClientRect();
@@ -700,47 +692,16 @@ export default function TestPenPage() {
       const expectedPiglets = sow?.current_litter_size
         || farrowingRecords.find(r => !r.farrowing_completed)?.born_alive
         || 0;
-      simulationEngine.start(expectedPiglets || 9, sow?.id, selectedPenId);
-      requestAnimationFrame(() => {
-        const video = videoRef.current;
-        if (video) {
-          video.onloadedmetadata = () => {
-            video.play().then(() => { setStatus('playing'); animationRef.current = requestAnimationFrame(runDetection); })
-              .catch(() => { setError(t('failedToPlay')); setStatus('error'); });
-          };
-          video.load();
-        }
-      });
+      simulationEngine.start(expectedPiglets || 9, sow?.id, selectedPenId, sow?.status);
+      // Playback starts from the <video> element's onLoadedMetadata. Doing it here
+      // failed on a first upload: the element isn't mounted yet, so the screen stayed black.
+      autoPlayRef.current = true;
     } else {
       setError(t('unsupportedFile'));
       setStatus('error');
     }
   };
 
-  const handleSampleVideo = async () => {
-    if (!canUseMedia || !selectedPenId) {
-      toast.error('Select a pen before loading sample video');
-      return;
-    }
-    setError(null);
-    const ok = await loadModel();
-    if (!ok) return;
-
-    try {
-      setStatus('loading-model');
-      const res = await fetch('/assets/sample_video.mp4');
-      if (!res.ok) throw new Error('Sample demo video not found in /assets');
-      const blob = await res.blob();
-      const file = new File([blob], 'sample_video.mp4', { type: 'video/mp4' });
-      await handleFile(file);
-      markTutorialStep('upload_video');
-      toast.success('Sample demo video loaded! AI tracking initialized.');
-    } catch (err) {
-      console.error('Failed to load sample video:', err);
-      toast.error('Could not load sample video clip');
-      setStatus('error');
-    }
-  };
 
   useEffect(() => () => { stopDetection(); if (fileUrl) URL.revokeObjectURL(fileUrl); }, [stopDetection, fileUrl]);
 
@@ -1055,42 +1016,25 @@ export default function TestPenPage() {
       placement: 'bottom',
     },
     {
-      targetId: 'tour-sample-video-btn',
-      title: '3. One-Click Demo Video',
-      badge: 'Step 3: Instant Demo',
-      description: 'Don\'t have footage right now? Click "Sample Demo Video" to instantly load pre-recorded farrowing pen footage and observe AI detections in action.',
-      actionHint: 'Click the button below to load the demo video right now!',
-      placement: 'bottom',
-      actionButton: {
-        label: 'Load Sample Demo Video',
-        onClick: () => {
-          if (!selectedPenId && pens.length > 0) {
-            setSelectedPenId(pens[0].id);
-          }
-          handleSampleVideo();
-        },
-      },
-    },
-    {
       targetId: 'tour-conf-slider',
-      title: '4. AI Confidence Sensitivity',
-      badge: 'Step 4: AI Sensitivity',
+      title: '3. AI Confidence Sensitivity',
+      badge: 'Step 3: AI Sensitivity',
       description: 'Fine-tune the YOLOv11 detection confidence threshold between 0.10 and 0.90. Lower values help identify occluded piglets hidden in bedding, while higher values prevent false detections.',
       actionHint: 'Default is 0.25 for optimal piglet and sow tracking balance.',
       placement: 'bottom',
     },
     {
       targetId: 'tour-video-container',
-      title: '5. Real-Time Vision & Bounding Boxes',
-      badge: 'Step 5: AI Vision',
+      title: '4. Real-Time Vision & Bounding Boxes',
+      badge: 'Step 4: AI Vision',
       description: 'The live canvas renders bounding boxes for the sow (magenta) and piglets (green), identifies sow posture (lying, standing, nursing), and tracks real-time crushing risk proximity zones.',
       actionHint: 'Notice the live detection count badge and crushing risk tags.',
       placement: 'top',
     },
     {
       targetId: 'tour-clarification-banner',
-      title: '6. Role-Play Alert & Clarification',
-      badge: 'Step 6: Role-Play Decision',
+      title: '5. Role-Play Alert & Clarification',
+      badge: 'Step 5: Role-Play Decision',
       description: 'When piglets go missing or crushing risk spikes, an alert banner appears asking the caretaker to make a decision: Pen is Fine, Piglet Died, Piglet Transferred, or I\'ll Check Pen.',
       actionHint: 'Click "Simulate Alert" below to practice responding!',
       placement: 'bottom',
@@ -1124,16 +1068,16 @@ export default function TestPenPage() {
     },
     {
       targetId: 'tour-training-checklist',
-      title: '7. Onboarding Training Checklist',
-      badge: 'Step 7: Certification',
+      title: '6. Onboarding Training Checklist',
+      badge: 'Step 6: Certification',
       description: 'Track your onboarding training through 4 guided milestones. Once all steps are practiced, you earn the AI Pen Monitoring certification badge!',
       actionHint: 'Your progress is automatically saved to your browser session.',
       placement: 'top',
     },
     {
       targetId: 'tour-tabs-bar',
-      title: '8. Welfare & Farm Telemetry Tabs',
-      badge: 'Step 8: Deep Analytics',
+      title: '7. Welfare & Farm Telemetry Tabs',
+      badge: 'Step 7: Deep Analytics',
       description: 'Access complete pen telemetry matching the live RTSP monitor: Overview, Live Monitor (Welfare Insights & Age-adjusted Crushing Risk), Farrowing & Wellbeing, and Health & Events logs.',
       actionHint: 'Explore the tabs below to view detailed posture timelines and decision logs.',
       placement: 'top',
@@ -1141,7 +1085,7 @@ export default function TestPenPage() {
     },
     {
       targetId: 'tour-live-step-camera',
-      title: '9. Start Real Live Stream: Add Barn Camera',
+      title: '8. Start Real Live Stream: Add Barn Camera',
       badge: 'Live Step 1: Camera',
       description: 'Ready to monitor actual pigs in real-time? Move from uploaded video testing to real barn cameras! The Camera Setup Wizard guides you through adding RTSP IP cameras (Hikvision, Dahua, Reolink, Tapo, or Edge AI nodes) with auto-generated stream URLs and connection ping tests.',
       actionHint: 'Click below to launch the Camera Setup Wizard with the live guided tour!',
@@ -1153,7 +1097,7 @@ export default function TestPenPage() {
     },
     {
       targetId: 'tour-live-step-monitoring',
-      title: '10. Multi-Pen Live Monitoring Grid',
+      title: '9. Multi-Pen Live Monitoring Grid',
       badge: 'Live Step 2: Barn Grid',
       description: 'Once cameras are added, view all farrowing pens simultaneously in a synchronized 2x2 or 3x2 matrix. Each pen card streams live sub-second video with real-time piglet counts, sow posture tags, and instant crushing alert indicators.',
       actionHint: 'Click below to open the barn-wide live monitoring matrix!',
@@ -1165,7 +1109,7 @@ export default function TestPenPage() {
     },
     {
       targetId: 'tour-live-step-penlive',
-      title: '11. Dedicated Pen Live Stream',
+      title: '10. Dedicated Pen Live Stream',
       badge: 'Live Step 3: Pen Stream',
       description: 'Click any pen card in the monitoring grid to enter its dedicated Pen Live Stream (/pen/:id). Watch high-definition feeds, listen to audible crushing danger alarms, log newborn piglets, and record caretaker check-in interventions.',
       actionHint: `Click below to jump directly into Pen #${selectedPenId || 1}'s live stream!`,
@@ -1175,7 +1119,7 @@ export default function TestPenPage() {
         onClick: () => navigate(`/pen/${selectedPenId || 1}?tour=true`),
       },
     },
-  ], [pens, selectedPenId, handleSampleVideo, simStore, activeClarification, navigate]);
+  ], [pens, selectedPenId, simStore, activeClarification, navigate]);
 
   return (
     <div className="space-y-5 animate-fade-in max-w-[1400px] mx-auto">
@@ -1336,20 +1280,6 @@ export default function TestPenPage() {
               Video
               <input type="file" accept="video/*" className="hidden" disabled={!canUseMedia} onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); }} />
             </label>
-            <button
-              id="tour-sample-video-btn"
-              onClick={handleSampleVideo}
-              disabled={!canUseMedia}
-              title="Load demo video to test detections"
-              className={clsx(
-                'flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium text-white transition-colors shadow-sm',
-                canUseMedia ? 'bg-emerald-600 hover:bg-emerald-700 cursor-pointer' : 'bg-gray-500 cursor-not-allowed opacity-70'
-              )}
-            >
-              <PlayCircle className="h-3.5 w-3.5" />
-              Sample Demo Video
-            </button>
-
             {status !== 'idle' && (
               <button onClick={stopDetection} title="Stop detection" className="flex items-center gap-1.5 px-3 py-2 text-xs font-medium bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors">
                 <StopCircle className="h-3.5 w-3.5" /> Stop
@@ -1434,7 +1364,16 @@ export default function TestPenPage() {
                   onPause={() => setVideoPlaying(false)}
                   onEnded={() => setVideoPlaying(false)}
                   onTimeUpdate={() => setVideoCurrentTime(videoRef.current?.currentTime ?? 0)}
-                  onLoadedMetadata={() => setVideoDuration(videoRef.current?.duration ?? 0)}
+                  onLoadedMetadata={() => {
+                    const v = videoRef.current;
+                    setVideoDuration(v?.duration ?? 0);
+                    if (v && autoPlayRef.current) {
+                      autoPlayRef.current = false;
+                      v.play()
+                        .then(() => { setStatus('playing'); animationRef.current = requestAnimationFrame(runDetection); })
+                        .catch(() => { setError(t('failedToPlay')); setStatus('error'); });
+                    }
+                  }}
                 />
               )}
               {fileType === 'image' && (
@@ -1665,8 +1604,9 @@ export default function TestPenPage() {
           </div>
         )}
 
-        {/* Quick Info Panel (right side) */}
-        <div className="space-y-4">
+        {/* Quick Info Panel (right side) — pinned to column 3 spanning both rows,
+            so it stays beside the video whether or not Live Pen Analytics shows */}
+        <div className="space-y-4 lg:col-start-3 lg:row-start-1 lg:row-span-2">
           {/* Crushing Risk Gauge */}
           <div className="bg-white dark:bg-slate-800/60 rounded-2xl border border-gray-200 dark:border-slate-700 p-5">
             <CrushingRiskGauge rawRisk={riskValue} daysSinceFarrowing={daysSinceFarrowing} size="lg" proximityAlerts={detection?.proximityAlerts} totalPiglets={detection?.pigletCount} />
@@ -1816,7 +1756,7 @@ export default function TestPenPage() {
                 {tutorialProgress.upload_video ? <CheckCircle2 className="h-4 w-4 text-emerald-600" /> : <div className="h-4 w-4 rounded-full border border-gray-400 flex items-center justify-center text-[10px]">1</div>}
                 <span>Step 1: Load Media</span>
               </div>
-              <p className="text-[11px] opacity-80">Upload a video or click 'Sample Demo Video' to initialize the camera feed.</p>
+              <p className="text-[11px] opacity-80">Upload a video or image to initialize the camera feed.</p>
             </div>
 
             <div className={clsx(

@@ -443,7 +443,7 @@ export default function PenMonitorPage() {
       || farrowingRecords.find(r => !r.farrowing_completed)?.born_alive
       || 0;
     monitorStartRef.current = Date.now();
-    simulationEngine.start(expectedPiglets || 9, sow?.id, numericPenId);
+    simulationEngine.start(expectedPiglets || 9, sow?.id, numericPenId, sow?.status);
     behaviorLogger.startLogging(numericPenId, sow?.id);
     setLiveMonitorActive(true);
     toast.success('Live monitoring started');

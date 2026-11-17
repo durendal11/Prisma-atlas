@@ -202,7 +202,7 @@ export default function DashboardPage() {
               </div>
               <h3 className="text-base font-semibold text-white mt-1">Interactive Pen Simulator & Decision Tutorial</h3>
               <p className="text-xs text-slate-300 max-w-xl mt-0.5 leading-relaxed">
-                Test AI computer vision on sample or uploaded video clips. Practice assessing alerts and role-playing responses (Pen is Fine, Mortality, Transferred, Checking) with zero database risk.
+                Test AI computer vision on sample or uploaded video clips. Practice assessing alerts and role-playing responses (Pen is Fine, Mortality, Transferred, Checking). Note: test sessions still save farrowing records to the database.
               </p>
             </div>
           </div>

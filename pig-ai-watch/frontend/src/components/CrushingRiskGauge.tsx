@@ -91,8 +91,11 @@ export default function CrushingRiskGauge({
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Shield className={clsx('h-4 w-4', result.color)} />
-          <span className={clsx('font-semibold text-gray-700 dark:text-slate-300 uppercase tracking-wider', s.title)}>
-            Crushing Risk
+          <span
+            className={clsx('font-semibold text-gray-700 dark:text-slate-300 uppercase tracking-wider', s.title)}
+            title="Rule-based estimate from sow posture and how close piglets are to the sow. Not a trained prediction."
+          >
+            Crushing Risk <span className="normal-case font-normal tracking-normal text-gray-400 dark:text-slate-500">(estimate)</span>
           </span>
         </div>
         <div className="flex items-center gap-2">

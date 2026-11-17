@@ -124,10 +124,12 @@ class ONNXDetector {
   private loadingPromise: Promise<void> | null = null;
   private inputWidth = 640;
   private inputHeight = 640;
-  private confidenceThreshold = 0.25;
+  private confidenceThreshold = 0.5; // matches yolo-detect.py --thresh default
   private iouThreshold = 0.45;
   private detectionHistory: DetectionResult[] = [];
   private maxHistoryLength = 30;
+  // Letterbox params of the last preprocessed frame (matches Ultralytics letterbox)
+  private lb = { r: 1, padX: 0, padY: 0, srcW: 640, srcH: 640 };
 
   // Reusable canvases for preprocessing - CRITICAL for performance
   private preprocessCanvas: HTMLCanvasElement | null = null;
@@ -178,7 +180,9 @@ class ONNXDetector {
       }
 
       const options: ort.InferenceSession.SessionOptions = {
-        executionProviders: ['webgl', 'wasm'],
+        // WebGPU runs on the GPU off the UI thread; WASM is the fallback.
+        // (WebGL is deprecated in ORT and slow/unsupported for YOLO ops.)
+        executionProviders: ['webgpu', 'wasm'],
         graphOptimizationLevel: 'all',
       };
 
@@ -588,16 +592,28 @@ class ONNXDetector {
 
     const ctx = this.preprocessCtx!;
 
-    // Resize image to input dimensions
+    // Letterbox: keep aspect ratio, pad with gray (114) like Ultralytics.
+    // Stretching 16:9 frames to 640x640 squashes pigs and cuts confidence.
+    const srcW = source instanceof HTMLVideoElement ? source.videoWidth : source.width;
+    const srcH = source instanceof HTMLVideoElement ? source.videoHeight : source.height;
+    const r = Math.min(this.inputWidth / (srcW || 1), this.inputHeight / (srcH || 1));
+    const nw = Math.round(srcW * r);
+    const nh = Math.round(srcH * r);
+    const padX = (this.inputWidth - nw) / 2;
+    const padY = (this.inputHeight - nh) / 2;
+    this.lb = { r, padX, padY, srcW: srcW || 1, srcH: srcH || 1 };
+
+    ctx.fillStyle = 'rgb(114,114,114)';
+    ctx.fillRect(0, 0, this.inputWidth, this.inputHeight);
     if (source instanceof ImageData) {
       if (this.tempCanvas && this.tempCtx) {
         this.tempCanvas.width = source.width;
         this.tempCanvas.height = source.height;
         this.tempCtx.putImageData(source, 0, 0);
-        ctx.drawImage(this.tempCanvas, 0, 0, this.inputWidth, this.inputHeight);
+        ctx.drawImage(this.tempCanvas, padX, padY, nw, nh);
       }
     } else {
-      ctx.drawImage(source, 0, 0, this.inputWidth, this.inputHeight);
+      ctx.drawImage(source, padX, padY, nw, nh);
     }
 
     // Get pixel data
@@ -633,6 +649,12 @@ class ONNXDetector {
     const scores: number[] = [];
     const classIds: number[] = [];
 
+    // Map letterboxed coords back to the stretched 640x640 space that the
+    // rest of the app (drawing, behavior metrics) already assumes.
+    const { r, padX, padY, srcW, srcH } = this.lb;
+    const mapX = (x: number) => ((x - padX) / r) * (this.inputWidth / srcW);
+    const mapY = (y: number) => ((y - padY) / r) * (this.inputHeight / srcH);
+
     for (let i = 0; i < numAnchors; i++) {
       const xc = data[0 * numAnchors + i];
       const yc = data[1 * numAnchors + i];
@@ -650,7 +672,7 @@ class ONNXDetector {
       }
 
       if (maxScore > this.confidenceThreshold) {
-        boxes.push([xc - w / 2, yc - h / 2, xc + w / 2, yc + h / 2]);
+        boxes.push([mapX(xc - w / 2), mapY(yc - h / 2), mapX(xc + w / 2), mapY(yc + h / 2)]);
         scores.push(maxScore);
         classIds.push(maxClassId);
       }

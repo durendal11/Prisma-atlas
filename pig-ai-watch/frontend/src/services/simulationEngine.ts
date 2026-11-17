@@ -104,13 +104,13 @@ class SimulationEngine {
   /**
    * Start a new simulation session
    */
-  start(expectedPiglets: number, sowId?: number, penId?: number): void {
+  start(expectedPiglets: number, sowId?: number, penId?: number, sowStatus?: string): void {
     this.state = createInitialEngineState();
     this.store.getState().resetSimulation();
     this.store.getState().startSimulation(expectedPiglets);
     
     // Start farrowing monitoring engine
-    farrowingEngine.start(sowId, penId);
+    farrowingEngine.start(sowId, penId, sowStatus);
     
     this.emitEvent({
       type: 'session_start',
