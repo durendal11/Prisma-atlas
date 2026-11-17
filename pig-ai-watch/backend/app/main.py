@@ -95,6 +95,7 @@ allowed_origins.update({
 app.add_middleware(
     CORSMiddleware,
     allow_origins=list(allowed_origins),
+    allow_origin_regex=r"^https?://([a-zA-Z0-9-]+\.)*trycloudflare\.com$", 
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
     allow_headers=["*"],
@@ -140,3 +141,4 @@ async def health_check():
         "database": "connected",
         "yolo_model": "loaded"
     }
+

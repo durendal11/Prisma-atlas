@@ -76,6 +76,7 @@ class Settings(BaseSettings):
     MEDIAMTX_ENABLED: bool = False
     MEDIAMTX_URL: str = "rtsp://127.0.0.1:8554"     # MediaMTX RTSP server address
     MEDIAMTX_API_URL: str = "http://127.0.0.1:9997"  # MediaMTX REST API (for health checks)
+    MEDIAMTX_WHEP_URL: str = "http://127.0.0.1:8889"  # MediaMTX WebRTC WHEP endpoint
     
     @property
     def CAMERA_SOURCES(self) -> dict:

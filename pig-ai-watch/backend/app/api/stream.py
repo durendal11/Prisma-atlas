@@ -70,7 +70,7 @@ async def whep_sdp_offer(
     body = await request.body()
     normalized_pen = f"pen_{pen_id}" if pen_id.isdigit() else pen_id
 
-    mediamtx_url = f"http://127.0.0.1:8889/{normalized_pen}/whep"
+    mediamtx_url = f"{settings.MEDIAMTX_WHEP_URL.rstrip('/')}/{normalized_pen}/whep"
     async with httpx.AsyncClient(timeout=5.0) as client:
         try:
             resp = await client.post(

@@ -43,6 +43,10 @@ services:
       - SECRET_KEY=${SECRET_KEY:-change-me-in-production}
       - DEBUG=${DEBUG:-false}
       - CORS_ORIGINS=["http://localhost:3000","http://localhost:5173","http://127.0.0.1:3000"]
+      - MEDIAMTX_ENABLED=true
+      - MEDIAMTX_URL=rtsp://mediamtx:8554
+      - MEDIAMTX_API_URL=http://mediamtx:9997
+      - MEDIAMTX_WHEP_URL=http://mediamtx:8889
       # Camera env vars are forwarded from .env automatically via env_file
     ports:
       - "8000:8000"
@@ -89,8 +93,7 @@ services:
         condition: service_healthy
     entrypoint: >
       sh -c "
-        python -m alembic upgrade head &&
-        python seed_admin.py &&
+                python seed_admin.py &&
         python seed_pens.py &&
         echo '✅ Database seeded successfully'
       "
@@ -110,6 +113,16 @@ services:
       - "9997:9997"   # Metrics
     restart: unless-stopped
 
+  # ── Cloudflare Tunnel (Free Zero-Config Public HTTPS) ─────────
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    container_name: pig-ai-watch-tunnel
+    command: tunnel --no-autoupdate --url http://frontend:80
+    restart: unless-stopped
+    depends_on:
+      - frontend
+
 volumes:
   postgres_data:
   model_cache:
+

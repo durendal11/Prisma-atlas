@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Seed script to create default pens."""
+import os
 import asyncio
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
@@ -58,3 +59,4 @@ async def seed_pens():
 
 if __name__ == "__main__":
     asyncio.run(seed_pens())
+
