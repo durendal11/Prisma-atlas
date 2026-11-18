@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, useMemo } from 'react';
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import { PageInfoButton, PageInfoModal } from '@/components/ui/PageInfoModal';
 import { useQuery } from '@tanstack/react-query';
-import { onnxDetector, Detection, DetectionResult, drawRiskHighlights, postureLabel } from '@/utils/onnxDetector';
+import { onnxDetector, Detection, DetectionResult, drawDetectionBoxes, postureLabel } from '@/utils/onnxDetector';
 import type { ProximityAlert } from '@/utils/onnxDetector';
 import {
   computeRestlessnessScore,
@@ -81,10 +81,6 @@ import toast from 'react-hot-toast';
 
 // ── Color maps ───────────────────────────────────────────────────────────────
 const CATEGORY_COLORS: Record<string, string> = { sow: '#E91E63', piglet: '#4CAF50', unknown: '#9E9E9E' };
-const CLASS_COLORS: Record<string, string> = {
-  piglet: '#4CAF50', 'sow-sit': '#FF9800', 'sow-sleep': '#2196F3',
-  'sow-sleep-lactate': '#9C27B0', 'sow-stand': '#607D8B', 'sow-stand-feed': '#8BC34A', default: '#4CAF50',
-};
 const POSTURE_COLORS: Record<string, string> = {
   lying: '#2196F3', sleeping: '#2196F3', lactating: '#9C27B0', nursing: '#9C27B0', feeding: '#8BC34A', standing: '#FF9800', unknown: '#9E9E9E',
 };
@@ -504,39 +500,7 @@ export default function TestPenPage() {
     const scaleX = overlay.width / inputW;
     const scaleY = overlay.height / inputH;
 
-    detections.forEach((det) => {
-      const [x1, y1, x2, y2] = det.bbox;
-      const sx1 = x1 * scaleX, sy1 = y1 * scaleY, sx2 = x2 * scaleX, sy2 = y2 * scaleY;
-      const w = sx2 - sx1, h = sy2 - sy1;
-      const color = CATEGORY_COLORS[det.category] || CLASS_COLORS[det.className] || CLASS_COLORS.default;
-
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 2;
-      ctx.strokeRect(sx1, sy1, w, h);
-
-      const cs = 8;
-      ctx.fillStyle = color;
-      ctx.fillRect(sx1, sy1, cs, 2); ctx.fillRect(sx1, sy1, 2, cs);
-      ctx.fillRect(sx2 - cs, sy1, cs, 2); ctx.fillRect(sx2 - 2, sy1, 2, cs);
-      ctx.fillRect(sx1, sy2 - 2, cs, 2); ctx.fillRect(sx1, sy2 - cs, 2, cs);
-      ctx.fillRect(sx2 - cs, sy2 - 2, cs, 2); ctx.fillRect(sx2 - 2, sy2 - cs, 2, cs);
-
-      // "Piglet 78%" / "Sow · Lying 95%" — no repeated words, so labels don't pile up
-      const name = det.category === 'sow' ? `Sow · ${det.displayName}` : det.displayName;
-      const label = `${name} ${(det.confidence * 100).toFixed(0)}%`;
-      ctx.font = '600 11px sans-serif';
-      const tw = ctx.measureText(label).width;
-      const pad = 4, textH = 12;
-      ctx.fillStyle = color;
-      ctx.fillRect(sx1, Math.max(0, sy1 - textH - pad), tw + pad * 2, textH + pad);
-      ctx.fillStyle = 'white';
-      ctx.fillText(label, sx1 + pad, Math.max(textH, sy1 - pad));
-    });
-
-    // Highlight at-risk piglets
-    if (proximityAlerts && proximityAlerts.length > 0) {
-      drawRiskHighlights(ctx, detections, proximityAlerts, scaleX, scaleY);
-    }
+    drawDetectionBoxes(ctx, detections, scaleX, scaleY, proximityAlerts);
     // FPS / inference time are shown in the video control bar, not on the picture.
   }, []);
 

@@ -245,8 +245,9 @@ class ONNXDetector {
   /**
    * Pass `stable: false` for a single still image. For video, a box only counts once
    * it has stayed in roughly the same place for a few seconds (see keepStableDetections).
+   * `stream` names the camera/video so several feeds can share this detector.
    */
-  async detect(imageData: ImageData | HTMLCanvasElement | HTMLVideoElement, opts: { stable?: boolean } = {}): Promise<DetectionResult> {
+  async detect(imageData: ImageData | HTMLCanvasElement | HTMLVideoElement, opts: { stable?: boolean; stream?: string } = {}): Promise<DetectionResult> {
     if (!this.session) {
       throw new Error('Model not loaded. Call loadModel() first.');
     }
@@ -262,10 +263,11 @@ class ONNXDetector {
     const rawDetections = await this.postprocess(output0, output1);
     
     // Ignore pigs outside the pen's region of interest (e.g. the neighbouring pen).
-    const roi = this.roi;
+    const stream = opts.stream ?? 'default';
+    const roi = this.streamState(stream).roi;
     const inRoi = this.enrichDetections(rawDetections).filter(d => !roi
       || pointInPolygon(d.centerX / this.inputWidth, d.centerY / this.inputHeight, roi));
-    const detections = opts.stable === false ? inRoi : this.keepStableDetections(inRoi, frameTimestamp);
+    const detections = opts.stable === false ? inRoi : this.keepStableDetections(inRoi, frameTimestamp, stream);
     const inferenceTimeMs = performance.now() - startTime;
     const result = this.calculateStatistics(detections, inferenceTimeMs, frameTimestamp);
     this.updateHistory(result);
@@ -778,40 +780,49 @@ class ONNXDetector {
   private static readonly STABLE_MS = 3000;
   private static readonly STABLE_HIT_RATIO = 0.6;
   private static readonly TRACK_FORGET_MS = 1500;   // a box missing longer than this starts over
-  private tracks: Array<{ bbox: number[]; category: string; firstSeen: number; lastSeen: number; firstFrame: number; hits: number }> = [];
-  private trackFrame = 0;
+  // One detector is shared by every camera on screen, so each video stream (Test Pen
+  // video, or each live pen) keeps its own tracks and pen area, keyed by `stream`.
+  private streams = new Map<string, {
+    tracks: Array<{ bbox: number[]; category: string; firstSeen: number; lastSeen: number; firstFrame: number; hits: number }>;
+    frame: number;
+    roi: number[][] | null;
+  }>();
+  private streamState(key: string) {
+    let s = this.streams.get(key);
+    if (!s) { s = { tracks: [], frame: 0, roi: null }; this.streams.set(key, s); }
+    return s;
+  }
 
-  private keepStableDetections(dets: Detection[], now: number): Detection[] {
-    this.trackFrame++;
-    this.tracks = this.tracks.filter(t => now - t.lastSeen <= ONNXDetector.TRACK_FORGET_MS);
+  private keepStableDetections(dets: Detection[], now: number, key: string): Detection[] {
+    const s = this.streamState(key);
+    s.frame++;
+    s.tracks = s.tracks.filter(t => now - t.lastSeen <= ONNXDetector.TRACK_FORGET_MS);
     const used = new Set<number>();
     const stable: Detection[] = [];
     for (const d of dets) {
       let best = -1, bestIoU = 0.3;
-      this.tracks.forEach((t, i) => {
+      s.tracks.forEach((t, i) => {
         if (used.has(i) || t.category !== d.category) return;
         const iou = this.calculateIoU(t.bbox, d.bbox);
         if (iou > bestIoU) { bestIoU = iou; best = i; }
       });
       if (best < 0) {
-        this.tracks.push({ bbox: d.bbox, category: d.category, firstSeen: now, lastSeen: now, firstFrame: this.trackFrame, hits: 1 });
-        used.add(this.tracks.length - 1);
+        s.tracks.push({ bbox: d.bbox, category: d.category, firstSeen: now, lastSeen: now, firstFrame: s.frame, hits: 1 });
+        used.add(s.tracks.length - 1);
         continue;
       }
-      const t = this.tracks[best];
+      const t = s.tracks[best];
       used.add(best);
       t.bbox = d.bbox; t.lastSeen = now; t.hits++;
-      const frames = this.trackFrame - t.firstFrame + 1;
+      const frames = s.frame - t.firstFrame + 1;
       if (now - t.firstSeen >= ONNXDetector.STABLE_MS && t.hits / frames >= ONNXDetector.STABLE_HIT_RATIO) stable.push(d);
     }
     return stable;
   }
 
-  private roi: number[][] | null = null;
-
   /** Pen area as [[x,y],...] 0–1 fractions of the frame; null = keep everything. */
-  setRoi(points: number[][] | null | undefined): void {
-    this.roi = points && points.length >= 3 ? points : null;
+  setRoi(points: number[][] | null | undefined, stream = 'default'): void {
+    this.streamState(stream).roi = points && points.length >= 3 ? points : null;
   }
 
   setConfidenceThreshold(threshold: number): void {
@@ -843,6 +854,52 @@ export const onnxDetector = new ONNXDetector();
  * @param scaleX     - X scale factor from model input coords to display coords
  * @param scaleY     - Y scale factor from model input coords to display coords
  */
+const BOX_COLORS: Record<string, string> = { sow: '#E91E63', piglet: '#4CAF50', unknown: '#9E9E9E' };
+
+/**
+ * Draw boxes + labels ("Piglet 78%", "Sow · Lying 95%") and at-risk piglet highlights.
+ * Shared by Test Pen and the live camera feeds so both look and behave the same.
+ */
+export function drawDetectionBoxes(
+  ctx: CanvasRenderingContext2D,
+  detections: Detection[],
+  scaleX: number,
+  scaleY: number,
+  proximityAlerts?: ProximityAlert[],
+): void {
+  detections.forEach((det) => {
+    const [x1, y1, x2, y2] = det.bbox;
+    const sx1 = x1 * scaleX, sy1 = y1 * scaleY, sx2 = x2 * scaleX, sy2 = y2 * scaleY;
+    const w = sx2 - sx1, h = sy2 - sy1;
+    const color = BOX_COLORS[det.category] || BOX_COLORS.unknown;
+
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(sx1, sy1, w, h);
+
+    const cs = 8;
+    ctx.fillStyle = color;
+    ctx.fillRect(sx1, sy1, cs, 2); ctx.fillRect(sx1, sy1, 2, cs);
+    ctx.fillRect(sx2 - cs, sy1, cs, 2); ctx.fillRect(sx2 - 2, sy1, 2, cs);
+    ctx.fillRect(sx1, sy2 - 2, cs, 2); ctx.fillRect(sx1, sy2 - cs, 2, cs);
+    ctx.fillRect(sx2 - cs, sy2 - 2, cs, 2); ctx.fillRect(sx2 - 2, sy2 - cs, 2, cs);
+
+    const name = det.category === 'sow' ? `Sow · ${det.displayName}` : det.displayName;
+    const label = `${name} ${(det.confidence * 100).toFixed(0)}%`;
+    ctx.font = '600 11px sans-serif';
+    const tw = ctx.measureText(label).width;
+    const pad = 4, textH = 12;
+    ctx.fillStyle = color;
+    ctx.fillRect(sx1, Math.max(0, sy1 - textH - pad), tw + pad * 2, textH + pad);
+    ctx.fillStyle = 'white';
+    ctx.fillText(label, sx1 + pad, Math.max(textH, sy1 - pad));
+  });
+
+  if (proximityAlerts && proximityAlerts.length > 0) {
+    drawRiskHighlights(ctx, detections, proximityAlerts, scaleX, scaleY);
+  }
+}
+
 export function drawRiskHighlights(
   ctx: CanvasRenderingContext2D,
   detections: Detection[],

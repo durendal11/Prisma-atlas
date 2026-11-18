@@ -959,8 +959,8 @@ export default function PenMonitorPage() {
             penName={penName}
             sowTag={sow?.tag_id || penStatus?.sow_tag || undefined}
             showStats={false}
-            className="aspect-video w-full"
-            confidenceThreshold={0.25}
+            className="w-full"
+            confidenceThreshold={0.5}
             useClientDetection={true}
             showBoundingBoxes={true}
             detectionFrameSkip={isPowerSaving ? 15 : 5}

@@ -22,7 +22,7 @@ type LayoutType = '2x2' | '3x2' | '1x1';
 export default function LiveMonitoringPage() {
   const [layout, setLayout] = useState<LayoutType>('2x2');
   const [selectedPen, setSelectedPen] = useState<string | null>(null);
-  const [confidenceThreshold, setConfidenceThreshold] = useState<number>(0.25);
+  const [confidenceThreshold, setConfidenceThreshold] = useState<number>(0.5); // same as Test Pen
   const [useClientDetection, setUseClientDetection] = useState<boolean>(true);
   const [showSettings, setShowSettings] = useState<boolean>(false);
   const [showBoundingBoxes, setShowBoundingBoxes] = useState<boolean>(true);
@@ -222,7 +222,7 @@ export default function LiveMonitoringPage() {
     const pen = penStatuses?.find(p => p.pen_id.toString() === selectedPen);
     
     return (
-      <div className="space-y-4 animate-fade-in">
+      <div className="space-y-5 animate-fade-in max-w-[1400px] mx-auto">
         <div className="flex items-center justify-between">
           <div className="animate-slide-in-left">
             <h1 className="text-2xl font-bold text-gray-900 dark:text-white">
@@ -246,15 +246,15 @@ export default function LiveMonitoringPage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
           {/* Main video */}
-          <div className="lg:col-span-3">
+          <div className="lg:col-span-2 rounded-2xl overflow-hidden border border-gray-200 dark:border-slate-700 bg-black">
             <RTSPVideoFeed
               penId={selectedPen}
               penName={pen?.pen_name || `Pen ${selectedPen}`}
               sowTag={pen?.sow_tag || undefined}
               showStats={false}
-              className="aspect-video"
+              className="w-full"
               confidenceThreshold={confidenceThreshold}
               useClientDetection={useClientDetection}
               showBoundingBoxes={showBoundingBoxes}

@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useAuthStore, useDetectionStore } from '@/store';
 import { Camera, RefreshCw, AlertCircle, Wifi, WifiOff, Activity, AlertTriangle, Cpu, VideoOff, Smartphone, Monitor } from 'lucide-react';
-import { onnxDetector, DetectionResult, Detection, drawRiskHighlights, postureLabel } from '@/utils/onnxDetector';
+import { onnxDetector, DetectionResult, Detection, drawDetectionBoxes, postureLabel } from '@/utils/onnxDetector';
+import { pensApi } from '@/api';
 import type { ProximityAlert } from '@/utils/onnxDetector';
 import { WebRTCVideoPlayer } from './WebRTCVideoPlayer';
 import { useDeviceMode } from '@/hooks/useDeviceMode';
@@ -42,13 +43,6 @@ interface RTSPVideoFeedProps {
   onDetectionResult?: (result: DetectionResult) => void; // Notify parent of each detection result
 }
 
-// Colors for detection visualization (same as TestPenPage)
-const CATEGORY_COLORS: Record<string, string> = {
-  sow: '#E91E63',      // Pink
-  piglet: '#4CAF50',   // Green
-  unknown: '#9E9E9E',  // Gray
-};
-
 export const RTSPVideoFeed: React.FC<RTSPVideoFeedProps> = ({ 
   penId,
   penName,
@@ -56,7 +50,7 @@ export const RTSPVideoFeed: React.FC<RTSPVideoFeedProps> = ({
   className = '',
   showStats = true,
   onFullscreen,
-  confidenceThreshold = 0.25,
+  confidenceThreshold = 0.5, // same default as Test Pen
   useClientDetection = true, // Enable client-side detection by default
   showBoundingBoxes = true, // Show bounding boxes by default
   detectionFrameSkip = 5, // Process every 5th frame - smoother video, less frequent detection
@@ -65,6 +59,7 @@ export const RTSPVideoFeed: React.FC<RTSPVideoFeedProps> = ({
   onDetectionResult,
 }) => {
   const imgRef = useRef<HTMLImageElement>(null);
+  const webrtcVideoRef = useRef<HTMLVideoElement | null>(null); // WebRTC frames (default path)
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const overlayRef = useRef<HTMLCanvasElement>(null);
   const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -308,6 +303,7 @@ const fastProbeCache = new Map<string, { timestamp: number; data: any }>();
     
     const loadModel = async () => {
       if (onnxDetector.isReady()) {
+        onnxDetector.setConfidenceThreshold(confidenceThreshold); // was skipped when the model was already loaded
         setModelLoaded(true);
         return;
       }
@@ -328,17 +324,23 @@ const fastProbeCache = new Map<string, { timestamp: number; data: any }>();
     loadModel();
   }, [useClientDetection, penId, confidenceThreshold]);
 
-  // Draw detections on canvas overlay (same as TestPenPage)
+  // This pen's region of interest (drawn on Test Pen) — same filter as Test Pen.
+  useEffect(() => {
+    const id = Number(penId);
+    if (!id) return;
+    pensApi.getById(id).then(p => onnxDetector.setRoi(p.roi_points, penId)).catch(() => {});
+  }, [penId]);
+
+  // Draw detections on canvas overlay (same drawing as TestPenPage)
   const drawDetections = useCallback((detections: Detection[], inferenceTime: number, proximityAlerts?: ProximityAlert[]) => {
     const overlay = overlayRef.current;
-    const img = imgRef.current;
-    if (!overlay || !img) return;
-    
+    if (!overlay) return;
+
     const ctx = overlay.getContext('2d');
     if (!ctx) return;
 
-    // Match canvas size to image display size
-    const rect = img.getBoundingClientRect();
+    // Match canvas size to the displayed video area
+    const rect = overlay.getBoundingClientRect();
     overlay.width = rect.width;
     overlay.height = rect.height;
     ctx.clearRect(0, 0, overlay.width, overlay.height);
@@ -362,50 +364,7 @@ const fastProbeCache = new Map<string, { timestamp: number; data: any }>();
     const scaleX = overlay.width / inputW;
     const scaleY = overlay.height / inputH;
 
-    detections.forEach((det) => {
-      const [x1, y1, x2, y2] = det.bbox;
-      const sx1 = x1 * scaleX;
-      const sy1 = y1 * scaleY;
-      const sx2 = x2 * scaleX;
-      const sy2 = y2 * scaleY;
-      const w = sx2 - sx1;
-      const h = sy2 - sy1;
-      
-      const color = CATEGORY_COLORS[det.category] || '#4CAF50';
-
-      // Draw bounding box
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 0.6;
-      ctx.strokeRect(sx1, sy1, w, h);
-
-      // Draw styled corners
-      const cornerSize = 8;
-      ctx.fillStyle = color;
-      ctx.fillRect(sx1, sy1, cornerSize, 1);
-      ctx.fillRect(sx1, sy1, 1, cornerSize);
-      ctx.fillRect(sx2 - cornerSize, sy1, cornerSize, 1);
-      ctx.fillRect(sx2 - 1, sy1, 1, cornerSize);
-      ctx.fillRect(sx1, sy2 - 1, cornerSize, 1);
-      ctx.fillRect(sx1, sy2 - cornerSize, 1, cornerSize);
-      ctx.fillRect(sx2 - cornerSize, sy2 - 1, cornerSize, 1);
-      ctx.fillRect(sx2 - 1, sy2 - cornerSize, 1, cornerSize);
-
-      // Draw label
-      const label = `${det.category === 'sow' ? 'Sow · ' + det.displayName : det.displayName} ${(det.confidence * 100).toFixed(0)}%`;
-      ctx.font = '8px Arial';
-      const text = ctx.measureText(label);
-      const pad = 3;
-      const textH = 10;
-      ctx.fillStyle = color;
-      ctx.fillRect(sx1, sy1 - textH - pad, text.width + pad * 2, textH + pad);
-      ctx.fillStyle = 'white';
-      ctx.fillText(label, sx1 + pad, sy1 - pad);
-    });
-
-    // Highlight at-risk piglets
-    if (proximityAlerts && proximityAlerts.length > 0) {
-      drawRiskHighlights(ctx, detections, proximityAlerts, scaleX, scaleY);
-    }
+    drawDetectionBoxes(ctx, detections, scaleX, scaleY, proximityAlerts);
 
     // FPS/inference overlay (bottom right)
     if (fps > 0 || inferenceTime > 0) {
@@ -429,10 +388,16 @@ const fastProbeCache = new Map<string, { timestamp: number; data: any }>();
       return;
     }
 
+    // Frame source: the WebRTC <video> (default), else the MJPEG <img> fallback.
+    const vid = webrtcVideoRef.current;
     const img = imgRef.current;
+    const source: HTMLVideoElement | HTMLImageElement | null =
+      vid && vid.readyState >= 2 && vid.videoWidth > 0 ? vid
+      : img && img.complete && img.naturalWidth > 0 ? img
+      : null;
     const canvas = canvasRef.current;
-    
-    if (!img || !img.complete || img.naturalWidth === 0) {
+
+    if (!source) {
       return;
     }
 
@@ -456,14 +421,15 @@ const fastProbeCache = new Map<string, { timestamp: number; data: any }>();
     const ctx = canvas2d.getContext('2d');
     if (!ctx) return;
 
-    // Capture current frame from MJPEG stream
-    canvas2d.width = img.naturalWidth || img.width;
-    canvas2d.height = img.naturalHeight || img.height;
-    ctx.drawImage(img, 0, 0);
+    // Capture current frame
+    canvas2d.width = source instanceof HTMLVideoElement ? source.videoWidth : source.naturalWidth;
+    canvas2d.height = source instanceof HTMLVideoElement ? source.videoHeight : source.naturalHeight;
+    ctx.drawImage(source, 0, 0);
 
-    // Run ONNX detection asynchronously - don't block animation loop
+    // Run ONNX detection asynchronously - don't block animation loop.
+    // `stream: penId` keeps this pen's flicker filter and pen area separate from other pens.
     isDetectingRef.current = true;
-    onnxDetector.detect(canvas2d)
+    onnxDetector.detect(canvas2d, { stream: penId })
       .then(result => {
         console.log(`🔍 Pen ${penId}: ${result.totalPigCount} objects (${result.pigletCount} piglets, ${result.sowCount} sows)`);
         
@@ -566,7 +532,7 @@ const fastProbeCache = new Map<string, { timestamp: number; data: any }>();
       </div>
 
       {/* Video Stream */}
-      <div className="relative aspect-video w-full">
+      <div className="relative aspect-video max-h-[580px] min-h-[340px] w-full">
         {/* Mobile device restriction: Stream disabled to reduce lag */}
         {!isStreamingAllowed && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-b from-slate-900 via-gray-900 to-slate-950 p-6 text-center z-20">
@@ -662,6 +628,7 @@ const fastProbeCache = new Map<string, { timestamp: number; data: any }>();
               <WebRTCVideoPlayer
                 penId={penId}
                 token={token}
+                videoElRef={webrtcVideoRef}
                 className="w-full h-full object-contain"
                 onConnected={() => {
                   setLoading(false);

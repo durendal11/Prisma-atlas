@@ -7,6 +7,8 @@ interface WebRTCVideoPlayerProps {
   className?: string;
   onConnected?: () => void;
   onError?: (err: string) => void;
+  /** Receives the <video> element so the parent can run detection on its frames. */
+  videoElRef?: React.MutableRefObject<HTMLVideoElement | null>;
 }
 
 export const WebRTCVideoPlayer: React.FC<WebRTCVideoPlayerProps> = ({
@@ -15,8 +17,9 @@ export const WebRTCVideoPlayer: React.FC<WebRTCVideoPlayerProps> = ({
   className = '',
   onConnected,
   onError,
+  videoElRef,
 }) => {
-  const videoRef = useRef<HTMLVideoElement>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
   const pcRef = useRef<RTCPeerConnection | null>(null);
   const [status, setStatus] = useState<'connecting' | 'connected' | 'failed'>('connecting');
   const [isBuffering, setIsBuffering] = useState<boolean>(true);
@@ -117,13 +120,14 @@ export const WebRTCVideoPlayer: React.FC<WebRTCVideoPlayerProps> = ({
   return (
     <div className={`relative bg-black rounded-xl overflow-hidden ${className}`}>
       <video
-        ref={videoRef}
+        ref={(el) => { videoRef.current = el; if (videoElRef) videoElRef.current = el; }}
         autoPlay
         playsInline
         muted
         onPlaying={handleFrameReady}
         onLoadedData={handleFrameReady}
-        className="w-full h-full object-cover rounded-xl"
+        // Fill (not crop) so the whole frame the detector sees lines up with the boxes drawn on top
+        className="w-full h-full object-fill rounded-xl"
         style={{
           transform: 'translateZ(0)',
           willChange: 'transform',
