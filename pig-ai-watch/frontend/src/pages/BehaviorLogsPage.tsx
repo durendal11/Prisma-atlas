@@ -344,7 +344,7 @@ export default function BehaviorLogsPage() {
                         )}
                         {log.is_sleeping && (
                           <span className="px-2 py-0.5 bg-purple-100 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300 rounded text-xs">
-                            Sleeping
+                            Lying
                           </span>
                         )}
                         {!log.is_nursing && !log.is_feeding && !log.is_sleeping && (

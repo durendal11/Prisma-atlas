@@ -22,7 +22,7 @@ class ClusterVisibilityAnalyzer:
         if self.confirmed_total < self.MIN_CONFIRMED_TOTAL:
             return []
 
-        if log.sow_posture not in ("nursing", "sleeping"):
+        if log.sow_posture not in ("nursing", "sleeping", "lying"):
             self.gap_history.clear()
             return []
 

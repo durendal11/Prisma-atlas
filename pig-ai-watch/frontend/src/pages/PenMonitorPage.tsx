@@ -70,7 +70,7 @@ type Tab = 'overview' | 'live-monitor' | 'farrowing' | 'health';
 
 // ─── Posture color map (for timeline visualization) ──────────────────────────
 const POSTURE_COLORS: Record<string, string> = {
-  sleeping: '#2196F3', lactating: '#9C27B0', nursing: '#9C27B0', feeding: '#8BC34A', standing: '#FF9800', unknown: '#9E9E9E',
+  lying: '#2196F3', sleeping: '#2196F3', lactating: '#9C27B0', nursing: '#9C27B0', feeding: '#8BC34A', standing: '#FF9800', unknown: '#9E9E9E',
 };
 
 // ─── AI Welfare insights helper ──────────────────────────────────────────────
@@ -1430,7 +1430,7 @@ export default function PenMonitorPage() {
                       {[
                         { label: 'Lactation', pct: simStats.nursingPercentage, color: '#9C27B0' },
                         { label: 'Feeding', pct: simStats.feedingPercentage, color: '#8BC34A' },
-                        { label: 'Sleeping', pct: simStats.sleepingPercentage, color: '#2196F3' },
+                        { label: 'Lying', pct: simStats.sleepingPercentage, color: '#2196F3' },
                         { label: 'Standing', pct: simStats.standingPercentage, color: '#FF9800' },
                       ].filter((s) => s.pct > 0).map((s) => (
                         <div
@@ -1444,7 +1444,7 @@ export default function PenMonitorPage() {
                     <div className="flex flex-wrap gap-4 text-xs">
                       <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-[#9C27B0]" /> Lactation {simStats.nursingPercentage.toFixed(1)}%</span>
                       <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-[#8BC34A]" /> Feeding {simStats.feedingPercentage.toFixed(1)}%</span>
-                      <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-[#2196F3]" /> Sleeping {simStats.sleepingPercentage.toFixed(1)}%</span>
+                      <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-[#2196F3]" /> Lying {simStats.sleepingPercentage.toFixed(1)}%</span>
                       <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-[#FF9800]" /> Standing {simStats.standingPercentage.toFixed(1)}%</span>
                     </div>
 

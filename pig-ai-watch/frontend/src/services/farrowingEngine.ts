@@ -202,7 +202,7 @@ class FarrowingEngine {
   /** Sows give birth lying on their side; a standing or feeding sow is not farrowing. */
   private sowIsLying(result: DetectionResult): boolean {
     const p = (result.sowPosture || '').toLowerCase();
-    return p === 'sleeping' || p === 'nursing' || p.startsWith('lying');
+    return p === 'nursing' || p.startsWith('lying');
   }
 
   /**

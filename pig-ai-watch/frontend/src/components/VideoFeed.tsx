@@ -140,8 +140,7 @@ export default function VideoFeed({
       ctx.fillRect(sx2 - 1, sy2 - cornerSize, 1, cornerSize);
 
       // Draw label with category
-      const categoryLabel = det.category !== 'unknown' ? det.category.charAt(0).toUpperCase() + det.category.slice(1) : '';
-      const label = `${categoryLabel ? categoryLabel + ' • ' : ''}${det.displayName} ${(det.confidence * 100).toFixed(0)}%`;
+      const label = `${det.category === 'sow' ? 'Sow · ' + det.displayName : det.displayName} ${(det.confidence * 100).toFixed(0)}%`;
       ctx.font = '8px Arial';
       const textMetrics = ctx.measureText(label);
       const textHeight = 10;

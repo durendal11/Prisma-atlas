@@ -89,8 +89,10 @@ const MODEL_CLASS_CONFIG: Record<number, ClassConfig> = {
   // YOLOv11 trained model classes
   // [0] piglet  [1] sow-sleep  [2] sow-sleep-lactating  [3] sow-stand-feed  [4] sow-stand-lactating
   0: { name: 'piglet',               category: 'piglet', displayName: 'Piglet',                   healthIndicator: 'neutral' },
-  1: { name: 'sow-sleep',            category: 'sow',    displayName: 'Sow (Sleeping)',            posture: 'sleeping',          healthIndicator: 'positive' },
-  2: { name: 'sow-sleep-lactating',  category: 'sow',    displayName: 'Sow (Nursing/Sleeping)',    posture: 'nursing',           healthIndicator: 'positive' },
+  // Model classes are named "sleep", but the camera can only see that the sow is lying down,
+  // not whether she is asleep — so the web shows "Lying".
+  1: { name: 'sow-sleep',            category: 'sow',    displayName: 'Lying',                     posture: 'lying',             healthIndicator: 'positive' },
+  2: { name: 'sow-sleep-lactating',  category: 'sow',    displayName: 'Lying · Nursing',           posture: 'nursing',           healthIndicator: 'positive' },
   3: { name: 'sow-stand-feed',       category: 'sow',    displayName: 'Sow (Feeding)',             posture: 'feeding',           healthIndicator: 'positive' },
   4: { name: 'sow-stand-lactating',  category: 'sow',    displayName: 'Sow (Standing/Nursing)',    posture: 'standing',          healthIndicator: 'neutral' },
 };
@@ -108,7 +110,7 @@ const SIZE_THRESHOLDS = {
 
 const RISK_WEIGHTS = {
   postureBase: {
-    sleeping: 0.45,      // Higher risk when sleeping near piglets
+    lying: 0.45,         // Higher risk when lying near piglets
     nursing: 0.35,       // Moderate-high risk during nursing
     sitting: 0.25,       // Moderate risk when sitting
     standing: 0.15,      // Lower risk when standing
@@ -338,7 +340,7 @@ class ONNXDetector {
   ): BehaviorSummary {
     const isNursing = posture === 'nursing' || sows.some(s => s.className === 'sow-sleep-lactating' || s.className === 'sow-stand-lactating');
     const isFeeding = posture === 'feeding' || sows.some(s => s.className === 'sow-stand-feed');
-    const isSleeping = posture === 'sleeping' || sows.some(s => s.className === 'sow-sleep' || s.className === 'sow-sleep-lactating');
+    const isSleeping = posture === 'lying' || sows.some(s => s.className === 'sow-sleep' || s.className === 'sow-sleep-lactating');
 
     // Determine activity level
     let activityLevel: 'resting' | 'active' | 'feeding' | 'nursing' = 'resting';

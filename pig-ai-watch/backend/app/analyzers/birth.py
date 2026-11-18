@@ -35,7 +35,7 @@ class BirthEventDetector:
         # 2) Dystocia risk if no new birth for >45 minutes while sow is lying/nursing.
         if (
             self.last_birth_time is not None
-            and log.sow_posture in ("sleeping", "nursing")
+            and log.sow_posture in ("sleeping", "lying", "nursing")
             and (timestamp - self.last_birth_time).total_seconds() > 2700
         ):
             should_fire = (

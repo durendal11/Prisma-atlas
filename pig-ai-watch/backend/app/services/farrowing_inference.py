@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 CRUSHING_PIGLET_DROP_CRITICAL = 2       # ≥2 piglets missing + sow lying = CRITICAL
 CRUSHING_PIGLET_DROP_ADVISORY = 1       # ≥1 piglet missing OR clump near sow = ADVISORY
 CRUSHING_DURATION_MINUTES = 1           # condition must persist ≥1 min before CRITICAL fires
-CRUSHING_SOW_POSTURES = {"sleeping", "sleeping_lactating", "lying_lateral", "sow-sleep", "sow-sleep-lactate"}
+CRUSHING_SOW_POSTURES = {"sleeping", "lying", "sleeping_lactating", "lying_lateral", "sow-sleep", "sow-sleep-lactate"}
 
 # ── State Machine timings ────────────────────────────────────────────────────
 WATCH_WINDOW_SECONDS = 75               # 75 s watch-and-wait before pushing ALERT

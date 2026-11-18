@@ -626,7 +626,7 @@ export default function FarrowingPage() {
                 <ResponsiveContainer width="100%" height={200}>
                   <BarChart
                     data={[
-                      { name: 'Sleeping', pre: comparison.pre?.sleeping_pct ?? 0, post: comparison.post?.sleeping_pct ?? 0 },
+                      { name: 'Lying', pre: comparison.pre?.sleeping_pct ?? 0, post: comparison.post?.sleeping_pct ?? 0 },
                     ]}
                     layout="vertical"
                   >

@@ -85,7 +85,7 @@ const CLASS_COLORS: Record<string, string> = {
   'sow-sleep-lactate': '#9C27B0', 'sow-stand': '#607D8B', 'sow-stand-feed': '#8BC34A', default: '#4CAF50',
 };
 const POSTURE_COLORS: Record<string, string> = {
-  sleeping: '#2196F3', lactating: '#9C27B0', nursing: '#9C27B0', feeding: '#8BC34A', standing: '#FF9800', unknown: '#9E9E9E',
+  lying: '#2196F3', sleeping: '#2196F3', lactating: '#9C27B0', nursing: '#9C27B0', feeding: '#8BC34A', standing: '#FF9800', unknown: '#9E9E9E',
 };
 
 // ── Tab type ────────────────────────────────────────────────────────────────
@@ -459,7 +459,7 @@ export default function TestPenPage() {
   }, [modelLoaded, t]);
 
   // ── Draw detections (Direct canvas rendering, 0 React re-renders) ──────────
-  const drawDetections = useCallback((detections: Detection[], inferenceTime: number, proximityAlerts?: ProximityAlert[], fpsValue: number = 0) => {
+  const drawDetections = useCallback((detections: Detection[], _inferenceTime: number, proximityAlerts?: ProximityAlert[], _fpsValue: number = 0) => {
     const overlay = overlayRef.current;
     const dc = displayCanvasRef.current;
     // displayCanvas is sized to the container; overlay must match it exactly for bbox alignment
@@ -485,7 +485,7 @@ export default function TestPenPage() {
       const color = CATEGORY_COLORS[det.category] || CLASS_COLORS[det.className] || CLASS_COLORS.default;
 
       ctx.strokeStyle = color;
-      ctx.lineWidth = 1;
+      ctx.lineWidth = 2;
       ctx.strokeRect(sx1, sy1, w, h);
 
       const cs = 8;
@@ -495,9 +495,10 @@ export default function TestPenPage() {
       ctx.fillRect(sx1, sy2 - 2, cs, 2); ctx.fillRect(sx1, sy2 - cs, 2, cs);
       ctx.fillRect(sx2 - cs, sy2 - 2, cs, 2); ctx.fillRect(sx2 - 2, sy2 - cs, 2, cs);
 
-      const categoryLabel = det.category !== 'unknown' ? det.category.charAt(0).toUpperCase() + det.category.slice(1) : '';
-      const label = `${categoryLabel ? categoryLabel + ' • ' : ''}${det.displayName} ${(det.confidence * 100).toFixed(0)}%`;
-      ctx.font = '11px sans-serif';
+      // "Piglet 78%" / "Sow · Lying 95%" — no repeated words, so labels don't pile up
+      const name = det.category === 'sow' ? `Sow · ${det.displayName}` : det.displayName;
+      const label = `${name} ${(det.confidence * 100).toFixed(0)}%`;
+      ctx.font = '600 11px sans-serif';
       const tw = ctx.measureText(label).width;
       const pad = 4, textH = 12;
       ctx.fillStyle = color;
@@ -510,15 +511,7 @@ export default function TestPenPage() {
     if (proximityAlerts && proximityAlerts.length > 0) {
       drawRiskHighlights(ctx, detections, proximityAlerts, scaleX, scaleY);
     }
-
-    ctx.font = 'bold 13px monospace';
-    ctx.fillStyle = 'rgba(0,0,0,0.75)';
-    // Top-right so it doesn't sit on the video timeline
-    ctx.fillRect(overlay.width - 160, 8, 150, 48);
-    ctx.fillStyle = '#00ff00';
-    ctx.fillText(`FPS: ${fpsValue}`, overlay.width - 150, 28);
-    ctx.fillStyle = '#00ffff';
-    ctx.fillText(`Inf: ${inferenceTime.toFixed(0)}ms`, overlay.width - 150, 48);
+    // FPS / inference time are shown in the video control bar, not on the picture.
   }, []);
 
   // ── Detection loops ───────────────────────────────────────────────────────
@@ -1422,22 +1415,41 @@ export default function TestPenPage() {
                     }}
                     className="flex-1 h-1 bg-gray-600 rounded appearance-none cursor-pointer accent-blue-500"
                   />
+                  {/* Live status lives in the control bar so nothing covers the camera picture */}
+                  {detection && (
+                    <div className="flex items-center gap-2 flex-shrink-0 text-[11px] font-mono text-white/70 whitespace-nowrap">
+                      {riskValue >= 0.4 && (
+                        <span className={clsx(
+                          'flex items-center gap-1 px-2 py-0.5 rounded-md font-sans font-semibold text-white',
+                          riskValue >= 0.7 ? 'bg-red-600' : 'bg-amber-600'
+                        )}>
+                          <AlertTriangle className="h-3 w-3" />
+                          {riskValue >= 0.7 ? 'High risk' : 'Caution'}
+                        </span>
+                      )}
+                      <span>{detection.detections.length} detected</span>
+                      <span className="hidden sm:inline text-white/40">·</span>
+                      <span className="hidden sm:inline">{fps} fps · {detection.inferenceTimeMs.toFixed(0)} ms</span>
+                    </div>
+                  )}
                 </div>
               )}
 
-              {/* Risk overlay badge */}
-              {detection && riskValue >= 0.4 && (
-                <div className={clsx(
-                  'absolute top-3 right-3 flex items-center gap-1.5 text-white px-3 py-1.5 rounded-lg text-xs font-semibold backdrop-blur-sm',
-                  riskValue >= 0.7 ? 'bg-red-600/80' : 'bg-amber-600/80'
-                )}>
-                  <AlertTriangle className="h-3.5 w-3.5" />
-                  {riskValue >= 0.7 ? 'HIGH RISK' : 'CAUTION'}
-                </div>
-              )}
-              {detection && detection.detections.length > 0 && (
-                <div className="absolute top-3 left-3 bg-black/60 text-white px-2.5 py-1 rounded-lg text-xs backdrop-blur-sm">
-                  {detection.detections.length} detection{detection.detections.length !== 1 ? 's' : ''}
+              {/* Image mode has no control bar: show the same status bottom-left */}
+              {fileType === 'image' && detection && (
+                <div className="absolute bottom-3 left-3 flex items-center gap-2 text-xs">
+                  {riskValue >= 0.4 && (
+                    <span className={clsx(
+                      'flex items-center gap-1.5 text-white px-2.5 py-1 rounded-lg font-semibold backdrop-blur-sm',
+                      riskValue >= 0.7 ? 'bg-red-600/85' : 'bg-amber-600/85'
+                    )}>
+                      <AlertTriangle className="h-3.5 w-3.5" />
+                      {riskValue >= 0.7 ? 'High risk' : 'Caution'}
+                    </span>
+                  )}
+                  <span className="bg-black/60 text-white px-2.5 py-1 rounded-lg backdrop-blur-sm">
+                    {detection.detections.length} detected
+                  </span>
                 </div>
               )}
 
@@ -2298,7 +2310,7 @@ export default function TestPenPage() {
                     {[
                       { label: 'Lactation', pct: simStats.nursingPercentage, color: '#9C27B0' },
                       { label: 'Feeding', pct: simStats.feedingPercentage, color: '#8BC34A' },
-                      { label: 'Sleeping', pct: simStats.sleepingPercentage, color: '#2196F3' },
+                      { label: 'Lying', pct: simStats.sleepingPercentage, color: '#2196F3' },
                       { label: 'Standing', pct: simStats.standingPercentage, color: '#FF9800' },
                     ].filter((s) => s.pct > 0).map((s) => (
                       <div
@@ -2312,7 +2324,7 @@ export default function TestPenPage() {
                   <div className="flex flex-wrap gap-4 text-xs">
                     <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-[#9C27B0]" /> Lactation {simStats.nursingPercentage.toFixed(1)}%</span>
                     <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-[#8BC34A]" /> Feeding {simStats.feedingPercentage.toFixed(1)}%</span>
-                    <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-[#2196F3]" /> Sleeping {simStats.sleepingPercentage.toFixed(1)}%</span>
+                    <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-[#2196F3]" /> Lying {simStats.sleepingPercentage.toFixed(1)}%</span>
                     <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-full bg-[#FF9800]" /> Standing {simStats.standingPercentage.toFixed(1)}%</span>
                   </div>
 
