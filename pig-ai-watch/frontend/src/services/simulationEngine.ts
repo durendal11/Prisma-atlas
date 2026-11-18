@@ -12,8 +12,13 @@ import { farrowingEngine } from '@/services/farrowingEngine';
 
 const CONFIG = {
   // Piglet monitoring
-  pigletDropThresholdFrames: 8,       // consecutive frames before alerting
+  // Piglets hide behind the sow all the time, so judge the count over a minute
+  // (a count seen in the top 20% of that minute) and require the drop to last a minute.
+  visibleCountWindowMs: 60_000,
+  visibleCountQuantile: 0.8,
+  pigletDropConfirmMs: 60_000,
   pigletRecoveryFrames: 5,            // frames of normal count to clear alert
+  lieDownCrushWindowMs: 10 * 60_000,  // a drop within 10 min of the sow lying down = likely crushing
   
   // Nursing session
   nursingMinDurationMs: 5000,         // min 5s to count as nursing session
@@ -44,7 +49,10 @@ const CONFIG = {
 interface EngineState {
   lastPosture: string;
   lastPigletCount: number;
-  consecutiveLowPigletFrames: number;
+  pigletCountHistory: Array<{ t: number; n: number }>;
+  lowPigletSince: number;             // 0 = count not low
+  lastLieDownTime: number;            // 0 = not seen lying down
+  countBeforeLieDown: number;
   consecutiveNormalPigletFrames: number;
   pigletDropAlerted: boolean;
   
@@ -71,7 +79,10 @@ interface EngineState {
 const createInitialEngineState = (): EngineState => ({
   lastPosture: '',
   lastPigletCount: -1,
-  consecutiveLowPigletFrames: 0,
+  pigletCountHistory: [],
+  lowPigletSince: 0,
+  lastLieDownTime: 0,
+  countBeforeLieDown: 0,
   consecutiveNormalPigletFrames: 0,
   pigletDropAlerted: false,
   
@@ -104,13 +115,13 @@ class SimulationEngine {
   /**
    * Start a new simulation session
    */
-  start(expectedPiglets: number, sowId?: number, penId?: number, sowStatus?: string): void {
+  start(expectedPiglets: number, sowId?: number, penId?: number, sowStatus?: string, expectedFarrowingDate?: string | null): void {
     this.state = createInitialEngineState();
     this.store.getState().resetSimulation();
     this.store.getState().startSimulation(expectedPiglets);
-    
+
     // Start farrowing monitoring engine
-    farrowingEngine.start(sowId, penId, sowStatus);
+    farrowingEngine.start(sowId, penId, sowStatus, expectedFarrowingDate);
     
     this.emitEvent({
       type: 'session_start',
@@ -229,7 +240,29 @@ class SimulationEngine {
         videoTime,
         data: { from: this.state.lastPosture, to: posture },
       });
-      
+
+      // Lying down is when crushing happens. Remember the litter before it, and warn
+      // straight away if piglets are right where she is lying (prevention).
+      const lying = /lying|sleep|nurs|lateral/i.test(posture);
+      const wasUp = /stand|feed|sit/i.test(this.state.lastPosture);
+      if (lying && wasUp) {
+        this.state.lastLieDownTime = now;
+        this.state.countBeforeLieDown = this.state.lastPigletCount;
+        const sows = result.detections.filter((d) => d.category === 'sow');
+        const underSow = result.detections.filter((p) => p.category === 'piglet' && sows.some((s) =>
+          p.centerX >= s.bbox[0] && p.centerX <= s.bbox[2] && p.centerY >= s.bbox[1] && p.centerY <= s.bbox[3])).length;
+        if (underSow > 0) {
+          this.emitEvent({
+            type: 'risk_escalation',
+            severity: 'critical',
+            title: 'Sow Lying Down On Piglets',
+            description: `Sow just lay down with ${underSow} piglet(s) inside her body area. Check that no piglet is trapped under her.`,
+            videoTime,
+            data: { pigletsUnderSow: underSow },
+          });
+        }
+      }
+
       this.state.lastPostureChangeTime = now;
       this.state.inactivityAlerted = false;
     }
@@ -334,40 +367,54 @@ class SimulationEngine {
   // ─── Piglet Count ───────────────────────────────────────────────────────
   
   private processPigletCount(result: DetectionResult, now: number, videoTime: number): void {
-    const expected = this.store.getState().expectedPigletCount;
-    const detected = result.pigletCount;
-    
+    // While the sow is farrowing, the litter is what has been born so far — not a fixed number.
+    const expected = farrowingEngine.getLitterSize() ?? this.store.getState().expectedPigletCount;
+
+    const h = this.state.pigletCountHistory;
+    h.push({ t: now, n: result.pigletCount });
+    while (h.length > 0 && now - h[0].t > CONFIG.visibleCountWindowMs) h.shift();
+    const sorted = h.map((x) => x.n).sort((a, b) => a - b);
+    const detected = sorted[Math.min(sorted.length - 1, Math.floor(CONFIG.visibleCountQuantile * sorted.length))];
+
     // Sample for history
     if (this.state.frameCount % CONFIG.pigletSampleRate === 0) {
       this.store.getState().addPigletCount({
         timestamp: now,
         videoTime,
-        count: detected,
+        count: result.pigletCount,
         expected,
       });
     }
-    
+
     // Monitor drops
     if (detected < expected && detected > 0) {
-      this.state.consecutiveLowPigletFrames++;
       this.state.consecutiveNormalPigletFrames = 0;
-      
-      if (this.state.consecutiveLowPigletFrames >= CONFIG.pigletDropThresholdFrames && !this.state.pigletDropAlerted) {
+      if (!this.state.lowPigletSince) this.state.lowPigletSince = now;
+
+      if (now - this.state.lowPigletSince >= CONFIG.pigletDropConfirmMs && !this.state.pigletDropAlerted) {
         this.state.pigletDropAlerted = true;
         this.store.getState().setPigletDropAlert(true);
-        
+
         const missing = expected - detected;
-        const severity: EventSeverity = missing >= 3 ? 'critical' : 'warning';
-        
+        // A piglet that vanishes soon after the sow lies down is the crushing pattern,
+        // even if the moment itself was missed by the detector.
+        const minsSinceLieDown = this.state.lastLieDownTime ? (now - this.state.lastLieDownTime) / 60_000 : Infinity;
+        const afterLieDown = minsSinceLieDown * 60_000 <= CONFIG.lieDownCrushWindowMs
+          && this.state.countBeforeLieDown >= expected
+          && /lying|sleep|nurs|lateral/i.test(result.sowPosture || '');
+        const severity: EventSeverity = afterLieDown || missing >= 3 ? 'critical' : 'warning';
+
         this.emitEvent({
           type: 'piglet_count_drop',
           severity,
-          title: `Piglet Count Drop: ${detected}/${expected}`,
-          description: missing >= 3
-            ? `${missing} piglets missing from view. Check for crushing, escape, or camera blind spots immediately!`
-            : `${missing} piglet(s) not visible. May be hidden behind sow or in blind spot. Verify physically.`,
+          title: afterLieDown ? `Possible Crushing: ${detected}/${expected} piglets` : `Piglet Count Drop: ${detected}/${expected}`,
+          description: afterLieDown
+            ? `${missing} piglet(s) disappeared after the sow lay down ${Math.max(1, Math.round(minsSinceLieDown))} min ago and have not come back for a minute. A piglet may be trapped or crushed under her — check the pen now.`
+            : missing >= 3
+              ? `${missing} piglets missing from view for over a minute. Check for crushing, escape, or camera blind spots immediately!`
+              : `${missing} piglet(s) not visible for over a minute. May be hidden behind sow or in blind spot. Verify physically.`,
           videoTime,
-          data: { detected, expected, missing },
+          data: { detected, expected, missing, afterLieDown },
         });
 
         const activeClar = this.store.getState().activeClarification;
@@ -385,7 +432,7 @@ class SimulationEngine {
       }
     } else if (detected >= expected) {
       this.state.consecutiveNormalPigletFrames++;
-      this.state.consecutiveLowPigletFrames = 0;
+      this.state.lowPigletSince = 0;
       
       if (this.state.pigletDropAlerted && this.state.consecutiveNormalPigletFrames >= CONFIG.pigletRecoveryFrames) {
         this.state.pigletDropAlerted = false;

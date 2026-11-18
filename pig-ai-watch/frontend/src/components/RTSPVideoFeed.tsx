@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { useAuthStore, useDetectionStore } from '@/store';
 import { Camera, RefreshCw, AlertCircle, Wifi, WifiOff, Activity, AlertTriangle, Cpu, VideoOff, Smartphone, Monitor } from 'lucide-react';
-import { onnxDetector, DetectionResult, Detection, drawRiskHighlights } from '@/utils/onnxDetector';
+import { onnxDetector, DetectionResult, Detection, drawRiskHighlights, postureLabel } from '@/utils/onnxDetector';
 import type { ProximityAlert } from '@/utils/onnxDetector';
 import { WebRTCVideoPlayer } from './WebRTCVideoPlayer';
 import { useDeviceMode } from '@/hooks/useDeviceMode';
@@ -590,7 +590,7 @@ const fastProbeCache = new Map<string, { timestamp: number; data: any }>();
                 Crush Risk: <strong className="text-white font-mono ml-1">{((detectionData?.crushing_risk ?? 0) * 100).toFixed(0)}%</strong>
               </span>
               <span className="px-3 py-1.5 rounded-lg bg-slate-800/80 border border-slate-700 text-xs font-medium text-slate-200 capitalize">
-                Sow: <strong className="text-white ml-1">{detectionData?.sow_posture?.replace('_', ' ') ?? 'Monitored'}</strong>
+                Sow: <strong className="text-white ml-1">{detectionData?.sow_posture ? postureLabel(detectionData.sow_posture) : 'Monitored'}</strong>
               </span>
             </div>
             <button
@@ -754,8 +754,7 @@ const fastProbeCache = new Map<string, { timestamp: number; data: any }>();
               <div className="bg-purple-500/90 backdrop-blur-sm rounded-lg px-4 py-2 shadow-lg">
                 <div className="text-white/80 text-xs font-medium mb-1">Sow Posture</div>
                 <div className="text-white text-sm font-semibold capitalize">
-                  {clientDetection?.sowPosture?.replace('_', ' ').replace('-', ' ') ?? 
-                   detectionData?.sow_posture?.replace('_', ' ') ?? 'Unknown'}
+                  {postureLabel(clientDetection?.sowPosture ?? detectionData?.sow_posture ?? 'unknown')}
                 </div>
                 {clientDetection?.sowPostureConfidence && (
                   <div className="text-white/70 text-xs mt-0.5">

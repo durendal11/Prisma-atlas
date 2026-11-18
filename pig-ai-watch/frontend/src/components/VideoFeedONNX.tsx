@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { VideoOff, Maximize2, AlertTriangle, Camera, CameraOff, Loader2, Cpu } from 'lucide-react';
 import RiskGauge from './RiskGauge';
-import { onnxDetector, DetectionResult, Detection, drawRiskHighlights } from '@/utils/onnxDetector';
+import { onnxDetector, DetectionResult, Detection, drawRiskHighlights, postureLabel } from '@/utils/onnxDetector';
 import type { ProximityAlert } from '@/utils/onnxDetector';
 import clsx from 'clsx';
 
@@ -465,7 +465,7 @@ export default function VideoFeed({
           </div>
           <div className="text-center">
             <p className="text-sm font-medium text-white capitalize">
-              {detection?.sowPosture?.replace('_', ' ') ?? 'Unknown'}
+              {postureLabel(detection?.sowPosture ?? 'unknown')}
             </p>
             <p className="text-xs text-gray-400">Sow Posture</p>
           </div>

@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_, Integer
 from sqlalchemy.orm import selectinload
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional, Any
 import json
 import logging
@@ -152,6 +152,7 @@ async def log_behavior(
     Called every 12 seconds during live monitoring.
     """
     try:
+        sow = None
         if behavior.sow_id:
             sow_result = await db.execute(select(Sow).where(Sow.id == behavior.sow_id))
             sow = sow_result.scalar_one_or_none()
@@ -181,7 +182,17 @@ async def log_behavior(
 
         nesting_result = _nesting_analyzers[behavior.pen_id].analyze(recent_logs, window_minutes=30)
         now = datetime.utcnow()
-        birth_events = _birth_detectors[behavior.pen_id].process_log(behavior, now)
+        # Births are only possible for a pregnant sow from 4 days before her due date.
+        # No sow record → can't rule a birth out.
+        births_allowed = True
+        if sow is not None:
+            births_allowed = sow.status in ("pregnant", "farrowing", "overdue_watch")
+            due = sow.expected_farrowing_date
+            if births_allowed and due is not None:
+                if due.tzinfo is not None:
+                    due = due.astimezone(timezone.utc).replace(tzinfo=None)
+                births_allowed = now >= due - timedelta(days=4)
+        birth_events = _birth_detectors[behavior.pen_id].process_log(behavior, now, births_allowed)
         welfare_alerts = _welfare_monitors[behavior.pen_id].process_log(behavior, now)
         _cluster_analyzers[behavior.pen_id].update_confirmed_total(
             _birth_detectors[behavior.pen_id].confirmed_count

@@ -28,6 +28,7 @@ import { useTranslation } from '@/hooks/useTranslation';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine,
 } from 'recharts';
+import { postureLabel } from '@/utils/onnxDetector';
 
 type PlaybackSpeed = 1 | 2 | 4 | 8;
 
@@ -495,7 +496,7 @@ export default function ReplayPage() {
               <MetricCard
                 icon={<Activity className="w-4 h-4" />}
                 label="Posture"
-                value={currentFrame.sow_posture ?? '-'}
+                value={currentFrame.sow_posture ? postureLabel(currentFrame.sow_posture) : '-'}
                 valueClass={`capitalize ${postureColor(currentFrame.sow_posture)}`}
                 subtitle={`${((currentFrame.posture_confidence ?? 0) * 100).toFixed(0)}% conf`}
               />

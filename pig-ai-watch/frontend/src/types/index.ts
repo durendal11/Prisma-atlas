@@ -155,6 +155,7 @@ export interface Pen {
   edge_camera_source: string | null;
   is_active: boolean;
   created_at: string;
+  roi_points?: number[][] | null; // pen area polygon, [[x,y],...] as 0–1 fractions of the frame
 }
 
 export interface PenStatus {

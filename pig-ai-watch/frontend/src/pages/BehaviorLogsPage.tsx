@@ -13,6 +13,7 @@ import {
 import { behaviorLogger, BehaviorLogResponse } from '@/services/behaviorLogger';
 import { subscribePollingTask } from '@/utils/pollingScheduler';
 import clsx from 'clsx';
+import { postureLabel } from '@/utils/onnxDetector';
 
 export default function BehaviorLogsPage() {
   const [logs, setLogs] = useState<BehaviorLogResponse[]>([]);
@@ -294,7 +295,7 @@ export default function BehaviorLogsPage() {
                         "px-2 py-1 rounded-full text-xs font-medium transition-transform duration-200 hover:scale-105 inline-block",
                         getPostureColor(log.sow_posture)
                       )}>
-                        {log.sow_posture}
+                        {postureLabel(log.sow_posture)}
                       </span>
                     </td>
                     <td className="px-4 py-3 text-center text-sm font-medium text-gray-900 dark:text-white">

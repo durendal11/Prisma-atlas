@@ -529,7 +529,8 @@ class YOLODetector:
             
             cv2.rectangle(annotated_frame, (x, y), (x + w, y + h), color, 2)
             
-            label_text = f"{label}: {conf:.2f}"
+            # Display only: model says "sleep", camera can only see lying. Stored label unchanged.
+            label_text = f"{label.replace('sleeping', 'lying').replace('sleep', 'lying')}: {conf:.2f}"
             cv2.putText(
                 annotated_frame, label_text, (x, y - 10),
                 cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2
@@ -548,7 +549,7 @@ class YOLODetector:
         
         cv2.putText(
             annotated_frame,
-            f"Piglets: {result.piglet_count} | Posture: {result.sow_posture}",
+            f"Piglets: {result.piglet_count} | Posture: {str(result.sow_posture).replace('sleeping', 'lying')}",
             (10, 60),
             cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2
         )

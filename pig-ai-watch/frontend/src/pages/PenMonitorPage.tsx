@@ -185,6 +185,7 @@ function computeWelfareInsights(
 // ─── Main component ──────────────────────────────────────────────────────────
 import { PageSkeleton } from '@/components/ui/Skeleton';
 import { PageInfoButton, PageInfoModal } from '@/components/ui/PageInfoModal';
+import { postureLabel } from '@/utils/onnxDetector';
 
 export default function PenMonitorPage() {
   const { penId } = useParams<{ penId: string }>();
@@ -443,7 +444,7 @@ export default function PenMonitorPage() {
       || farrowingRecords.find(r => !r.farrowing_completed)?.born_alive
       || 0;
     monitorStartRef.current = Date.now();
-    simulationEngine.start(expectedPiglets || 9, sow?.id, numericPenId, sow?.status);
+    simulationEngine.start(expectedPiglets || 9, sow?.id, numericPenId, sow?.status, sow?.expected_farrowing_date);
     behaviorLogger.startLogging(numericPenId, sow?.id);
     setLiveMonitorActive(true);
     toast.success('Live monitoring started');
@@ -785,7 +786,7 @@ export default function PenMonitorPage() {
   const hasCameraAssigned = Boolean(currentPenCameraSource);
   const riskValue = latestDetection?.crushingRisk ?? liveDetection?.data?.risk_level ?? penStatus?.crushing_risk ?? 0;
   const pigletCountLive = latestDetection?.pigletCount ?? liveDetection?.data?.piglet_count ?? penStatus?.piglet_count ?? 0;
-  const sowPostureLive = (latestDetection?.sowPosture ?? liveDetection?.data?.posture ?? penStatus?.sow_posture ?? 'unknown').replace(/_/g, ' ').replace(/-/g, ' ');
+  const sowPostureLive = postureLabel(latestDetection?.sowPosture ?? liveDetection?.data?.posture ?? penStatus?.sow_posture ?? 'unknown');
   // State machine phase from backend (broadcast in WS message as crushing_event.phase)
   const eventPhase: 'idle' | 'watch' | 'alert' | 'resolving' | 'all_clear' | 'escalated' | null =
     (liveDetection?.data as any)?.crushing_event?.phase ?? null;

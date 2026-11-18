@@ -15,6 +15,7 @@ import toast from 'react-hot-toast';
 import { PageSkeleton, useLoading } from '@/components/ui/Skeleton';
 import { PageInfoButton, PageInfoModal } from '@/components/ui/PageInfoModal';
 import { useDeviceMode } from '@/hooks/useDeviceMode';
+import { postureLabel } from '@/utils/onnxDetector';
 
 type LayoutType = '2x2' | '3x2' | '1x1';
 
@@ -276,7 +277,7 @@ export default function LiveMonitoringPage() {
             <div className="bg-white dark:bg-slate-800/50 rounded-xl border border-gray-100 dark:border-slate-700/50 p-5 hover:shadow-md dark:hover:shadow-dark-lg transition-all duration-300 hover:-translate-y-0.5">
               <h3 className="text-sm font-medium text-gray-500 dark:text-slate-400 mb-2">Sow Posture</h3>
               <p className="text-xl font-semibold text-gray-900 dark:text-white capitalize">
-                {(activeDetection?.data?.posture || pen?.sow_posture || 'unknown').replace('_', ' ')}
+                {postureLabel(activeDetection?.data?.posture || pen?.sow_posture || 'unknown')}
               </p>
             </div>
 

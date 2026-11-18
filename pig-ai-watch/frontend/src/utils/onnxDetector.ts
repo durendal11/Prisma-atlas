@@ -13,6 +13,23 @@ ort.env.wasm.wasmPaths = import.meta.env.DEV
   ? '/node_modules/onnxruntime-web/dist/'
   : '/';
 
+/**
+ * Display text for a posture. The model and backend say "sleep"/"sleeping"; the camera can
+ * only see the sow lying down, so the web shows "lying". Stored values are not changed.
+ */
+export const postureLabel = (p?: string | null): string =>
+  (p ?? '').replace(/sleeping|sleep/gi, 'lying').replace(/[_-]/g, ' ');
+
+/** Ray-casting point-in-polygon test (same rule the backend uses via OpenCV). */
+export const pointInPolygon = (x: number, y: number, poly: number[][]): boolean => {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [xi, yi] = poly[i], [xj, yj] = poly[j];
+    if ((yi > y) !== (yj > y) && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+};
+
 export interface Detection {
   classId: number;
   className: string;
@@ -225,7 +242,11 @@ class ONNXDetector {
     this.tempCtx = null;
   }
 
-  async detect(imageData: ImageData | HTMLCanvasElement | HTMLVideoElement): Promise<DetectionResult> {
+  /**
+   * Pass `stable: false` for a single still image. For video, a box only counts once
+   * it has stayed in roughly the same place for a few seconds (see keepStableDetections).
+   */
+  async detect(imageData: ImageData | HTMLCanvasElement | HTMLVideoElement, opts: { stable?: boolean } = {}): Promise<DetectionResult> {
     if (!this.session) {
       throw new Error('Model not loaded. Call loadModel() first.');
     }
@@ -240,7 +261,11 @@ class ONNXDetector {
     const output1 = outputs[this.session.outputNames[1]];
     const rawDetections = await this.postprocess(output0, output1);
     
-    const detections = this.enrichDetections(rawDetections);
+    // Ignore pigs outside the pen's region of interest (e.g. the neighbouring pen).
+    const roi = this.roi;
+    const inRoi = this.enrichDetections(rawDetections).filter(d => !roi
+      || pointInPolygon(d.centerX / this.inputWidth, d.centerY / this.inputHeight, roi));
+    const detections = opts.stable === false ? inRoi : this.keepStableDetections(inRoi, frameTimestamp);
     const inferenceTimeMs = performance.now() - startTime;
     const result = this.calculateStatistics(detections, inferenceTimeMs, frameTimestamp);
     this.updateHistory(result);
@@ -456,7 +481,12 @@ class ONNXDetector {
           const interArea = interW * interH;
 
           const inclusionRatio = pArea > 0 ? interArea / pArea : 0;
-          const isOnTop = isRestingNursing && inclusionRatio >= 0.80;
+          // The sow's box is a rectangle: from above, its edges are floor next to her belly/back,
+          // where piglets nurse and get crushed. Only a piglet in the middle of her body
+          // (box shrunk 25% each side) can really be lying on top of her.
+          const inCore = piglet.centerX >= sow.bbox[0] + sowW * 0.25 && piglet.centerX <= sow.bbox[2] - sowW * 0.25
+            && piglet.centerY >= sow.bbox[1] + sowH * 0.25 && piglet.centerY <= sow.bbox[3] - sowH * 0.25;
+          const isOnTop = isRestingNursing && inclusionRatio >= 0.80 && inCore;
 
           let riskContribution = 0;
           if (isOnTop) {
@@ -738,6 +768,50 @@ class ONNXDetector {
 
   getInputSize(): { width: number; height: number } {
     return { width: this.inputWidth, height: this.inputHeight };
+  }
+
+  // ── Flicker filter ─────────────────────────────────────────────────────────
+  // Lighting glare, dust or a fly can look like a piglet for a moment. A real pig stays
+  // put across frames; a flicker doesn't. Each box is matched to the same box in recent
+  // frames (overlap ≥ 30%); it only counts once it has been seen for STABLE_MS in
+  // at least 60% of the frames since it first appeared.
+  private static readonly STABLE_MS = 3000;
+  private static readonly STABLE_HIT_RATIO = 0.6;
+  private static readonly TRACK_FORGET_MS = 1500;   // a box missing longer than this starts over
+  private tracks: Array<{ bbox: number[]; category: string; firstSeen: number; lastSeen: number; firstFrame: number; hits: number }> = [];
+  private trackFrame = 0;
+
+  private keepStableDetections(dets: Detection[], now: number): Detection[] {
+    this.trackFrame++;
+    this.tracks = this.tracks.filter(t => now - t.lastSeen <= ONNXDetector.TRACK_FORGET_MS);
+    const used = new Set<number>();
+    const stable: Detection[] = [];
+    for (const d of dets) {
+      let best = -1, bestIoU = 0.3;
+      this.tracks.forEach((t, i) => {
+        if (used.has(i) || t.category !== d.category) return;
+        const iou = this.calculateIoU(t.bbox, d.bbox);
+        if (iou > bestIoU) { bestIoU = iou; best = i; }
+      });
+      if (best < 0) {
+        this.tracks.push({ bbox: d.bbox, category: d.category, firstSeen: now, lastSeen: now, firstFrame: this.trackFrame, hits: 1 });
+        used.add(this.tracks.length - 1);
+        continue;
+      }
+      const t = this.tracks[best];
+      used.add(best);
+      t.bbox = d.bbox; t.lastSeen = now; t.hits++;
+      const frames = this.trackFrame - t.firstFrame + 1;
+      if (now - t.firstSeen >= ONNXDetector.STABLE_MS && t.hits / frames >= ONNXDetector.STABLE_HIT_RATIO) stable.push(d);
+    }
+    return stable;
+  }
+
+  private roi: number[][] | null = null;
+
+  /** Pen area as [[x,y],...] 0–1 fractions of the frame; null = keep everything. */
+  setRoi(points: number[][] | null | undefined): void {
+    this.roi = points && points.length >= 3 ? points : null;
   }
 
   setConfidenceThreshold(threshold: number): void {

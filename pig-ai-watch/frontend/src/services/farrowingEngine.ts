@@ -39,7 +39,13 @@ const CONFIG = {
   // no false births, ~35–48s delay. Newborns hide behind the sow, so the count
   // is read over a 20s window rather than frame by frame.
   birthConfidenceThreshold: 0.70,      // avg piglet confidence over last 5 frames
-  birthVisibilityDurationMs: 5_000,    // new count must hold for 5 seconds
+  // A newborn must stay in view for 2 minutes before it counts. Dust, a fly near the
+  // lens or a colour mismatch flickers in and out; a real piglet stays.
+  birthVisibilityDurationMs: 120_000,
+  birthCandidateGraceMs: 20_000,       // newborn may hide behind the sow for up to 20s without restarting the 2 min
+  nearSowMargin: 0.5,                  // newborns appear next to the sow: within her box + 50% of its size
+  maxPigletToSowArea: 0.35,            // a "piglet" bigger than this vs. the sow is a blur near the lens, not a newborn
+  farrowingWindowDays: 4,              // births only possible from 4 days before the due date onward
   countWindowMs: 20_000,               // look at the last 20s of piglet counts...
   countQuantile: 0.6,                  // ...and take a count seen in at least 40% of that window
 
@@ -86,6 +92,7 @@ interface EngineInternalState {
   pigletCountBuffer: number[];          // rolling window for stable count
   pigletConfidenceBuffer: number[];
   pigletFirstAppearanceTime: number;    // when piglet count first increased
+  pigletLastSeenHigherTime: number;     // last frame the higher count was seen
   previousStablePigletCount: number;
   newPigletConfirmed: boolean;
   birthCheckInProgress: boolean;
@@ -130,6 +137,7 @@ const createInitialEngineState = (): EngineInternalState => ({
   pigletCountBuffer: [],
   pigletConfidenceBuffer: [],
   pigletFirstAppearanceTime: 0,
+  pigletLastSeenHigherTime: 0,
   previousStablePigletCount: 0,
   newPigletConfirmed: false,
   birthCheckInProgress: false,
@@ -166,28 +174,59 @@ class FarrowingEngine {
   /**
    * Initialize engine for a pen/sow
    */
-  start(sowId?: number, penId?: number, sowStatus?: string): void {
+  start(sowId?: number, penId?: number, sowStatus?: string, expectedFarrowingDate?: string | null): void {
     this.state = createInitialEngineState();
     this.countHistory = [];
     this.isRunning = true;
     this.sowId = sowId;
     this.penId = penId;
     // No sow record → we can't rule a birth out, so allow it.
-    this.birthsAllowed = !sowStatus || BIRTH_CAPABLE_STATUSES.has(sowStatus);
+    const statusOk = !sowStatus || BIRTH_CAPABLE_STATUSES.has(sowStatus);
+    // Too early in pregnancy → any "new piglet" is a false detection.
+    const windowOpens = expectedFarrowingDate
+      ? new Date(expectedFarrowingDate).getTime() - CONFIG.farrowingWindowDays * 86_400_000
+      : 0;
+    const tooEarly = statusOk && windowOpens > Date.now();
+    this.birthsAllowed = statusOk && !tooEarly;
     const store = this.store.getState();
     store.resetToNormal();
     store.transitionTo('NORMAL_MONITORING');
 
-    console.log('[FarrowingEngine] Started monitoring', { sowId, penId, sowStatus, birthsAllowed: this.birthsAllowed });
+    console.log('[FarrowingEngine] Started monitoring', { sowId, penId, sowStatus, expectedFarrowingDate, birthsAllowed: this.birthsAllowed });
 
     const where = penId ? `Pen ${penId}` : 'this pen';
+    const due = expectedFarrowingDate ? new Date(expectedFarrowingDate).toLocaleDateString() : null;
     store.addAlert({
       type: 'prediction_high', // using as generic info
       severity: 'info',
       message: this.birthsAllowed
-        ? `Farrowing monitoring started for ${where}. A birth is recorded when the piglet count rises above its highest level so far and holds for ${CONFIG.birthVisibilityDurationMs / 1000}s while the sow is lying down.`
-        : `Farrowing monitoring started for ${where}. Birth detection is OFF because the sow is recorded as "${sowStatus}" (she has no litter due). Piglet counting and safety checks still run.`,
+        ? `Farrowing monitoring started for ${where}${due ? ` (due ${due})` : ''}. A newborn is counted only after it stays next to the lying sow for ${CONFIG.birthVisibilityDurationMs / 60000} minutes, so dust or flies can't trigger a false birth.`
+        : tooEarly
+          ? `Farrowing monitoring started for ${where}. Birth detection is OFF until ${new Date(windowOpens).toLocaleDateString()} (${CONFIG.farrowingWindowDays} days before the ${due} due date) — piglets seen earlier are treated as false detections.`
+          : `Farrowing monitoring started for ${where}. Birth detection is OFF because the sow is recorded as "${sowStatus}" (she has no litter due). Piglet counting and safety checks still run.`,
     });
+  }
+
+  /** Litter born so far while births are being tracked; null when the sow isn't farrowing (use her recorded litter instead). */
+  getLitterSize(): number | null {
+    return this.isRunning && this.birthsAllowed ? this.state.highestPigletCount : null;
+  }
+
+  /**
+   * Piglets that could be newborns: next to the sow and a believable size.
+   * A fly or dust near the lens is usually far from the sow or far too big.
+   */
+  private newbornCandidateCount(result: DetectionResult): number {
+    const sows = result.detections.filter(d => d.category === 'sow');
+    if (sows.length === 0) return 0;
+    return result.detections.filter(p => p.category === 'piglet' && sows.some(s => {
+      const [x1, y1, x2, y2] = s.bbox;
+      const mx = (x2 - x1) * CONFIG.nearSowMargin, my = (y2 - y1) * CONFIG.nearSowMargin;
+      const sowArea = (x2 - x1) * (y2 - y1);
+      const pigArea = (p.bbox[2] - p.bbox[0]) * (p.bbox[3] - p.bbox[1]);
+      return p.centerX >= x1 - mx && p.centerX <= x2 + mx && p.centerY >= y1 - my && p.centerY <= y2 + my
+        && pigArea <= sowArea * CONFIG.maxPigletToSowArea;
+    })).length;
   }
 
   /** Piglet count over the last 20s (60th percentile) — one noisy frame can't add or remove a piglet. */
@@ -219,7 +258,7 @@ class FarrowingEngine {
     this.state.pigletCountBuffer.push(result.pigletCount);
     if (this.state.pigletCountBuffer.length > 20) this.state.pigletCountBuffer.shift();
 
-    const count = this.smoothedPigletCount(now, result.pigletCount);
+    const count = this.smoothedPigletCount(now, this.birthsAllowed ? this.newbornCandidateCount(result) : result.pigletCount);
     const recentConf = this.state.pigletConfidenceBuffer.slice(-5);
     const confidence = recentConf.reduce((a, b) => a + b, 0) / Math.max(1, recentConf.length);
     const resetCandidate = () => {
@@ -241,7 +280,8 @@ class FarrowingEngine {
       confidence >= CONFIG.birthConfidenceThreshold;
 
     if (!isCandidate) {
-      resetCandidate();
+      // Newborns slip behind the sow; only give up after a longer gap.
+      if (now - this.state.pigletLastSeenHigherTime > CONFIG.birthCandidateGraceMs) resetCandidate();
       return { born: 0, confidence };
     }
 
@@ -249,6 +289,7 @@ class FarrowingEngine {
       this.state.birthCheckInProgress = true;
       this.state.pigletFirstAppearanceTime = now;
     }
+    this.state.pigletLastSeenHigherTime = now;
     this.state.consecutiveHigherPigletFrames++;
 
     if (now - this.state.pigletFirstAppearanceTime < CONFIG.birthVisibilityDurationMs) {
@@ -319,6 +360,8 @@ class FarrowingEngine {
         break;
 
       case 'FARROWING_COMPLETED':
+        // Most crushing happens in the days after farrowing, so keep watching.
+        this.runSafetyChecks(result, now);
         this.checkCompletionReset(now);
         break;
     }
@@ -502,7 +545,7 @@ class FarrowingEngine {
     store.addAlert({
       type: 'farrowing_started',
       severity: 'critical',
-      message: `Farrowing has started. Piglet count rose from ${before} to ${total} and held for ${CONFIG.birthVisibilityDurationMs / 1000}s while the sow was lying down. Confidence: ${(confidence * 100).toFixed(0)}%.`,
+      message: `Farrowing has started. A newborn stayed next to the lying sow for ${CONFIG.birthVisibilityDurationMs / 60000} minutes (count ${before} → ${total}). Confidence: ${(confidence * 100).toFixed(0)}%.`,
       data: { pigletCount: total, previousCount: before, confidence },
     });
 
@@ -833,9 +876,9 @@ class FarrowingEngine {
   }
 
   private trackPigletPositions(result: DetectionResult, now: number): void {
-    // Only track during active farrowing for safety checks
+    // Only track during/after farrowing for safety checks
     const store = this.store.getState();
-    if (store.systemState !== 'FARROWING_ACTIVE') return;
+    if (store.systemState !== 'FARROWING_ACTIVE' && store.systemState !== 'FARROWING_COMPLETED') return;
 
     const piglets = result.detections.filter(d => d.category === 'piglet');
     for (const piglet of piglets) {

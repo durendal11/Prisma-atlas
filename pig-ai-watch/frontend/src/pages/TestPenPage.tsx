@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, useMemo } from 'react';
 import { useNavigate, useSearchParams, useLocation } from 'react-router-dom';
 import { PageInfoButton, PageInfoModal } from '@/components/ui/PageInfoModal';
 import { useQuery } from '@tanstack/react-query';
-import { onnxDetector, Detection, DetectionResult, drawRiskHighlights } from '@/utils/onnxDetector';
+import { onnxDetector, Detection, DetectionResult, drawRiskHighlights, postureLabel } from '@/utils/onnxDetector';
 import type { ProximityAlert } from '@/utils/onnxDetector';
 import {
   computeRestlessnessScore,
@@ -74,6 +74,7 @@ import {
   Camera,
   LayoutDashboard,
   ChevronRight,
+  EyeOff,
 } from 'lucide-react';
 import clsx from 'clsx';
 import toast from 'react-hot-toast';
@@ -325,6 +326,31 @@ export default function TestPenPage() {
     },
     staleTime: 30_000,
   });
+
+  // ── Region of interest (pen area) ───────────────────────────────────────
+  const [roiPoints, setRoiPoints] = useState<number[][] | null>(null);
+  const [showRoi, setShowRoi] = useState(true);
+  const [roiDraft, setRoiDraft] = useState<number[][] | null>(null); // non-null = drawing mode
+  useEffect(() => {
+    setRoiPoints(pens.find(p => p.id === selectedPenId)?.roi_points ?? null);
+    setRoiDraft(null);
+  }, [pens, selectedPenId]);
+  useEffect(() => {
+    onnxDetector.setRoi(roiPoints);
+    return () => onnxDetector.setRoi(null); // don't leak this pen's area to other pages
+  }, [roiPoints]);
+  const saveRoi = async (points: number[][] | null) => {
+    if (!selectedPenId) return;
+    try {
+      await api.put(`/api/pens/${selectedPenId}`, { roi_points: points });
+      setRoiPoints(points);
+      setRoiDraft(null);
+      queryClient.invalidateQueries({ queryKey: ['test-pen-pens'] });
+      toast.success(points ? 'Pen area saved — pigs outside it are ignored' : 'Pen area cleared');
+    } catch {
+      toast.error('Failed to save pen area');
+    }
+  };
 
   // Mini trend chart data — rolling restlessness + likelihood
   const [trendData, setTrendData] = useState<Array<{ time: string; restlessness: number; likelihood: number }>>([
@@ -631,7 +657,7 @@ export default function TestPenPage() {
         const dcCtx = dc.getContext('2d');
         if (dcCtx) dcCtx.drawImage(canvas, 0, 0, dc.width, dc.height);
       }
-      const result = await onnxDetector.detect(canvas);
+      const result = await onnxDetector.detect(canvas, { stable: false }); // still image: nothing to compare across frames
       setDetection(result);
       updateResult(result);
       if (result.behaviorSummary) {
@@ -685,7 +711,7 @@ export default function TestPenPage() {
       const expectedPiglets = sow?.current_litter_size
         || farrowingRecords.find(r => !r.farrowing_completed)?.born_alive
         || 0;
-      simulationEngine.start(expectedPiglets || 9, sow?.id, selectedPenId, sow?.status);
+      simulationEngine.start(expectedPiglets || 9, sow?.id, selectedPenId, sow?.status, sow?.expected_farrowing_date);
       // Playback starts from the <video> element's onLoadedMetadata. Doing it here
       // failed on a first upload: the element isn't mounted yet, so the screen stayed black.
       autoPlayRef.current = true;
@@ -963,7 +989,7 @@ export default function TestPenPage() {
   const riskValue = detection?.crushingRisk ?? 0;
   const pigletCount = detection?.pigletCount ?? 0;
   const sowCount = detection?.sowCount ?? 0;
-  const sowPosture = (detection?.sowPosture ?? 'none').replace(/_/g, ' ').replace(/-/g, ' ');
+  const sowPosture = postureLabel(detection?.sowPosture ?? 'none');
   const profilesList = Object.values(sowProfiles);
 
   // ── Onboarding System Tour State & Steps ────────────────────────────────────
@@ -1378,6 +1404,47 @@ export default function TestPenPage() {
 
               {/* Overlay canvas — same dimensions as displayCanvas, so bbox coords align exactly */}
               <canvas ref={overlayRef} className="absolute inset-0 w-full h-full pointer-events-none" />
+
+              {/* Region of interest: outline, click-to-draw layer, and controls */}
+              {fileUrl && ((showRoi && roiPoints) || roiDraft) && (
+                <svg viewBox="0 0 1 1" preserveAspectRatio="none" className="absolute inset-0 w-full h-full pointer-events-none">
+                  {roiDraft
+                    ? <polyline points={roiDraft.map(p => p.join(',')).join(' ')} fill="rgba(250,204,21,0.12)" stroke="#facc15" strokeWidth={2} strokeDasharray="6 4" vectorEffect="non-scaling-stroke" />
+                    : <polygon points={roiPoints!.map(p => p.join(',')).join(' ')} fill="none" stroke="#facc15" strokeWidth={2} strokeDasharray="6 4" vectorEffect="non-scaling-stroke" />}
+                </svg>
+              )}
+              {fileUrl && roiDraft && (
+                <div
+                  className="absolute inset-0 cursor-crosshair z-10"
+                  onClick={(e) => {
+                    const r = e.currentTarget.getBoundingClientRect();
+                    setRoiDraft([...roiDraft, [(e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height].map(v => Math.round(Math.min(1, Math.max(0, v)) * 1000) / 1000)]);
+                  }}
+                />
+              )}
+              {fileUrl && canUseMedia && (
+                <div className="absolute top-2 right-2 z-20 flex items-center gap-1.5 text-[11px] font-semibold">
+                  {roiDraft ? (
+                    <>
+                      <span className="px-2 py-1 rounded-md bg-black/70 text-yellow-300">Click the pen corners ({roiDraft.length})</span>
+                      <button onClick={() => saveRoi(roiDraft)} disabled={roiDraft.length < 3} className="px-2 py-1 rounded-md bg-yellow-500 text-black disabled:opacity-40">Save</button>
+                      <button onClick={() => setRoiDraft(null)} className="px-2 py-1 rounded-md bg-black/70 text-white">Cancel</button>
+                    </>
+                  ) : (
+                    <>
+                      {roiPoints && (
+                        <button onClick={() => setShowRoi(v => !v)} title={showRoi ? 'Hide pen area' : 'Show pen area'} className="flex items-center gap-1 px-2 py-1 rounded-md bg-black/70 text-white hover:bg-black/85">
+                          {showRoi ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />} ROI
+                        </button>
+                      )}
+                      <button onClick={() => setRoiDraft([])} className="px-2 py-1 rounded-md bg-black/70 text-white hover:bg-black/85">{roiPoints ? 'Redraw' : 'Draw ROI'}</button>
+                      {roiPoints && (
+                        <button onClick={() => saveRoi(null)} className="px-2 py-1 rounded-md bg-black/70 text-white/70 hover:bg-black/85">Clear</button>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
 
               {!fileUrl && (
                 <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-6">
