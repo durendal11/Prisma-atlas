@@ -55,6 +55,7 @@ services:
         condition: service_healthy
     volumes:
       - ./backend/models:/app/models
+      - ./recordings:/app/recordings        # CCTV clips shown in Replay
       - model_cache:/home/appuser/.cache    # cache downloaded YOLO weights
     restart: unless-stopped
 
@@ -65,6 +66,7 @@ services:
       dockerfile: Dockerfile
       args:
         VITE_API_URL: ""   # empty → nginx proxies /api to backend
+        VITE_GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}   # from .env; empty hides the Google button
     container_name: pig-ai-watch-frontend
     ports:
       - "${FRONTEND_PORT:-3000}:80"

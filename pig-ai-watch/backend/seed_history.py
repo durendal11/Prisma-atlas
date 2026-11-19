@@ -1,10 +1,11 @@
 """Generate simulated farm history around the farm's actual farrowing timeline.
 
 Farrowings (fixed dates, 2026):
-  - Apr 20: Luna (Pen 1)   -> filmed: AI detection, behavior logs, crushing alerts
-  - Apr 20: Rosa (Pen 3)   -> not filmed: manual farrowing record only
-  - Sep 12: Clover (Pen 5) -> not filmed: manual farrowing record only
-No farrowings in Oct-Nov. Litter numbers and the last-30-days behavior logs are generated.
+  - Mar 21: Anay 7 (Pen 2) -> litter filmed on Mar 28 (piglet crushed, CCTV clip)
+  - Apr 20: Anay 1 (Pen 1) -> filmed from 12:41 AM: AI detection, behavior logs, crushing alerts
+  - Apr 20: Anay 3 (Pen 3) -> not filmed: manual farrowing record only
+  - Sep 12: Anay 5 (Pen 5) -> not filmed: manual farrowing record only
+No farrowings in Oct-Nov and no sow is pregnant now. Litter numbers and the last-30-days behavior logs are generated.
 
 Rows can be removed again with --reset:
   sows with the tag ids in TAGS (every other row links to one of those sows)
@@ -50,24 +51,30 @@ def ph(m, d, h=0, mi=0):
 
 # key, name, pen now, status now, parity before 2026, breeding date (current pregnancy), note
 SOWS = [
-    ("luna",   "Luna",   1,    "pregnant", 2, ph(8, 26, 9),  "Good mothering ability, calm temperament."),
-    ("daisy",  "Daisy",  2,    "pregnant", 0, None,          "Gilt retained from own herd."),  # bred so she is due in ~2 days
-    ("rosa",   "Rosa",   None, "active",   1, None,          "Did not settle after weaning, check heat closely."),
-    ("mabel",  "Mabel",  4,    "pregnant", 0, ph(8, 22, 8),  "Gilt, first pregnancy."),
-    ("clover", "Clover", 5,    "pregnant", 2, ph(10, 14, 8), "Excellent milk production. Rebred after weaning."),
-    ("hazel",  "Hazel",  None, "active",   0, None,          "Replacement gilt, not yet bred."),
+    ("luna",   "Anay 1", 1,    "active",   2, None,          "Good mothering ability, calm temperament."),
+    ("daisy",  "Anay 2", 2,    "active",   0, None,          "Gilt retained from own herd, not yet bred."),
+    ("rosa",   "Anay 3", None, "active",   1, None,          "Did not settle after weaning, check heat closely."),
+    ("mabel",  "Anay 4", 4,    "active",   0, None,          "Gilt, not yet bred."),
+    ("clover", "Anay 5", 5,    "weaned",   2, None,          "Excellent milk production. Weaned Oct 8."),
+    ("hazel",  "Anay 6", None, "active",   0, None,          "Replacement gilt, not yet bred."),
+    ("march",  "Anay 7", None, "active",   1, None,          "Litter filmed on Mar 28. Weaned Apr 16."),
 ]
 
-# sow key, pen, farrowing completed, filmed?, weaned
+# sow key, pen, farrowing completed, filmed?, weaned, options
+#   start:  fixed farrowing start (completion = start + generated duration)
+#   deaths: fixed piglet deaths [(time, cause)] instead of generated ones
+#   alive:  fixed number born alive
 FARROWINGS = [
-    ("luna",   1, ph(4, 20, 11, 30), True,  ph(5, 16, 8)),
-    ("rosa",   3, ph(4, 20, 16, 10), False, ph(5, 17, 8)),
-    ("clover", 5, ph(9, 12, 10, 25), False, ph(10, 8, 8)),
+    ("luna",   1, ph(4, 20, 11, 30), True,  ph(5, 16, 8), {"start": ph(4, 20, 0, 41), "alive": 12}),   # CCTV: starts 12:41:05 AM; ~12 piglets on the 11:41 AM clip
+    ("rosa",   3, ph(4, 20, 16, 10), False, ph(5, 17, 8), {}),
+    ("clover", 5, ph(9, 12, 10, 25), False, ph(10, 8, 8), {}),
+    ("march",  2, ph(3, 21, 9, 0),   True,  ph(4, 16, 8), {"deaths": [(ph(3, 28, 4, 43), "crushing")]}),  # crush on the Mar 28 clip
 ]
 FARROW_NOTES = {
-    "luna": "Normal farrowing, recorded on camera. Sow calm, piglets vigorous.",
+    "luna": "Farrowing recorded on camera, started 12:41 AM. Sow calm, piglets vigorous.",
     "rosa": "Normal farrowing. Not recorded on camera.",
     "clover": "Long gap between piglets 6 and 7. Not recorded on camera.",
+    "march": "Normal farrowing. One piglet crushed on Mar 28, recorded on camera.",
 }
 
 
@@ -89,19 +96,22 @@ async def reset(db):
     print("Generated history removed.")
 
 
-def make_litter(sow, pen_id, farrow_end, weaned_at, filmed, note):
-    """Farrowing record + piglets. Returns (record, piglets, deaths[(time, cause)])."""
-    alive = rng.randint(10, 13)
+def make_litter(sow, pen_id, farrow_end, weaned_at, filmed, note, start=None, deaths=None, alive=None):
+    """Farrowing record + piglets. Returns (record, piglets, deaths[(time, cause)], weaned_count)."""
+    alive = alive or rng.randint(10, 13)
     still = rng.choice([0, 1, 1])
     mumm = rng.choice([0, 0, 1])
     duration = rng.randint(200, 380)
-    start = farrow_end - timedelta(minutes=duration)
+    if start:
+        farrow_end = start + timedelta(minutes=duration)
+    else:
+        start = farrow_end - timedelta(minutes=duration)
     weights = [round(rng.gauss(1.4, 0.2), 2) for _ in range(alive)]
 
-    deaths = sorted(
+    deaths = sorted(deaths or (
         (farrow_end + timedelta(hours=rng.uniform(8, 120)), cause)
         for cause in rng.choice([["crushing"], ["crushing", "starvation"], ["crushing"], ["weak at birth"]])
-    )
+    ))
     weaned_count = alive - len(deaths)
 
     rec = FarrowingRecord(
@@ -265,13 +275,9 @@ async def seed(db):
     # ── Sows ────────────────────────────────────────────────────────────────
     sows = {}
     for i, (key, name, pen, status, parity, bred, note) in enumerate(SOWS):
-        if key == "daisy":
-            bred = (NOW - timedelta(days=GESTATION - 2)).astimezone(PH).replace(hour=8, minute=0)
         sow = Sow(
             owner_id=OWNER, tag_id=TAGS[i], name=name, pen_id=pens[pen - 1] if pen else None,
-            breed=rng.choice(["Landrace", "Large White", "Landrace x Large White", "Duroc x Landrace"]),
             birth_date=ph(1, 1) - timedelta(days=rng.randint(300 if parity == 0 else 500, 400 if parity == 0 else 1100)),
-            weight=round(rng.uniform(150, 175) if parity == 0 else rng.uniform(190, 250), 1),
             parity=parity, status=status, notes=note, created_at=ph(2, 1, 9),
             last_breeding_date=bred,
             expected_farrowing_date=bred + timedelta(days=GESTATION) if bred else None,
@@ -291,9 +297,12 @@ async def seed(db):
     n_logs = n_dets = n_crush = 0
 
     # ── Farrowings ──────────────────────────────────────────────────────────
-    for key, pen_no, fe, filmed, weaned in FARROWINGS:
+    for key, pen_no, fe, filmed, weaned, opts in FARROWINGS:
         sow, pen_id = sows[key], pens[pen_no - 1]
-        rec, piglets, deaths, weaned_count = make_litter(sow, pen_id, fe, weaned, filmed, FARROW_NOTES[key])
+        rec, piglets, deaths, weaned_count = make_litter(sow, pen_id, fe, weaned, filmed, FARROW_NOTES[key],
+                                                         start=opts.get("start"), deaths=opts.get("deaths"),
+                                                         alive=opts.get("alive"))
+        fe = rec.farrowing_completed
         db.add(rec)
         await db.flush()
         for p in piglets:

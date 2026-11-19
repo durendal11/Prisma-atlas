@@ -71,8 +71,12 @@ async def google_login(
     try:
         # Verify the token with Google securely off the main thread to prevent event loop blocks
         request_wrapper = google_requests.Request()
-        client_id_to_verify = settings.GOOGLE_CLIENT_ID if hasattr(settings, 'GOOGLE_CLIENT_ID') and settings.GOOGLE_CLIENT_ID else None
-        
+        client_id_to_verify = settings.GOOGLE_CLIENT_ID
+        if not client_id_to_verify:
+            # Without an audience, a Google token issued to ANY app would be accepted.
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                                detail="Google sign-in is not configured (GOOGLE_CLIENT_ID)")
+
         idinfo = await asyncio.to_thread(
             id_token.verify_oauth2_token,
             request.credential, 

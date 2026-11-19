@@ -3,6 +3,7 @@ serviceAccountKey.json
 # Edge runtime artifacts
 edge/logs/
 edge/local_recordings/
+recordings/
 edge/*.db
 
 # Local edge secrets

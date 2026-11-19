@@ -55,7 +55,7 @@ numpy==2.4.1
 onnx==1.20.1
 onnxruntime==1.23.2
 onnxslim==0.1.82
-opencv-python==4.13.0.90
+opencv-python==4.13.0.92
 packaging==25.0
 passlib==1.7.4
 pillow==12.1.0
@@ -90,8 +90,8 @@ torchvision==0.24.1
 tqdm==4.67.3
 typing-inspection==0.4.2
 typing_extensions==4.15.0
-ultralytics==8.4.6
-ultralytics-thop==2.0.18
+ultralytics==8.4.138
+ultralytics-thop==2.1.6
 uritemplate==4.2.0
 urllib3==2.6.3
 uvicorn==0.40.0
