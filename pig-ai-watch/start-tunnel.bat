@@ -53,6 +53,8 @@ if not exist .env (
 echo.
 echo  [1/3] Building and starting local services (DB, Backend, Frontend, MediaMTX, Tunnel)...
 docker compose up -d
+REM Fresh tunnel container each run: old quick tunnels expire, and old logs hold dead links.
+docker compose up -d --force-recreate tunnel
 
 echo.
 echo  [2/3] Checking database seed (admin user)...

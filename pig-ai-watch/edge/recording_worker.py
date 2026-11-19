@@ -48,7 +48,7 @@ class RecordingWorker:
         self.cloud_url = cloud_url
         self.api_key = api_key
         
-        self.chunk_duration_sec = chunk_duration_sec
+        self.chunk_duration_sec = int(os.getenv("RECORDING_CHUNK_SEC", chunk_duration_sec))
         self.thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
         self.ffmpeg_proc: Optional[subprocess.Popen] = None

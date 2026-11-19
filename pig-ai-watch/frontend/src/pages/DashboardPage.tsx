@@ -176,7 +176,7 @@ export default function DashboardPage() {
       </div>
 
       {/* Crushing Events Outcome Summary */}
-      <CrushingEventsWidget onManageThresholds={() => navigate('/settings')} />
+      <CrushingEventsWidget days={365} onManageThresholds={() => navigate('/settings')} />
 
       {/* Interactive Onboarding Tutorial / Test Pen Simulator */}
       <div className="bg-gradient-to-r from-indigo-900/90 via-slate-900/95 to-purple-950/90 border border-indigo-500/30 rounded-2xl p-5 shadow-lg text-white">

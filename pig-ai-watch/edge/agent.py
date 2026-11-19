@@ -24,6 +24,8 @@ from dotenv import load_dotenv
 
 # Allow importing YOLO detector from the backend package
 EDGE_DIR = Path(__file__).resolve().parent
+# Load .env before importing the workers below: they read settings (e.g. RECORDING_STORAGE_CAP_GB) at import.
+load_dotenv(EDGE_DIR / ".env")
 BACKEND_DIR = EDGE_DIR.parent / "backend"
 if BACKEND_DIR.exists():
     sys.path.insert(0, str(BACKEND_DIR))
